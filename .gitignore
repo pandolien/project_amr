@@ -1,0 +1,20 @@
+# Build (lib 포함 모든 산출물은 build/ 아래)
+build/*
+!build/.gitkeep
+cmake-build-*/
+compile_commands.json
+
+# Qt
+*.pro.user*
+*.autosave
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
