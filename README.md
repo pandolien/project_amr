@@ -35,7 +35,7 @@ project_amr/
 | 모듈 | 역할 | 의존 |
 |---|---|---|
 | CMat | 행렬 연산 | - |
-| 3d | 3차원 공간 | CMat |
+| 3d | 3차원 공간 | - |
 | CDynamics | 동역학 연산 | 3d |
 | CSimul | 시뮬레이션 | CDynamics |
 | CSock | 외부 통신 | - |
@@ -56,6 +56,8 @@ cmake --build build -j
 ```
 
 Qt 없이 빌드: `cmake -S . -B build -DAMR_BUILD_QT=OFF`
+
+테스트: `cmake -S . -B build -DAMR_BUILD_TESTS=ON -DAMR_BUILD_QT=OFF && cmake --build build --target test_3d && (cd build && ctest)`
 
 ## Qt 라이선스 주의 (LGPLv3)
 
