@@ -10,7 +10,7 @@ AMR(이동 로봇) 위에 로봇암을 연결하여 통합 제어하는 시스�
 | 컴파일러 | gcc (9.x) |
 | 빌드 | CMake 3.16+ |
 | 언어 | C++11 |
-| GUI | Qt 5.12 (LGPLv3, 동적 링크) |
+| Qt | Qt 5.12 (LGPLv3, 동적 링크) |
 
 ## 디렉토리 구조
 
@@ -26,12 +26,11 @@ project_amr/
 │   └── Qt/               # CoreQt: 재사용 가능한 범용 Qt5 위젯 (별도 타겟)
 ├── src/                  # 프로젝트 생성 파일 (amr_main에 포함)
 ├── include/              # 알고리즘 헤더
-├── Gui/                  # 이 프로젝트 전용 Qt5 화면
 ├── tests/
 └── build/                # 빌드 산출물 (bin, lib 포함, git 제외)
 ```
 
-의존 방향: `Gui -> CoreQt -> Core`, `amr_main -> Core` (역방향 금지, Core는 Qt를 참조하지 않음)
+의존 방향: `CoreQt -> Core`, `amr_main -> Core` (역방향 금지, Core는 Qt를 참조하지 않음)
 
 | 모듈 | 역할 | 의존 |
 |---|---|---|
@@ -43,7 +42,7 @@ project_amr/
 
 헤더는 `#include "CMat/CMat.h"` 형태로 사용합니다.
 `Core/src` 아래에 `.cpp`를 추가하면 CMake가 자동으로 인식합니다.
-재사용할 Qt 위젯은 `Core/Qt`(`#include "CoreQt/..."`), 이 프로젝트 전용 화면은 `Gui/`에 둡니다.
+재사용할 Qt 위젯은 `Core/Qt`(`#include "CoreQt/..."`)에 둡니다.
 
 ## 빌드
 
@@ -54,10 +53,9 @@ cmake -S . -B build
 cmake --build build -j
 
 ./build/bin/amr_main
-./build/bin/amr_gui
 ```
 
-GUI 없이 빌드: `cmake -S . -B build -DAMR_BUILD_GUI=OFF`
+Qt 없이 빌드: `cmake -S . -B build -DAMR_BUILD_QT=OFF`
 
 ## Qt 라이선스 주의 (LGPLv3)
 

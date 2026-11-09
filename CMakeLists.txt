@@ -26,13 +26,13 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 include(CompilerWarnings)
 
 # ---- 옵션 ----
-option(AMR_BUILD_GUI   "Qt5 GUI 빌드 (Qt 5.12, LGPLv3 동적 링크)" ON)
+option(AMR_BUILD_QT    "CoreQt(Qt5 위젯) 빌드 (Qt 5.12, LGPLv3 동적 링크)" ON)
 option(AMR_BUILD_TESTS "테스트 빌드" OFF)
 
 # 런타임에서 Data/ 위치를 찾기 위한 경로
 set(AMR_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 
-# ---- 라이브러리 (의존 순서: Core <- CoreQt <- Gui) ----
+# ---- 라이브러리 (의존 순서: Core <- CoreQt) ----
 add_subdirectory(Core)
 
 # ---- 메인 시스템 (main.cpp + 루트 src/ + 루트 include/) ----
@@ -43,8 +43,8 @@ target_link_libraries(amr_main PRIVATE Core)
 target_compile_definitions(amr_main PRIVATE AMR_DATA_DIR="${AMR_DATA_DIR}")
 amr_set_warnings(amr_main)
 
-# ---- GUI (Qt 5.12) ----
-if(AMR_BUILD_GUI)
+# ---- CoreQt (Qt 5.12) ----
+if(AMR_BUILD_QT)
     # Ubuntu 20.04 apt: qtbase5-dev 5.12.8
     # LGPLv3 준수: 반드시 공유 라이브러리(동적 링크)로 사용, GPL 전용 모듈 금지
     find_package(Qt5 5.12 REQUIRED COMPONENTS Core Gui Widgets)
@@ -52,7 +52,6 @@ if(AMR_BUILD_GUI)
     set(CMAKE_AUTOUIC ON)
     set(CMAKE_AUTORCC ON)
     add_subdirectory(Core/Qt)   # CoreQt: 재사용 Qt 위젯
-    add_subdirectory(Gui)
 endif()
 
 if(AMR_BUILD_TESTS)
