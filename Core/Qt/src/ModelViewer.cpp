@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 
+#include "CCollision/MeshRaycast.h"
 #include "CMesh/MeshLoader.h"
 
 namespace {
@@ -55,6 +56,10 @@ ModelViewer::ModelViewer(QWidget* parent)
     : QOpenGLWidget(parent), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-60.0f), pitch_(25.0f), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     selectedLink_ = -1;
+    selectedModel_ = false;
+    showFrame_ = true;
+    gizmoDirty_ = false;
+    dragged_ = false;
     hasScene_ = false;
     extent_[0] = extent_[1] = extent_[2] = 0.0f;
     setMinimumSize(320, 240);
@@ -65,16 +70,19 @@ ModelViewer::ModelViewer(QWidget* parent)
 ModelViewer::~ModelViewer() {
     makeCurrent();
     releaseBuffers();
+    releaseItems(gizmo_);
     prog_.reset();
     doneCurrent();
 }
 
-void ModelViewer::releaseBuffers() {
-    for (size_t i = 0; i < items_.size(); i++) {
-        if (items_[i]->vbo.isCreated()) items_[i]->vbo.destroy();
-        if (items_[i]->ibo.isCreated()) items_[i]->ibo.destroy();
+void ModelViewer::releaseItems(ItemList& list) {
+    for (size_t i = 0; i < list.size(); i++) {
+        if (list[i]->vbo.isCreated()) list[i]->vbo.destroy();
+        if (list[i]->ibo.isCreated()) list[i]->ibo.destroy();
     }
 }
+
+void ModelViewer::releaseBuffers() { releaseItems(items_); }
 
 void ModelViewer::Clear() {
     // GL 자원은 컨텍스트가 있을 때만 지울 수 있다. 없으면 다음 paintGL 에서 정리된다.
@@ -91,6 +99,7 @@ void ModelViewer::Clear() {
     colModel_ = amr::RobotCollisionModel();
     report_ = amr::SelfCollisionReport();
     selectedLink_ = -1;
+    selectedModel_ = false;
     scene_ = amr::Scene();
     hasScene_ = false;
     warnings_.clear();
@@ -100,7 +109,8 @@ void ModelViewer::Clear() {
     update();
 }
 
-void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride) {
+void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst) {
+    ItemList& out = dst ? *dst : items_;
     const std::vector<dhMat> world = scene.WorldTransforms();
     for (size_t n = 0; n < scene.nodes.size(); n++) {
         const amr::SceneNode& node = scene.nodes[n];
@@ -129,11 +139,12 @@ void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local
             } else {
                 for (int k = 0; k < 4; k++) it->color[k] = kDefaultColor[k];
             }
-            triangleCount_ += prim.TriangleCount();
-            items_.push_back(std::move(it));
+            if (&out == &items_) triangleCount_ += prim.TriangleCount();
+            out.push_back(std::move(it));
         }
     }
-    for (size_t i = 0; i < scene.warnings.size(); i++) warnings_ << QString::fromStdString(scene.warnings[i]);
+    if (&out == &items_)
+        for (size_t i = 0; i < scene.warnings.size(); i++) warnings_ << QString::fromStdString(scene.warnings[i]);
 }
 
 void ModelViewer::SetScene(const amr::Scene& scene) {
@@ -199,7 +210,54 @@ void ModelViewer::SetShowObbs(bool show) {
 
 void ModelViewer::SetSelectedLink(int link) {
     selectedLink_ = link;
+    if (link >= 0) selectedModel_ = false;
     update();
+}
+
+void ModelViewer::SelectModel(bool selected) {
+    selectedModel_ = selected && hasScene_;
+    if (selectedModel_) selectedLink_ = -1;
+    update();
+}
+
+void ModelViewer::SetShowSelectionFrame(bool show) {
+    showFrame_ = show;
+    update();
+}
+
+bool ModelViewer::SelectedFrame(dhMat* out) const {
+    if (selectedLink_ >= 0 && static_cast<size_t>(selectedLink_) < linkT_.size()) {
+        if (out) *out = linkT_[static_cast<size_t>(selectedLink_)];
+        return true;
+    }
+    if (selectedModel_) {
+        if (out) *out = dhMat();
+        return true;
+    }
+    return false;
+}
+
+bool ModelViewer::LoadGizmo(const QString& objPath, QString* error) {
+    amr::Scene scene;
+    std::string err;
+    if (!amr::LoadObj(objPath.toStdString(), &scene, &err)) {
+        if (error) *error = QString::fromStdString(err);
+        return false;
+    }
+    if (isValid()) {
+        makeCurrent();
+        releaseItems(gizmo_);
+        doneCurrent();
+    }
+    gizmo_.clear();
+    addScene(scene, -1, dhMat(), nullptr, &gizmo_);
+    gizmoDirty_ = true;
+    if (gizmo_.empty()) {
+        if (error) *error = QStringLiteral("좌표계 OBJ 에 그릴 면이 없습니다: ") + objPath;
+        return false;
+    }
+    update();
+    return true;
 }
 
 std::vector<int> ModelViewer::CollidingLinks() const {
@@ -325,8 +383,13 @@ void ModelViewer::initializeGL() {
 void ModelViewer::resizeGL(int, int) {}
 
 void ModelViewer::uploadBuffers() {
-    for (size_t i = 0; i < items_.size(); i++) {
-        Item& it = *items_[i];
+    uploadItems(items_);
+    buffersDirty_ = false;
+}
+
+void ModelViewer::uploadItems(ItemList& list) {
+    for (size_t i = 0; i < list.size(); i++) {
+        Item& it = *list[i];
         if (it.vbo.isCreated()) it.vbo.destroy();
         if (it.ibo.isCreated()) it.ibo.destroy();
         it.vbo.create();
@@ -338,7 +401,6 @@ void ModelViewer::uploadBuffers() {
         it.ibo.allocate(it.indices.data(), static_cast<int>(it.indices.size() * sizeof(uint32_t)));
         it.ibo.release();
     }
-    buffersDirty_ = false;
 }
 
 QMatrix4x4 ModelViewer::viewMatrix() const {
@@ -348,6 +410,13 @@ QMatrix4x4 ModelViewer::viewMatrix() const {
     QMatrix4x4 v;
     v.lookAt(eye, target_, QVector3D(0, 0, 1));  // Z-up
     return v;
+}
+
+QMatrix4x4 ModelViewer::projMatrix() const {
+    const float aspect = height() > 0 ? static_cast<float>(width()) / static_cast<float>(height()) : 1.0f;
+    QMatrix4x4 proj;
+    proj.perspective(45.0f, aspect, std::max(dist_ * 0.01f, radius_ * 0.01f * 0.1f), (dist_ + radius_) * 20.0f);
+    return proj;
 }
 
 // 꼭짓점 8개(비트 0,1,2 = x,y,z 의 +/-)로 이루어진 상자의 모서리 12개를 그린다
@@ -371,14 +440,16 @@ void ModelViewer::paintGL() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (!prog_ || !prog_->isLinked()) return;
     if (buffersDirty_) uploadBuffers();
+    if (gizmoDirty_) {
+        uploadItems(gizmo_);
+        gizmoDirty_ = false;
+    }
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    const float aspect = height() > 0 ? static_cast<float>(width()) / static_cast<float>(height()) : 1.0f;
-    QMatrix4x4 proj;
-    proj.perspective(45.0f, aspect, std::max(dist_ * 0.01f, radius_ * 0.01f * 0.1f), (dist_ + radius_) * 20.0f);
+    const QMatrix4x4 proj = projMatrix();
     const QMatrix4x4 view = viewMatrix();
 
     prog_->bind();
@@ -458,7 +529,7 @@ void ModelViewer::paintGL() {
             prog_->setUniformValue("uMVP", proj * mv);
             prog_->setUniformValue("uModelView", mv);
             QVector4D col(it.color[0], it.color[1], it.color[2], it.color[3]);
-            if (selectedLink_ >= 0 && it.link == selectedLink_) {  // 선택한 링크: 밝은 노랑 쪽으로 섞는다
+            if ((selectedLink_ >= 0 && it.link == selectedLink_) || (selectedModel_ && it.link < 0)) {  // 선택한 링크: 밝은 노랑 쪽으로 섞는다
                 const QVector4D hi(1.0f, 0.95f, 0.45f, col.w());
                 col = col * 0.45f + hi * 0.55f;
                 col.setW(it.color[3]);
@@ -477,14 +548,118 @@ void ModelViewer::paintGL() {
             it.ibo.release();
         }
     }
+    if (showFrame_ && HasSelection()) drawSelectionFrame(proj, view);
     prog_->release();
 }
 
-void ModelViewer::mousePressEvent(QMouseEvent* e) { lastPos_ = e->pos(); }
+// 선택한 것의 좌표계. 다른 물체에 가려지지 않게 깊이 버퍼를 지우고 그리며, 화면에서 보이는 크기가 일정하도록 거리에 비례해 키운다.
+void ModelViewer::drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view) {
+    dhMat f;
+    if (!SelectedFrame(&f)) return;
+    const QMatrix4x4 frame = ToQt(f);
+    const QVector3D origin = frame.column(3).toVector3D();
+    const QVector3D eye = view.inverted().column(3).toVector3D();
+    const float s = std::max((eye - origin).length() * 0.14f, 1e-6f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    if (!gizmo_.empty()) {
+        QMatrix4x4 scaled = frame;
+        scaled.scale(s);
+        prog_->setUniformValue("uLit", 1.0f);
+        for (size_t i = 0; i < gizmo_.size(); i++) {
+            Item& it = *gizmo_[i];
+            if (!it.vbo.isCreated() || !it.ibo.isCreated()) continue;
+            const QMatrix4x4 mv = view * scaled * ToQt(it.base);
+            prog_->setUniformValue("uMVP", proj * mv);
+            prog_->setUniformValue("uModelView", mv);
+            prog_->setUniformValue("uColor", QVector4D(it.color[0], it.color[1], it.color[2], 1.0f));
+            it.vbo.bind();
+            it.ibo.bind();
+            prog_->enableAttributeArray(0);
+            prog_->enableAttributeArray(1);
+            prog_->setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * static_cast<int>(sizeof(float)));
+            prog_->setAttributeBuffer(1, GL_FLOAT, 3 * static_cast<int>(sizeof(float)), 3, 6 * static_cast<int>(sizeof(float)));
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(it.indices.size()), GL_UNSIGNED_INT, nullptr);
+            prog_->disableAttributeArray(0);
+            prog_->disableAttributeArray(1);
+            it.vbo.release();
+            it.ibo.release();
+        }
+    } else {  // 좌표계 OBJ 가 없으면 선 3개
+        prog_->setUniformValue("uLit", 0.0f);
+        prog_->setUniformValue("uMVP", proj * view * frame);
+        prog_->setUniformValue("uModelView", view * frame);
+        const float axes[3][6] = {{0, 0, 0, s, 0, 0}, {0, 0, 0, 0, s, 0}, {0, 0, 0, 0, 0, s}};
+        const QVector4D colors[3] = {QVector4D(0.92f, 0.2f, 0.2f, 1), QVector4D(0.25f, 0.8f, 0.25f, 1), QVector4D(0.25f, 0.45f, 0.95f, 1)};
+        prog_->enableAttributeArray(0);
+        prog_->disableAttributeArray(1);
+        glLineWidth(3.0f);
+        for (int a = 0; a < 3; a++) {
+            prog_->setUniformValue("uColor", colors[a]);
+            prog_->setAttributeArray(0, GL_FLOAT, axes[a], 3);
+            glDrawArrays(GL_LINES, 0, 2);
+        }
+        glLineWidth(1.0f);
+        prog_->disableAttributeArray(0);
+    }
+}
+
+void ModelViewer::mousePressEvent(QMouseEvent* e) {
+    lastPos_ = e->pos();
+    pressPos_ = e->pos();
+    dragged_ = false;
+}
+
+void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
+    // 거의 움직이지 않고 뗀 왼쪽 버튼 = 클릭: 그 자리의 물체를 선택한다
+    if (e->button() != Qt::LeftButton || dragged_) return;
+    bool model = false;
+    const int link = PickAt(e->pos(), &model);
+    selectedLink_ = link;
+    selectedModel_ = model;
+    update();
+    emit selectionPicked(link, model);
+}
+
+int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
+    if (model) *model = false;
+    if (items_.empty() || width() <= 0 || height() <= 0) return -1;
+    bool ok = false;
+    const QMatrix4x4 inv = (projMatrix() * viewMatrix()).inverted(&ok);
+    if (!ok) return -1;
+    const float x = 2.0f * (static_cast<float>(pos.x()) + 0.5f) / static_cast<float>(width()) - 1.0f;
+    const float y = 1.0f - 2.0f * (static_cast<float>(pos.y()) + 0.5f) / static_cast<float>(height());
+    const QVector4D n4 = inv * QVector4D(x, y, -1.0f, 1.0f), f4 = inv * QVector4D(x, y, 1.0f, 1.0f);
+    if (n4.w() == 0.0f || f4.w() == 0.0f) return -1;
+    const QVector3D origin = n4.toVector3D() / n4.w(), far = f4.toVector3D() / f4.w();
+    const QVector3D dir = far - origin;  // 원점에서 far 까지가 t = 0..1
+    float bestT = 2.0f;
+    int bestLink = -1;
+    bool bestModel = false;
+    for (size_t i = 0; i < items_.size(); i++) {
+        const Item& it = *items_[i];
+        if (it.link < 0 && !hasScene_) continue;
+        dhMat m = it.base;
+        if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+        bool inverted = false;
+        const QMatrix4x4 local = ToQt(m).inverted(&inverted);  // 광선을 물체 좌표로 옮겨서 검사한다
+        if (!inverted) continue;
+        const QVector3D o = local.map(origin), d = local.mapVector(dir);
+        float t = 0.0f;
+        if (amr::RaycastTriangles(it.data.data(), it.data.size() / 6, it.indices.data(), it.indices.size(), dhVector(o.x(), o.y(), o.z()),
+                                  dhVector(d.x(), d.y(), d.z()), 1.0f, &t, nullptr, 6) && t < bestT) {
+            bestT = t;
+            bestLink = it.link;
+            bestModel = it.link < 0;
+        }
+    }
+    if (model) *model = bestModel;
+    return bestLink;
+}
 
 void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
     const QPoint d = e->pos() - lastPos_;
     lastPos_ = e->pos();
+    if ((e->pos() - pressPos_).manhattanLength() > 4) dragged_ = true;
     if (e->buttons() & Qt::LeftButton) {
         yaw_ -= static_cast<float>(d.x()) * 0.4f;
         pitch_ = std::max(-89.0f, std::min(89.0f, pitch_ + static_cast<float>(d.y()) * 0.4f));

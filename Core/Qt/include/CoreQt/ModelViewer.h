@@ -60,6 +60,20 @@ public:
     void SetSelectedLink(int link);
     int SelectedLink() const { return selectedLink_; }
 
+    // 선택과 좌표계: 화면에서 물체를 왼쪽 클릭하면 그 링크(정적 모델이면 모델 전체)가 선택되고, 선택한 것의 좌표계가
+    // 화면에 나온다. 빈 곳을 클릭하면 선택이 풀린다. 좌표계 모양은 LoadGizmo 로 읽은 OBJ (가운데 구 + 화살표 3개,
+    // 화살표 끝까지 길이 1)이며, 읽지 못했거나 읽기 전에는 선 3개로 대신 그린다.
+    bool LoadGizmo(const QString& objPath, QString* error = nullptr);
+    bool HasGizmo() const { return !gizmo_.empty(); }
+    void SetShowSelectionFrame(bool show);
+    bool ShowSelectionFrame() const { return showFrame_; }
+    void SelectModel(bool selected);            // 정적 모델 전체를 선택 (SetSelectedLink 와 함께 쓰면 링크 선택은 풀린다)
+    bool ModelSelected() const { return selectedModel_; }
+    bool HasSelection() const { return selectedLink_ >= 0 || selectedModel_; }
+    bool SelectedFrame(dhMat* out) const;       // 선택한 것의 월드 기준 좌표계 (링크면 링크 원점/방향, 정적 모델이면 단위행렬)
+    // 화면 좌표 pos 에 보이는 물체: 링크 번호를 돌려주고, 정적 모델이면 *model = true 와 -1, 아무것도 없으면 -1 과 false.
+    int PickAt(const QPoint& pos, bool* model = nullptr) const;
+
     // 정적 모델(.glb 등)을 열었으면 그 장면
     bool HasScene() const { return hasScene_; }
     const amr::Scene& StaticScene() const { return scene_; }
@@ -70,6 +84,7 @@ public:
 signals:
     void modelChanged();
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
+    void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
 protected:
     void initializeGL() override;
@@ -77,6 +92,7 @@ protected:
     void paintGL() override;
     void mousePressEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* e) override;
+    void mouseReleaseEvent(QMouseEvent* e) override;
     void wheelEvent(QWheelEvent* e) override;
     void mouseDoubleClickEvent(QMouseEvent* e) override;
 
@@ -95,11 +111,16 @@ private:
         }
     };
 
-    void addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride);
+    typedef std::vector<std::unique_ptr<Item> > ItemList;
+    void addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst = nullptr);
     void updateBounds();
     void rebuildGrid();
     void uploadBuffers();
+    static void uploadItems(ItemList& list);
+    static void releaseItems(ItemList& list);
     void releaseBuffers();
+    QMatrix4x4 projMatrix() const;
+    void drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view);
     void recomputeCollisions();
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
     QMatrix4x4 viewMatrix() const;
@@ -114,6 +135,12 @@ private:
     amr::RobotCollisionModel colModel_;
     amr::SelfCollisionReport report_;
     int selectedLink_;
+    bool selectedModel_;
+    bool showFrame_;
+    ItemList gizmo_;        // 좌표계 모양 (LoadGizmo)
+    bool gizmoDirty_;
+    QPoint pressPos_;
+    bool dragged_;
     amr::Scene scene_;
     bool hasScene_;
     QStringList warnings_;

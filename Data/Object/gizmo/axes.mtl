@@ -1,0 +1,15 @@
+newmtl gizmo_center
+Kd 0.880 0.880 0.900
+d 1.0
+
+newmtl gizmo_x
+Kd 0.920 0.200 0.200
+d 1.0
+
+newmtl gizmo_y
+Kd 0.250 0.800 0.250
+d 1.0
+
+newmtl gizmo_z
+Kd 0.250 0.450 0.950
+d 1.0

@@ -28,6 +28,7 @@ add_test(NAME test_curdf COMMAND test_curdf)
 
 add_executable(test_ccollision test_ccollision.cpp)
 target_link_libraries(test_ccollision PRIVATE Core)
+target_compile_definitions(test_ccollision PRIVATE AMR_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 amr_set_warnings(test_ccollision)
 add_test(NAME test_ccollision COMMAND test_ccollision)
 

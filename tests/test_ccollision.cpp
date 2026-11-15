@@ -7,8 +7,10 @@
 
 #include "CCollision/Aabb.h"
 #include "CCollision/Broadphase.h"
+#include "CCollision/MeshRaycast.h"
 #include "CCollision/Obb.h"
 #include "CCollision/RobotCollision.h"
+#include "CMesh/MeshLoader.h"
 #include "CMesh/Primitives.h"
 #include "CURDF/Urdf.h"
 #include "TestUtil.h"
@@ -692,6 +694,117 @@ void testTwoPhaseSelfCollision() {
     check(rep.shapePairs.size() == 1 && rep.shapePairs[0].b == 2, "the reported shape is the one that overlaps");
 }
 
+
+// ---- 광선-삼각형 (화면 클릭 선택에 쓴다) 과 좌표계 OBJ
+void testMeshRaycast() {
+    // 한 변 2 의 정육면체 (정점 8개, 면 12개)
+    const float cube[24] = {-1, -1, -1, 1, -1, -1, -1, 1, -1, 1, 1, -1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1};
+    const uint32_t idx[36] = {0, 2, 1, 1, 2, 3, 4, 5, 6, 5, 7, 6, 0, 1, 4, 1, 5, 4, 2, 6, 3, 3, 6, 7, 0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5};
+    float t = -1;
+    size_t tri = 99;
+    check(RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0.1f, 0.2f), dhVector(-1, 0, 0), 100, &t, &tri) && std::fabs(t - 4.0f) < 1e-5f && tri < 12,
+          "ray hits the near face of the cube");
+    check(RaycastTriangles(cube, 8, idx, 36, dhVector(0, 0, 0), dhVector(0, 0, 1), 100, &t) && std::fabs(t - 1.0f) < 1e-5f, "ray from inside hits the wall (both sides count)");
+    check(!RaycastTriangles(cube, 8, idx, 36, dhVector(5, 3, 0), dhVector(-1, 0, 0), 100, &t), "ray beside the cube misses");
+    check(!RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(1, 0, 0), 100, &t), "ray pointing away misses");
+    check(!RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(-1, 0, 0), 3.5f, &t), "tMax shorter than the distance misses");
+    check(RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(-2, 0, 0), 100, &t) && std::fabs(t - 2.0f) < 1e-5f, "t is in units of the direction length");
+    // 위치+법선이 섞인 배열 (stride 6): 법선 자리에 엉뚱한 값을 넣어도 위치만 쓴다
+    float mixed[48];
+    for (int v = 0; v < 8; v++) {
+        for (int k = 0; k < 3; k++) {
+            mixed[v * 6 + k] = cube[v * 3 + k];
+            mixed[v * 6 + 3 + k] = 777.0f;
+        }
+    }
+    check(RaycastTriangles(mixed, 8, idx, 36, dhVector(5, 0.1f, 0.2f), dhVector(-1, 0, 0), 100, &t, nullptr, 6) && std::fabs(t - 4.0f) < 1e-5f, "stride 6 reads positions only");
+    // 안전: 범위를 벗어난 인덱스, 퇴화 삼각형, NaN 은 건너뛴다
+    const uint32_t bad[3] = {0, 1, 99};
+    check(!RaycastTriangles(cube, 8, bad, 3, dhVector(0, 0, 5), dhVector(0, 0, -1), 100, &t), "out-of-range index is skipped");
+    const float flat[9] = {0, 0, 0, 1, 0, 0, 2, 0, 0};
+    const uint32_t one[3] = {0, 1, 2};
+    check(!RaycastTriangles(flat, 3, one, 3, dhVector(1, 0, 5), dhVector(0, 0, -1), 100, &t), "degenerate triangle is skipped");
+    check(!RaycastTriangles(cube, 8, idx, 36, dhVector(NAN, 0, 0), dhVector(-1, 0, 0), 100, &t), "NaN origin does not hit");
+    check(!RaycastTriangles(nullptr, 0, nullptr, 0, dhVector(), dhVector(0, 0, 1), 1, &t), "null arrays");
+    // 가장 가까운 것: 같은 광선 위의 두 겹
+    const float two[18] = {-1, -1, 1, 1, -1, 1, 0, 1, 1, -1, -1, 3, 1, -1, 3, 0, 1, 3};
+    const uint32_t i2[6] = {0, 1, 2, 3, 4, 5};
+    size_t which = 99;
+    check(RaycastTriangles(two, 6, i2, 6, dhVector(0, 0, 10), dhVector(0, 0, -1), 100, &t, &which) && std::fabs(t - 7.0f) < 1e-5f && which == 1, "nearest of two layers wins");
+    // 무작위 광선: 같은 정육면체와 슬랩 방식(Aabb::Raycast)이 같은 결과를 내야 한다
+    Aabb box;
+    box.lo = dhVector(-1, -1, -1);
+    box.hi = dhVector(1, 1, 1);
+    unsigned rng = 12345;
+    auto rnd = [&rng]() {
+        rng = rng * 1664525u + 1013904223u;
+        return static_cast<float>((rng >> 8) & 0xFFFF) / 65535.0f * 6.0f - 3.0f;
+    };
+    int agree = 0, total = 0, hits = 0;
+    for (int i = 0; i < 2000; i++) {
+        const dhVector o(rnd(), rnd(), rnd()), d(rnd(), rnd(), rnd());
+        if (std::fabs(d.x) + std::fabs(d.y) + std::fabs(d.z) < 0.05f) continue;
+        float ta = 0, tb = 0;
+        const bool a = RaycastTriangles(cube, 8, idx, 36, o, d, 1e6f, &ta);
+        const bool b = box.Raycast(o, d, 1e6f, &tb);
+        // 상자 안에서 시작하면 슬랩은 t = 0 으로 맞고 삼각형은 벽에서 맞는다. 그 경우는 비교하지 않는다
+        if (box.Contains(o)) continue;
+        total++;
+        hits += a ? 1 : 0;
+        if (a == b && (!a || std::fabs(ta - tb) < 1e-3f * std::max(1.0f, tb))) agree++;
+    }
+    check(total > 1000 && hits > 100 && agree == total, "random rays agree with the slab test");
+}
+
+void testGizmoObj() {
+    Scene g;
+    std::string err;
+    const std::string path = std::string(AMR_TEST_DATA_DIR) + "/Object/gizmo/axes.obj";
+    check(LoadObj(path, &g, &err), "gizmo OBJ loads");
+    check(g.warnings.empty(), "gizmo OBJ has no warnings (mtl found)");
+    check(g.materials.size() == 4, "gizmo has center + x + y + z materials");
+    // 전체 크기: 화살표 끝 = 1, 구 반지름 0.1
+    float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+    size_t tris = 0;
+    for (size_t m = 0; m < g.meshes.size(); m++)
+        for (size_t p = 0; p < g.meshes[m].primitives.size(); p++) {
+            const Primitive& pr = g.meshes[m].primitives[p];
+            check(pr.IsValid() && pr.normals.size() == pr.positions.size(), "gizmo primitive is valid and has normals");
+            tris += pr.TriangleCount();
+            for (size_t v = 0; v < pr.VertexCount(); v++)
+                for (int k = 0; k < 3; k++) {
+                    lo[k] = std::min(lo[k], pr.positions[v * 3 + static_cast<size_t>(k)]);
+                    hi[k] = std::max(hi[k], pr.positions[v * 3 + static_cast<size_t>(k)]);
+                }
+        }
+    check(tris > 500, "gizmo has real geometry");
+    for (int k = 0; k < 3; k++) check(std::fabs(hi[k] - 1.0f) < 1e-4f && std::fabs(lo[k] + 0.1f) < 1e-4f, "gizmo spans -0.1 .. 1.0 on every axis");
+    // 각 축 방향 광선이 그 축의 색 재질을 맞춘다 (X 빨강, Y 초록, Z 파랑), 가운데는 회색
+    struct Probe { float o[3], d[3]; int dom; };  // dom: 가장 큰 색 성분 (0 r, 1 g, 2 b), -1 이면 회색
+    const Probe probes[4] = {{{3, 0.01f, 0}, {-1, 0, 0}, 0}, {{0.01f, 3, 0}, {0, -1, 0}, 1}, {{0.01f, 0, 3}, {0, 0, -1}, 2}, {{0.3f, 0.01f, 0.4f}, {-0.6f, 0, -0.8f}, -1}};
+    for (int pi = 0; pi < 4; pi++) {
+        float best = 1e9f;
+        int bestMat = -2;
+        for (size_t m = 0; m < g.meshes.size(); m++)
+            for (size_t p = 0; p < g.meshes[m].primitives.size(); p++) {
+                const Primitive& pr = g.meshes[m].primitives[p];
+                float t = 0;
+                if (RaycastTriangles(pr.positions.data(), pr.VertexCount(), pr.indices.data(), pr.indices.size(), dhVector(probes[pi].o[0], probes[pi].o[1], probes[pi].o[2]),
+                                     dhVector(probes[pi].d[0], probes[pi].d[1], probes[pi].d[2]), 100, &t) && t < best) {
+                    best = t;
+                    bestMat = pr.material;
+                }
+            }
+        check(bestMat >= 0, "probe ray hits the gizmo");
+        if (bestMat < 0) continue;
+        const Color& c = g.materials[static_cast<size_t>(bestMat)].baseColor;
+        int dom = (c.r > c.g && c.r > c.b) ? 0 : (c.g > c.r && c.g > c.b) ? 1 : (c.b > c.r && c.b > c.g) ? 2 : -1;
+        if (std::fabs(c.r - c.g) < 0.1f && std::fabs(c.g - c.b) < 0.1f) dom = -1;
+        check(dom == probes[pi].dom, "gizmo part has the expected color");
+        if (probes[pi].dom >= 0) check(std::fabs(best - 2.0f) < 0.1f, "the arrow tip is at distance 1 from the origin");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -706,6 +819,8 @@ int main() {
     testObbOverlap();
     testObbGeometry();
     testTwoPhaseSelfCollision();
+    testMeshRaycast();
+    testGizmoObj();
     if (g_fail == 0) std::printf("test_ccollision: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

@@ -38,10 +38,11 @@ struct Options {
     std::string shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
     std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
     std::string select;        // 시작할 때 선택(강조)할 링크 이름
+    int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), obb(false), torque(false), width(1100), height(720) {
+    Options() : info(false), aabb(false), obb(false), torque(false), clickX(-1), clickY(-1), width(1100), height(720) {
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -amr::dynamics::kStandardGravity;
@@ -61,6 +62,7 @@ void PrintUsage(const char* exe) {
         "  --shot 파일.png    3D 화면을 저장하고 종료 (Qt 빌드에서만)\n"
         "  --shot-window 파일.png  창 전체(구조 트리, 관절 패널 포함)를 저장하고 종료\n"
         "  --select 링크이름  시작할 때 그 링크를 선택해서 강조\n"
+        "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
         "  -h, --help         도움말\n",
         exe);
@@ -94,6 +96,10 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
         if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
         if (a == "--select" && hasNext) { o->select = argv[++i]; continue; }
+        if (a == "--click" && hasNext) {
+            if (std::sscanf(argv[++i], "%d,%d", &o->clickX, &o->clickY) != 2) { std::fprintf(stderr, "--click 은 x,y 형식입니다\n"); return false; }
+            continue;
+        }
         if (a == "--joint" && hasNext) {
             std::string n, v;
             if (!SplitPair(argv[++i], &n, &v)) { std::fprintf(stderr, "--joint 은 이름=값 형식입니다\n"); return 2; }
@@ -248,6 +254,7 @@ int PrintInfo(const Options& o) {
 
 #include <QAction>
 #include <QApplication>
+#include <QMouseEvent>
 #include <QDockWidget>
 #include <QDragEnterEvent>
 #include <QFileDialog>
@@ -262,6 +269,12 @@ int PrintInfo(const Options& o) {
 #include <QStatusBar>
 #include <QTimer>
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+
+#include "3d/Units.h"
+#include "3d/dhPose.h"
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
@@ -285,7 +298,16 @@ public:
         treeDock_->setWidget(tree_);
         addDockWidget(Qt::LeftDockWidgetArea, treeDock_);
         treeDock_->hide();
-        QObject::connect(tree_, &StructurePanel::linkSelected, this, [this](int link) { viewer_->SetSelectedLink(link); });
+        QObject::connect(tree_, &StructurePanel::linkSelected, this, [this](int link) {
+            viewer_->SetSelectedLink(link);
+            updateSelectionLabel();
+        });
+        // 화면에서 물체를 클릭하면 구조 트리의 같은 링크가 선택되고, 좌표계와 자세가 표시된다
+        QObject::connect(viewer_, &ModelViewer::selectionPicked, this, [this](int link, bool) {
+            tree_->SelectLink(link);
+            updateSelectionLabel();
+        });
+        loadGizmo();
 
         panel_ = new JointPanel;
         dock_ = new QDockWidget(QString::fromUtf8("관절"), this);
@@ -295,6 +317,7 @@ public:
         QObject::connect(panel_, &JointPanel::valuesChanged, this, [this]() {
             viewer_->SetJointValues(panel_->Values());
             updateTorques();
+            updateSelectionLabel();
         });
 
         QMenu* file = menuBar()->addMenu(QString::fromUtf8("파일"));
@@ -346,6 +369,11 @@ public:
         structure->setText(QString::fromUtf8("구조 트리"));
         structure->setShortcut(Qt::Key_T);
         view->addAction(structure);
+        QAction* frame = view->addAction(QString::fromUtf8("선택 좌표계"));
+        frame->setShortcut(Qt::Key_G);
+        frame->setCheckable(true);
+        frame->setChecked(true);
+        QObject::connect(frame, &QAction::toggled, viewer_, &ModelViewer::SetShowSelectionFrame);
         QAction* obbs = view->addAction(QString::fromUtf8("OBB 충돌 박스"));
         obbs->setShortcut(Qt::Key_O);
         obbs->setCheckable(true);
@@ -362,7 +390,8 @@ public:
         statusBar()->addPermanentWidget(collisionLabel_);
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { updateCollisionLabel(); });
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { tree_->SetCollidingLinks(viewer_->CollidingLinks()); });
-        statusBar()->showMessage(QString::fromUtf8("파일 > 열기 (Ctrl+O) 또는 파일을 창에 끌어다 놓으세요. 왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대"));
+        infoMessage_ = QString::fromUtf8("파일 > 열기 (Ctrl+O) 또는 파일을 창에 끌어다 놓으세요. 왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대, 왼쪽 클릭: 물체 선택");
+        statusBar()->showMessage(infoMessage_);
     }
 
     bool openFile(const QString& path) {
@@ -391,6 +420,7 @@ public:
         if (li < 0) { std::fprintf(stderr, "경고: 링크 '%s' 이 없습니다\n", o.select.c_str()); return; }
         tree_->SelectLink(li);
         viewer_->SetSelectedLink(li);
+        updateSelectionLabel();
     }
 
     ModelViewer* viewer() { return viewer_; }
@@ -405,6 +435,43 @@ protected:
     }
 
 private:
+    // 좌표계 OBJ 를 찾아서 뷰어에 넣는다: 소스의 Data 폴더(개발 중), 실행 파일 옆 Data 폴더(배포) 순서
+    void loadGizmo() {
+        QStringList dirs;
+#ifdef AMR_DATA_DIR
+        dirs << QString::fromUtf8(AMR_DATA_DIR);
+#endif
+        dirs << QCoreApplication::applicationDirPath() + "/Data" << QCoreApplication::applicationDirPath() + "/../Data";
+        for (int i = 0; i < dirs.size(); i++) {
+            const QString path = QDir(dirs[i]).filePath("Object/gizmo/axes.obj");
+            if (!QFileInfo(path).isFile()) continue;
+            QString err;
+            if (viewer_->LoadGizmo(path, &err)) return;
+            std::fprintf(stderr, "경고: 좌표계 OBJ 를 읽을 수 없습니다 (%s): %s\n", path.toUtf8().constData(), err.toUtf8().constData());
+        }
+        std::fprintf(stderr, "경고: Data/Object/gizmo/axes.obj 를 찾을 수 없어 선으로 대신 그립니다\n");
+    }
+
+    // 선택한 것의 이름과 자세 (루트 링크 기준, 위치 m, 사람에게는 RPY degree, 데이터는 쿼터니언)
+    void updateSelectionLabel() {
+        dhMat f;
+        if (!viewer_->SelectedFrame(&f)) {
+            statusBar()->showMessage(infoMessage_);
+            return;
+        }
+        QString name = QString::fromUtf8("모델");
+        if (viewer_->SelectedLink() >= 0 && static_cast<size_t>(viewer_->SelectedLink()) < viewer_->Robot().links.size())
+            name = QString::fromStdString(viewer_->Robot().links[static_cast<size_t>(viewer_->SelectedLink())].name);
+        const dhPose pose = dhPose::FromMat(f).Normalized();
+        const amr::units::RpyDeg r = amr::units::RpyDegFromQuat(pose.orientation);
+        statusBar()->showMessage(QString::fromUtf8("선택 %1 | 위치 %2, %3, %4 m | RPY %5°, %6°, %7° | 쿼터니언 %8, %9, %10, %11  ")
+                                     .arg(name)
+                                     .arg(static_cast<double>(pose.position.x), 0, 'f', 3).arg(static_cast<double>(pose.position.y), 0, 'f', 3).arg(static_cast<double>(pose.position.z), 0, 'f', 3)
+                                     .arg(r.roll, 0, 'f', 1).arg(r.pitch, 0, 'f', 1).arg(r.yaw, 0, 'f', 1)
+                                     .arg(static_cast<double>(pose.orientation.x), 0, 'f', 3).arg(static_cast<double>(pose.orientation.y), 0, 'f', 3)
+                                     .arg(static_cast<double>(pose.orientation.z), 0, 'f', 3).arg(static_cast<double>(pose.orientation.w), 0, 'f', 3));
+    }
+
     // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
     void updateTorques() {
         if (!viewer_->HasRobot()) return;
@@ -473,7 +540,9 @@ private:
         updateCollisionLabel();
         QString msg = path + "  -  " + viewer_->Summary();
         if (!viewer_->Warnings().isEmpty()) msg += QString::fromUtf8("  (경고 %1건: %2)").arg(viewer_->Warnings().size()).arg(viewer_->Warnings()[0]);
+        infoMessage_ = msg;
         statusBar()->showMessage(msg);
+        updateSelectionLabel();
         setWindowTitle(QString("AMR RobotArm Viewer - ") + path);
     }
 
@@ -483,6 +552,7 @@ private:
     StructurePanel* tree_;
     QDockWidget* treeDock_;
     QLabel* collisionLabel_;
+    QString infoMessage_;   // 선택이 없을 때 상태바에 보이는 파일 정보
     amr::dynamics::Gravity gravity_;
 };
 
@@ -516,8 +586,18 @@ int main(int argc, char** argv) {
         const std::string shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
         MainWindow* win = &w;
-        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow]() {
+        const int cx = o.clickX, cy = o.clickY;
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy]() {
             bool ok = true;
+            if (cx >= 0 && cy >= 0) {  // 실제 마우스 이벤트를 보내서 클릭 선택까지 한꺼번에 확인한다
+                const QPoint p(cx, cy);
+                QMouseEvent press(QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(v, &press);
+                QApplication::sendEvent(v, &release);
+                std::printf("클릭 (%d,%d) -> 선택 링크 %d%s\n", cx, cy, v->SelectedLink(), v->ModelSelected() ? " (모델)" : "");
+                v->repaint();
+            }
             if (!shot.empty()) {
                 const QImage img = v->grabFramebuffer();
                 ok = !img.isNull() && img.save(QString::fromLocal8Bit(shot.c_str()));

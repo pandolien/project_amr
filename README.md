@@ -70,11 +70,12 @@ project_amr/
 ```
 
 - 인자 없이 실행하면 빈 창이 뜨고, **파일 > 열기 (Ctrl+O)** 나 파일을 창에 끌어다 놓아서 열 수 있습니다.
-- 마우스: 왼쪽 드래그 = 회전, 오른쪽/가운데 드래그 = 이동, 휠 = 확대/축소, 더블클릭 또는 `F` = 화면에 맞춤.
+- 마우스: 왼쪽 드래그 = 회전, 오른쪽/가운데 드래그 = 이동, 휠 = 확대/축소, 더블클릭 또는 `F` = 화면에 맞춤, 왼쪽 클릭 = 물체 선택.
 - URDF 를 열면 오른쪽에 관절 슬라이더가 생깁니다 (revolute/continuous 는 도, prismatic 은 m, limit 범위 안에서).
 - 좌표계는 Z-up 입니다. GLB(Y-up)는 열 때 Z-up 으로 돌려서 보여줍니다. OBJ 에 법선이 없으면 평평한(flat) 음영으로 그립니다.
 - OpenGL 2.1 이상이면 동작합니다 (`ModelViewer`, `JointPanel` 은 `Core/Qt`, 재사용 가능).
 - Qt 없이 빌드(`-DAMR_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 5 를 찾거나(`CMAKE_PREFIX_PATH`) vcpkg 로 설치한 뒤 창 모드로 빌드합니다 (`--no-qt` 로 끔). vcpkg 의 Qt 는 5.15 대입니다 (5.12 이상이면 동작).
+- **물체 선택과 좌표계**: 화면에서 물체를 **왼쪽 클릭**하면 그 링크(정적 모델이면 모델 전체)가 선택되어 밝게 강조되고, 구조 트리의 같은 링크도 함께 선택됩니다. 선택한 것에는 **좌표계**(가운데 구 + X 빨강 / Y 초록 / Z 파랑 화살표)가 붙고, 아래 상태바에 위치(m), RPY(degree), 쿼터니언이 나옵니다(루트 링크 기준). 빈 곳을 클릭하면 선택이 풀리고, 관절을 움직이면 좌표계도 따라갑니다. `보기 > 선택 좌표계` / `G` 로 켜고 끕니다. 클릭 판정은 삼각형 단위(`CCollision/MeshRaycast.h`)라서 상자가 아니라 실제 모양에 맞습니다. 좌표계 모양은 `Data/Object/gizmo/axes.obj`(+`axes.mtl`)이며, 직접 고치거나 `python3 tools/make_gizmo_obj.py` 로 다시 만들 수 있습니다(화살표 끝까지 길이 1, 화면에서 항상 같은 크기로 보이게 뷰어가 크기를 곱합니다). 확인용으로 `--click x,y` 는 3D 화면의 그 픽셀을 클릭한 것처럼 처리합니다.
 - **구조 트리** (왼쪽, `보기 > 구조 트리` / `T`): URDF 는 루트 링크부터 관절을 따라 이어지는 링크 계층(관절 이름, 종류와 limit, visual/collision 개수, 질량)을, 정적 모델은 노드 계층을 보여줍니다. 링크를 클릭하면 뷰어에서 그 링크가 밝게 강조되고, 충돌 중인 링크는 트리에서 빨갛게 표시됩니다.
 - **충돌 박스** (`보기 > OBB 충돌 박스` `O`, `보기 > AABB 충돌 박스` `B`, 또는 `--obb` / `--aabb`): AABB(링크마다, 노랑 / 후보이면 주황)와 OBB(도형마다, 하늘색 / 충돌하면 빨강)를 그립니다. 상태바 오른쪽에 OBB 로 확인된 충돌 쌍과 AABB 후보 수가 나옵니다 (부모-자식으로 직접 이어진 링크는 항상 맞닿으므로 제외). 창 없이 `--info --obb --joint 이름=값` 으로 링크별 AABB 와 충돌 목록을 출력할 수도 있습니다.
 - **중력 하중**: 구조 트리의 "중력 하중" 열에 **모든 관절**이 각자 따로 나옵니다(구동 관절은 모터 토크, mimic 은 자기 몫과 합산되는 원본, fixed 는 체결부 하중). 관절 패널의 슬라이더 아래에도 구동 관절의 토크(회전 N·m, 이동 N)가 나오고, URDF `effort` 한계를 넘으면 빨갛게 표시됩니다. `보기 > 중력 방향...` 이나 `--gravity gx,gy,gz` 로 중력 방향을 바꿀 수 있습니다(루트 링크 좌표계, 경사면의 AMR 이면 기울어진 방향). 창 없이 `--info --torque [--joint 이름=도] [--gravity ...]` 로 모든 관절의 하중과 링크별 기여 내역을 출력할 수도 있습니다. `Data/Object/samples/arm_gripper.urdf` 는 fixed 관절과 mimic 관절이 있는 그리퍼 예제입니다.
@@ -181,6 +182,7 @@ amr::urdf::LoadRobotMeshes(robot, amr::urdf::LoadOptions(), &meshes);  // visual
 |---|---|
 | `CCollision/Aabb.h` | `Aabb`: Expand / Merge / Overlaps / Contains / Distance / PenetrationDepth / Inflated / Transformed / Raycast |
 | `CCollision/Obb.h` | `Obb`: FromAabb / ToAabb / Corners / Contains / Inflated / Transformed, `Overlaps` (분리축 정리 SAT, 15축) |
+| `CCollision/MeshRaycast.h` | `RaycastTriangles`: 광선과 삼각형 메시의 교차(화면 클릭 선택용, 양면, 위치+법선 섞인 배열 지원) |
 | `CCollision/Broadphase.h` | `FindOverlappingPairs`: Sweep and Prune (한 집합, 두 집합). 비교용 `...BruteForce` 포함 |
 | `CCollision/RobotCollision.h` | URDF `<collision>` 도형 모으기(`BuildCollisionModel`), 링크별 월드 AABB(`ComputeLinkAabbs`), 도형별 월드 OBB(`ComputeShapeObbs`), 자기충돌(`FindSelfCollisions`: AABB 만, `CheckSelfCollisions`: AABB -> OBB 2단계) |
 
