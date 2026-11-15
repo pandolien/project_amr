@@ -30,11 +30,14 @@ struct Options {
     std::string file;
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
-    std::string shot;          // 비어 있지 않으면 화면을 PNG 로 저장하고 종료
+    bool obb;                  // OBB 충돌 박스를 처음부터 표시
+    std::string shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
+    std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
+    std::string select;        // 시작할 때 선택(강조)할 링크 이름
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), width(1100), height(720) {}
+    Options() : info(false), aabb(false), obb(false), width(1100), height(720) {}
 };
 
 void PrintUsage(const char* exe) {
@@ -42,10 +45,12 @@ void PrintUsage(const char* exe) {
         "사용법: %s [옵션] [파일]\n"
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
-        "  --aabb             AABB 충돌 박스를 표시 (창 없이 --info 와 같이 쓰면 링크별 AABB 와 겹침을 출력)\n"
+        "  --aabb, --obb      AABB / OBB 충돌 박스를 표시 (--info 와 같이 쓰면 링크별 AABB 와 충돌 목록을 출력)\n"
         "  --joint 이름=값    관절 값 지정 (revolute/continuous: 도, prismatic: m), 여러 번 가능\n"
         "  --package 이름=폴더 package://이름/ 을 찾을 폴더, 여러 번 가능\n"
-        "  --shot 파일.png    화면을 저장하고 종료 (Qt 빌드에서만)\n"
+        "  --shot 파일.png    3D 화면을 저장하고 종료 (Qt 빌드에서만)\n"
+        "  --shot-window 파일.png  창 전체(구조 트리, 관절 패널 포함)를 저장하고 종료\n"
+        "  --select 링크이름  시작할 때 그 링크를 선택해서 강조\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
         "  -h, --help         도움말\n",
         exe);
@@ -66,8 +71,11 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "-h" || a == "--help") { PrintUsage(argv[0]); return 1; }
         if (a == "--info") { o->info = true; continue; }
         if (a == "--aabb") { o->aabb = true; continue; }
+        if (a == "--obb") { o->obb = true; continue; }
         const bool hasNext = i + 1 < argc;
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
+        if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
+        if (a == "--select" && hasNext) { o->select = argv[++i]; continue; }
         if (a == "--joint" && hasNext) {
             std::string n, v;
             if (!SplitPair(argv[++i], &n, &v)) { std::fprintf(stderr, "--joint 은 이름=값 형식입니다\n"); return 2; }
@@ -101,7 +109,7 @@ std::string LowerExt(const std::string& p) {
     return e;
 }
 
-// 링크별 AABB 와 겹치는 링크 쌍을 출력한다 (--joint 로 준 자세 기준)
+// 링크별 AABB 와 겹치는 링크 쌍(AABB 후보 -> OBB 로 확인한 충돌)을 출력한다 (--joint 로 준 자세 기준)
 void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr::urdf::LoadOptions& load) {
     amr::urdf::JointValues q;
     for (size_t i = 0; i < o.joints.size(); i++) {
@@ -119,20 +127,24 @@ void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr:
     size_t fromVisual = 0;
     for (size_t i = 0; i < model.shapes.size(); i++) if (model.shapes[i].fromVisual) fromVisual++;
     std::printf("AABB 충돌 검사: 도형 %zu개 (visual 로 대체한 것 %zu개)\n", model.shapes.size(), fromVisual);
-    const std::vector<amr::Aabb> boxes = amr::ComputeLinkAabbs(robot, model, q);
-    for (size_t i = 0; i < boxes.size(); i++) {
-        if (boxes[i].IsEmpty()) continue;
-        const amr::Aabb& b = boxes[i];
+    const amr::SelfCollisionReport rep = amr::CheckSelfCollisions(robot, model, q);
+    for (size_t i = 0; i < rep.linkAabbs.size(); i++) {
+        if (rep.linkAabbs[i].IsEmpty()) continue;
+        const amr::Aabb& b = rep.linkAabbs[i];
         std::printf("  link '%s': (%.3f, %.3f, %.3f) ~ (%.3f, %.3f, %.3f)\n", robot.links[i].name.c_str(), static_cast<double>(b.lo.x),
                     static_cast<double>(b.lo.y), static_cast<double>(b.lo.z), static_cast<double>(b.hi.x), static_cast<double>(b.hi.y),
                     static_cast<double>(b.hi.z));
     }
-    const std::vector<amr::CollisionPair> pairs = amr::FindSelfCollisions(robot, boxes);
-    std::printf("AABB 겹침 후보 %zu건 (직접 연결된 링크는 제외)", pairs.size());
-    for (size_t i = 0; i < pairs.size(); i++)
-        std::printf("%s %s <-> %s", i == 0 ? ":" : ",", robot.links[static_cast<size_t>(pairs[i].a)].name.c_str(),
-                    robot.links[static_cast<size_t>(pairs[i].b)].name.c_str());
-    std::printf("\n");
+    const struct { const char* label; const std::vector<amr::CollisionPair>* pairs; } lists[2] = {
+        {"AABB 겹침 후보", &rep.aabbCandidates}, {"OBB 충돌", &rep.collisions}};
+    for (int k = 0; k < 2; k++) {
+        const std::vector<amr::CollisionPair>& pairs = *lists[k].pairs;
+        std::printf("%s %zu건", lists[k].label, pairs.size());
+        for (size_t i = 0; i < pairs.size(); i++)
+            std::printf("%s %s <-> %s", i == 0 ? ":" : ",", robot.links[static_cast<size_t>(pairs[i].a)].name.c_str(),
+                        robot.links[static_cast<size_t>(pairs[i].b)].name.c_str());
+        std::printf("%s\n", k == 0 ? " (직접 연결된 링크는 제외)" : "");
+    }
 }
 
 // 창 없이 파일 정보를 출력한다. 성공하면 0.
@@ -153,7 +165,7 @@ int PrintInfo(const Options& o) {
         std::printf("visual %zu개 읽음, 삼각형 %zu개\n", meshes.visuals.size(), tris);
         for (size_t i = 0; i < robot.warnings.size(); i++) std::printf("경고: %s\n", robot.warnings[i].c_str());
         for (size_t i = 0; i < meshes.warnings.size(); i++) std::printf("경고: %s\n", meshes.warnings[i].c_str());
-        if (o.aabb) PrintCollisions(robot, o, opt);
+        if (o.aabb || o.obb) PrintCollisions(robot, o, opt);
         return ok ? 0 : 1;
     }
     amr::Scene scene;
@@ -188,6 +200,7 @@ int PrintInfo(const Options& o) {
 
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/ModelViewer.h"
+#include "CoreQt/StructurePanel.h"
 
 namespace {
 
@@ -202,6 +215,13 @@ public:
         for (size_t i = 0; i < o.packages.size(); i++)
             viewer_->LoadOptions().packagePaths.push_back(std::make_pair(o.packages[i].first, o.packages[i].second));
         setCentralWidget(viewer_);
+
+        tree_ = new StructurePanel;
+        treeDock_ = new QDockWidget(QString::fromUtf8("구조"), this);
+        treeDock_->setWidget(tree_);
+        addDockWidget(Qt::LeftDockWidgetArea, treeDock_);
+        treeDock_->hide();
+        QObject::connect(tree_, &StructurePanel::linkSelected, this, [this](int link) { viewer_->SetSelectedLink(link); });
 
         panel_ = new JointPanel;
         dock_ = new QDockWidget(QString::fromUtf8("관절"), this);
@@ -230,6 +250,16 @@ public:
         grid->setCheckable(true);
         grid->setChecked(true);
         QObject::connect(grid, &QAction::toggled, viewer_, &ModelViewer::SetShowGrid);
+        QAction* structure = treeDock_->toggleViewAction();
+        structure->setText(QString::fromUtf8("구조 트리"));
+        structure->setShortcut(Qt::Key_T);
+        view->addAction(structure);
+        QAction* obbs = view->addAction(QString::fromUtf8("OBB 충돌 박스"));
+        obbs->setShortcut(Qt::Key_O);
+        obbs->setCheckable(true);
+        obbs->setChecked(o.obb);
+        viewer_->SetShowObbs(o.obb);
+        QObject::connect(obbs, &QAction::toggled, viewer_, &ModelViewer::SetShowObbs);
         QAction* boxes = view->addAction(QString::fromUtf8("AABB 충돌 박스"));
         boxes->setShortcut(Qt::Key_B);
         boxes->setCheckable(true);
@@ -239,6 +269,7 @@ public:
         collisionLabel_ = new QLabel;
         statusBar()->addPermanentWidget(collisionLabel_);
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { updateCollisionLabel(); });
+        QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { tree_->SetCollidingLinks(viewer_->CollidingLinks()); });
         statusBar()->showMessage(QString::fromUtf8("파일 > 열기 (Ctrl+O) 또는 파일을 창에 끌어다 놓으세요. 왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대"));
     }
 
@@ -262,6 +293,15 @@ public:
         }
     }
 
+    // 명령행의 --select 링크 이름을 선택한다
+    void applySelect(const Options& o) {
+        if (o.select.empty() || !viewer_->HasRobot()) return;
+        const int li = viewer_->Robot().FindLink(o.select);
+        if (li < 0) { std::fprintf(stderr, "경고: 링크 '%s' 이 없습니다\n", o.select.c_str()); return; }
+        tree_->SelectLink(li);
+        viewer_->SetSelectedLink(li);
+    }
+
     ModelViewer* viewer() { return viewer_; }
 
 protected:
@@ -280,23 +320,30 @@ private:
             return;
         }
         const QStringList d = viewer_->CollisionDescriptions();
+        const int cand = static_cast<int>(viewer_->AabbCandidates().size());
         if (d.isEmpty()) {
-            collisionLabel_->setText(QString::fromUtf8("AABB 충돌: 없음"));
+            collisionLabel_->setText(QString::fromUtf8("충돌 없음 (AABB 후보 %1건)").arg(cand));
             collisionLabel_->setStyleSheet(QString());
         } else {
-            collisionLabel_->setText(QString::fromUtf8("AABB 충돌 %1건: %2").arg(d.size()).arg(d.join(", ")));
+            collisionLabel_->setText(QString::fromUtf8("OBB 충돌 %1건: %2 (AABB 후보 %3건)").arg(d.size()).arg(d.join(", ")).arg(cand));
             collisionLabel_->setStyleSheet("color: #d33; font-weight: bold;");
         }
     }
 
     void afterLoad(const QString& path) {
-        updateCollisionLabel();
         if (viewer_->HasRobot()) {
+            tree_->SetRobot(viewer_->Robot());
+            tree_->SetCollidingLinks(viewer_->CollidingLinks());
             panel_->SetRobot(viewer_->Robot());
             dock_->setVisible(!panel_->IsEmpty());
         } else {
+            if (viewer_->HasScene()) tree_->SetScene(viewer_->StaticScene());
+            else tree_->Clear();
             dock_->hide();
         }
+        treeDock_->setVisible(tree_->topLevelItemCount() > 0);
+        if (treeDock_->isVisible()) resizeDocks(QList<QDockWidget*>() << treeDock_, QList<int>() << 340, Qt::Horizontal);
+        updateCollisionLabel();
         QString msg = path + "  -  " + viewer_->Summary();
         if (!viewer_->Warnings().isEmpty()) msg += QString::fromUtf8("  (경고 %1건: %2)").arg(viewer_->Warnings().size()).arg(viewer_->Warnings()[0]);
         statusBar()->showMessage(msg);
@@ -306,6 +353,8 @@ private:
     ModelViewer* viewer_;
     JointPanel* panel_;
     QDockWidget* dock_;
+    StructurePanel* tree_;
+    QDockWidget* treeDock_;
     QLabel* collisionLabel_;
 };
 
@@ -329,18 +378,29 @@ int main(int argc, char** argv) {
     w.show();
     if (!o.file.empty()) {
         if (!w.openFile(QString::fromLocal8Bit(o.file.c_str()))) {
-            if (!o.shot.empty()) return 1;
+            if (!o.shot.empty() || !o.shotWindow.empty()) return 1;
         } else {
             w.applyJoints(o);
+            w.applySelect(o);
         }
     }
-    if (!o.shot.empty()) {
-        const std::string shot = o.shot;
+    if (!o.shot.empty() || !o.shotWindow.empty()) {
+        const std::string shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
-        QTimer::singleShot(400, &app, [&app, v, shot]() {
-            const QImage img = v->grabFramebuffer();
-            const bool ok = !img.isNull() && img.save(QString::fromLocal8Bit(shot.c_str()));
-            if (!ok) std::fprintf(stderr, "화면 저장 실패: %s\n", shot.c_str());
+        MainWindow* win = &w;
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow]() {
+            bool ok = true;
+            if (!shot.empty()) {
+                const QImage img = v->grabFramebuffer();
+                ok = !img.isNull() && img.save(QString::fromLocal8Bit(shot.c_str()));
+                if (!ok) std::fprintf(stderr, "화면 저장 실패: %s\n", shot.c_str());
+            }
+            if (!shotWindow.empty()) {
+                const QImage img = win->grab().toImage();
+                const bool ok2 = !img.isNull() && img.save(QString::fromLocal8Bit(shotWindow.c_str()));
+                if (!ok2) std::fprintf(stderr, "화면 저장 실패: %s\n", shotWindow.c_str());
+                ok = ok && ok2;
+            }
             app.exit(ok ? 0 : 1);
         });
     }

@@ -40,4 +40,8 @@ if(TARGET amr_main)
     add_test(NAME sample_urdf_aabb_folded COMMAND amr_main --info --aabb --joint shoulder_pitch=90 --joint elbow_pitch=-170
              ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
     set_tests_properties(sample_urdf_aabb_folded PROPERTIES PASS_REGULAR_EXPRESSION "AABB 겹침 후보 3건")
+    # OBB 로 다시 확인하면 3건 중 2건만 실제 충돌 (shoulder-forearm 은 AABB 만 겹침)
+    add_test(NAME sample_urdf_obb_folded COMMAND amr_main --info --obb --joint shoulder_pitch=90 --joint elbow_pitch=-170
+             ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
+    set_tests_properties(sample_urdf_obb_folded PROPERTIES PASS_REGULAR_EXPRESSION "OBB 충돌 2건: base_link <-> upper_arm, base_link <-> forearm")
 endif()

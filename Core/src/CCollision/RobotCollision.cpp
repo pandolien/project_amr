@@ -65,6 +65,27 @@ Aabb AabbOfGeometry(const urdf::Geometry& g, const dhMat& world, const Aabb* mes
     }
 }
 
+Obb ObbOfGeometry(const urdf::Geometry& g, const dhMat& world, const Aabb* meshLocal) {
+    Aabb local;  // 도형 좌표계에서의 경계 상자
+    switch (g.type) {
+        case urdf::kGeomBox:
+            local = Aabb::FromCenterHalfExtents(dhVector(0, 0, 0), dhVector(g.size[0] * 0.5f, g.size[1] * 0.5f, g.size[2] * 0.5f));
+            break;
+        case urdf::kGeomSphere:
+            local = Aabb::FromCenterHalfExtents(dhVector(0, 0, 0), dhVector(g.radius, g.radius, g.radius));
+            break;
+        case urdf::kGeomCylinder:
+            local = Aabb::FromCenterHalfExtents(dhVector(0, 0, 0), dhVector(g.radius, g.radius, g.length * 0.5f));
+            break;
+        case urdf::kGeomMesh:
+            if (meshLocal) local = *meshLocal;
+            break;
+        default:
+            break;
+    }
+    return Obb::FromAabb(local).Transformed(world);
+}
+
 bool BuildCollisionModel(const urdf::Robot& robot, const CollisionModelOptions& opt, RobotCollisionModel* out) {
     if (!out) return false;
     out->shapes.clear();
@@ -127,6 +148,18 @@ std::vector<Aabb> ComputeLinkAabbs(const urdf::Robot& robot, const RobotCollisio
     return boxes;
 }
 
+std::vector<Obb> ComputeShapeObbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
+                                  bool clampToLimits) {
+    std::vector<Obb> out(model.shapes.size());
+    const std::vector<dhMat> T = robot.LinkTransforms(q, clampToLimits);
+    for (size_t i = 0; i < model.shapes.size(); i++) {
+        const CollisionShape& s = model.shapes[i];
+        if (s.link < 0 || static_cast<size_t>(s.link) >= T.size()) continue;
+        out[i] = ObbOfGeometry(s.geometry, T[static_cast<size_t>(s.link)] * s.origin, &s.meshBounds);
+    }
+    return out;
+}
+
 std::vector<CollisionPair> FindSelfCollisions(const urdf::Robot& robot, const std::vector<Aabb>& linkAabbs,
                                               const SelfCollisionOptions& opt) {
     // margin 만큼 가까운 쌍도 찾도록 상자마다 margin/2 씩 넓힌다
@@ -153,6 +186,38 @@ std::vector<CollisionPair> FindSelfCollisions(const urdf::Robot& robot, const st
     for (size_t i = 0; i < pairs.size(); i++)
         if (skip.find(std::make_pair(pairs[i].a, pairs[i].b)) == skip.end()) out.push_back(pairs[i]);
     return out;
+}
+
+SelfCollisionReport CheckSelfCollisions(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
+                                        const SelfCollisionOptions& opt, bool clampToLimits) {
+    SelfCollisionReport rep;
+    rep.linkAabbs = ComputeLinkAabbs(robot, model, q, clampToLimits);
+    rep.shapeObbs = ComputeShapeObbs(robot, model, q, clampToLimits);
+    rep.aabbCandidates = FindSelfCollisions(robot, rep.linkAabbs, opt);
+
+    std::vector<std::vector<int> > shapesOfLink(robot.links.size());
+    for (size_t i = 0; i < model.shapes.size(); i++) {
+        const int l = model.shapes[i].link;
+        if (l >= 0 && static_cast<size_t>(l) < shapesOfLink.size()) shapesOfLink[static_cast<size_t>(l)].push_back(static_cast<int>(i));
+    }
+    const float half = opt.margin > 0.0f ? opt.margin * 0.5f : 0.0f;
+    for (size_t c = 0; c < rep.aabbCandidates.size(); c++) {
+        const CollisionPair& cp = rep.aabbCandidates[c];
+        bool hit = false;
+        const std::vector<int>& sa = shapesOfLink[static_cast<size_t>(cp.a)];
+        const std::vector<int>& sb = shapesOfLink[static_cast<size_t>(cp.b)];
+        for (size_t i = 0; i < sa.size(); i++) {
+            const Obb oa = rep.shapeObbs[static_cast<size_t>(sa[i])].Inflated(half);
+            for (size_t j = 0; j < sb.size(); j++) {
+                if (oa.Overlaps(rep.shapeObbs[static_cast<size_t>(sb[j])].Inflated(half))) {
+                    rep.shapePairs.push_back(CollisionPair(sa[i], sb[j]));
+                    hit = true;
+                }
+            }
+        }
+        if (hit) rep.collisions.push_back(cp);
+    }
+    return rep;
 }
 
 }  // namespace amr

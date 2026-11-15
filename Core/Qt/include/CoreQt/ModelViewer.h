@@ -9,6 +9,7 @@
 #include <QPoint>
 #include <QString>
 #include <QVector3D>
+#include <QVector4D>
 #include <memory>
 #include <vector>
 
@@ -44,12 +45,25 @@ public:
     void FitView();                    // 모델 전체가 보이도록 카메라를 맞춘다
     void SetShowGrid(bool show);
 
-    // AABB 충돌 (로봇 링크 자기충돌 후보). 링크마다 AABB 와이어 박스를 그리고, 겹친 링크는 빨갛게 그린다.
+    // 자기충돌 검사 (로봇 링크 사이). 2단계로 검사한다: 링크 AABB 로 후보를 거르고, 후보 링크의 도형끼리 OBB 로 다시 확인.
     // <collision> 이 없는 링크는 <visual> 로 대신한다. 관절 값이 바뀔 때마다 다시 계산한다.
-    void SetShowCollisionBoxes(bool show);
+    void SetShowCollisionBoxes(bool show);  // 링크별 AABB (노랑, 후보이면 주황)
     bool ShowCollisionBoxes() const { return showBoxes_; }
-    const std::vector<amr::CollisionPair>& SelfCollisions() const { return selfCollisions_; }  // 링크 인덱스 쌍
+    void SetShowObbs(bool show);            // 도형별 OBB (하늘색, 충돌하면 빨강)
+    bool ShowObbs() const { return showObbs_; }
+    const std::vector<amr::CollisionPair>& SelfCollisions() const { return report_.collisions; }     // OBB 까지 겹친 링크 쌍
+    const std::vector<amr::CollisionPair>& AabbCandidates() const { return report_.aabbCandidates; }  // AABB 만 겹친 후보
+    std::vector<int> CollidingLinks() const;    // 충돌한 링크 인덱스 (중복 없음, 오름차순)
     QStringList CollisionDescriptions() const;  // "링크A <-> 링크B"
+
+    // 링크 강조: 선택한 링크의 모양을 밝게 칠한다. -1 이면 해제.
+    void SetSelectedLink(int link);
+    int SelectedLink() const { return selectedLink_; }
+
+    // 정적 모델(.glb 등)을 열었으면 그 장면
+    bool HasScene() const { return hasScene_; }
+    const amr::Scene& StaticScene() const { return scene_; }
+
     QString Summary() const;           // "삼각형 N개, 크기 ..." 같은 한 줄 설명
     const QStringList& Warnings() const { return warnings_; }
 
@@ -87,6 +101,7 @@ private:
     void uploadBuffers();
     void releaseBuffers();
     void recomputeCollisions();
+    void drawBoxEdges(const dhVector c[8], const QVector4D& color);
     QMatrix4x4 viewMatrix() const;
 
     std::vector<std::unique_ptr<Item> > items_;
@@ -97,8 +112,10 @@ private:
     std::vector<dhMat> linkT_;
     amr::urdf::JointValues q_;
     amr::RobotCollisionModel colModel_;
-    std::vector<amr::Aabb> linkBoxes_;
-    std::vector<amr::CollisionPair> selfCollisions_;
+    amr::SelfCollisionReport report_;
+    int selectedLink_;
+    amr::Scene scene_;
+    bool hasScene_;
     QStringList warnings_;
     size_t triangleCount_;
 
@@ -109,6 +126,7 @@ private:
     QPoint lastPos_;
 
     bool showBoxes_;
+    bool showObbs_;
     bool showGrid_;
     std::vector<float> gridData_;   // 격자 선분의 위치(3) 배열
     float extent_[3];               // 경계 상자의 크기 (x, y, z)

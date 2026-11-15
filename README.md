@@ -38,7 +38,7 @@ project_amr/
 | 3d | 3차원 공간 (dhVector/dhMat/dhQuat/dhEuler/dhVertex) | - |
 | CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
-| CCollision | 충돌 감지: AABB, 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌 | 3d, CMesh, CURDF |
+| CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
 | CDynamics | 동역학 연산 | 3d |
 | CSimul | 시뮬레이션 | CDynamics |
 | CSock | 외부 통신 | - |
@@ -63,7 +63,9 @@ project_amr/
 - 좌표계는 Z-up 입니다. GLB(Y-up)는 열 때 Z-up 으로 돌려서 보여줍니다. OBJ 에 법선이 없으면 평평한(flat) 음영으로 그립니다.
 - OpenGL 2.1 이상이면 동작합니다 (`ModelViewer`, `JointPanel` 은 `Core/Qt`, 재사용 가능).
 - Qt 없이 빌드(`-DAMR_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 5 를 찾거나(`CMAKE_PREFIX_PATH`) vcpkg 로 설치한 뒤 창 모드로 빌드합니다 (`--no-qt` 로 끔). vcpkg 의 Qt 는 5.15 대입니다 (5.12 이상이면 동작).
-- **AABB 충돌 박스**: `보기 > AABB 충돌 박스` (`B`) 또는 `--aabb` 로 링크마다 노란 와이어 박스를 그리고, 겹친 링크는 빨갛게 그립니다. 상태바 오른쪽에 겹친 링크 쌍이 표시됩니다 (부모-자식으로 직접 이어진 링크는 항상 맞닿으므로 제외). 창 없이 `--info --aabb --joint 이름=값` 으로 링크별 AABB 와 겹침 목록을 출력할 수도 있습니다.
+- **구조 트리** (왼쪽, `보기 > 구조 트리` / `T`): URDF 는 루트 링크부터 관절을 따라 이어지는 링크 계층(관절 이름, 종류와 limit, visual/collision 개수, 질량)을, 정적 모델은 노드 계층을 보여줍니다. 링크를 클릭하면 뷰어에서 그 링크가 밝게 강조되고, 충돌 중인 링크는 트리에서 빨갛게 표시됩니다.
+- **충돌 박스** (`보기 > OBB 충돌 박스` `O`, `보기 > AABB 충돌 박스` `B`, 또는 `--obb` / `--aabb`): AABB(링크마다, 노랑 / 후보이면 주황)와 OBB(도형마다, 하늘색 / 충돌하면 빨강)를 그립니다. 상태바 오른쪽에 OBB 로 확인된 충돌 쌍과 AABB 후보 수가 나옵니다 (부모-자식으로 직접 이어진 링크는 항상 맞닿으므로 제외). 창 없이 `--info --obb --joint 이름=값` 으로 링크별 AABB 와 충돌 목록을 출력할 수도 있습니다.
+- `--select 링크이름` 으로 시작할 때 링크를 선택하고, `--shot-window 파일.png` 로 패널을 포함한 창 전체를 저장합니다.
 - 마우스 조작과 실제 GPU 환경은 아직 사람 손으로 확인하지 못했습니다 (가상 화면의 소프트웨어 렌더링으로 그림은 확인).
 
 ## 한 번에 실행 (run.sh / run.bat)
@@ -160,26 +162,30 @@ amr::urdf::LoadRobotMeshes(robot, amr::urdf::LoadOptions(), &meshes);  // visual
 
 ## 충돌 감지 (CCollision)
 
-현재는 **AABB(축 정렬 경계 상자) 단계**입니다. AABB 는 실제 모양보다 크므로 결과는 "겹침 후보"입니다 (거짓 양성은 있어도 거짓 음성은 없음). 정확한 판정이 필요하면 후보만 다음 단계(OBB, GJK 등)로 넘기는 구조를 염두에 두었습니다.
+2단계 구조입니다. (1) **AABB**(축 정렬 경계 상자)로 빠르게 후보를 거르고, (2) 후보만 **OBB**(방향 경계 상자, 물체와 같이 회전)로 다시 검사합니다. AABB 는 축에 고정이라 기울어진 물체에서는 실제보다 훨씬 커지므로 "겹침 후보"일 뿐이고, OBB 는 물체에 딱 맞아서 훨씬 정확합니다 (거짓 음성은 없도록 설계, 거짓 양성은 OBB 가 크게 줄임). 더 정밀한 판정이 필요하면 후보를 GJK 등으로 넘기는 구조를 염두에 두었습니다.
 
 | 헤더 | 내용 |
 |---|---|
 | `CCollision/Aabb.h` | `Aabb`: Expand / Merge / Overlaps / Contains / Distance / PenetrationDepth / Inflated / Transformed / Raycast |
+| `CCollision/Obb.h` | `Obb`: FromAabb / ToAabb / Corners / Contains / Inflated / Transformed, `Overlaps` (분리축 정리 SAT, 15축) |
 | `CCollision/Broadphase.h` | `FindOverlappingPairs`: Sweep and Prune (한 집합, 두 집합). 비교용 `...BruteForce` 포함 |
-| `CCollision/RobotCollision.h` | URDF `<collision>` 도형 모으기(`BuildCollisionModel`), 링크별 월드 AABB(`ComputeLinkAabbs`), 자기충돌(`FindSelfCollisions`) |
+| `CCollision/RobotCollision.h` | URDF `<collision>` 도형 모으기(`BuildCollisionModel`), 링크별 월드 AABB(`ComputeLinkAabbs`), 도형별 월드 OBB(`ComputeShapeObbs`), 자기충돌(`FindSelfCollisions`: AABB 만, `CheckSelfCollisions`: AABB -> OBB 2단계) |
 
 ```cpp
 amr::CollisionModelOptions opt;           // opt.fallbackToVisual = true 면 <collision> 이 없는 링크는 <visual> 로 대신함
 amr::RobotCollisionModel model;
 amr::BuildCollisionModel(robot, opt, &model);          // 메시는 이때 한 번만 읽는다
 
-std::vector<amr::Aabb> boxes = amr::ComputeLinkAabbs(robot, model, q);   // 관절 값 q 에서의 링크별 AABB
-std::vector<amr::CollisionPair> hits = amr::FindSelfCollisions(robot, boxes);  // 링크 인덱스 쌍
-// 장애물(AABB 목록)과의 충돌: amr::FindOverlappingPairs(boxes, obstacles)  -> (링크, 장애물) 쌍
+amr::SelfCollisionReport rep = amr::CheckSelfCollisions(robot, model, q);   // q: 관절 값
+rep.aabbCandidates;   // 1단계: 링크 AABB 가 겹친 쌍 (링크 인덱스)
+rep.collisions;       // 2단계: 그중 도형 OBB 까지 겹친 쌍
+rep.shapePairs;       // 그 원인이 된 도형 쌍 (model.shapes 인덱스)
+rep.linkAabbs, rep.shapeObbs;                   // 그릴 때 쓰는 상자들
+// 장애물(AABB 목록)과의 충돌 후보: amr::FindOverlappingPairs(rep.linkAabbs, obstacles) -> (링크, 장애물) 쌍
 ```
 
-- 면이 닿기만 해도 겹침으로 봅니다 (닫힌 구간). float 이라 정확히 닿는 경우는 반올림 영향을 받으므로 여유가 필요하면 `Inflated()` 나 `SelfCollisionOptions::margin` 을 씁니다.
-- box / sphere / cylinder 는 기울어져 있어도 **정확한** AABB 이고, mesh 는 로컬 AABB 를 변환한 값이라 회전하면 조금 더 큽니다.
+- 면이 닿기만 해도 겹침으로 봅니다 (닫힌 구간). float 입력이라 정확히 닿는 경우는 반올림 영향을 받으므로 여유가 필요하면 `Inflated()` 나 `SelfCollisionOptions::margin`(두 단계 모두 적용)을 씁니다. OBB SAT 는 double 로 계산하고 반올림 때문에 겹침을 놓치지 않도록 아주 작은 여유를 둡니다.
+- AABB: box / sphere / cylinder 는 기울어져 있어도 **정확한** 값이고, mesh 는 로컬 AABB 를 변환한 값이라 회전하면 조금 더 큽니다. OBB: box 는 정확, cylinder 는 (지름 x 지름 x 길이) 상자, sphere 는 지름 정육면체, mesh 는 로컬 AABB 를 도형 방향으로 돌린 상자입니다 (모두 실제 모양을 완전히 감싸는 보수적인 상자).
 - 자기충돌은 부모-자식 링크를 기본으로 제외하고, `SelfCollisionOptions::ignoredPairs` 로 이름 쌍을 더 뺄 수 있습니다.
 - 멤버 이름이 `min`/`max` 가 아니라 `lo`/`hi` 인 것은 Windows 의 `min`/`max` 매크로와 충돌하지 않게 하려는 것입니다.
 

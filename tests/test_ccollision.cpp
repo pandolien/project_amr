@@ -1,4 +1,5 @@
-// CCollision 테스트: Aabb 연산, 변환, 도형별 AABB, 브로드페이즈(브루트포스 대조), 로봇 자기충돌
+// CCollision 테스트: Aabb 연산, 변환, 도형별 AABB, 브로드페이즈(브루트포스 대조), 로봇 자기충돌, OBB(SAT, 기준 구현 대조), 2단계 충돌
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -6,6 +7,7 @@
 
 #include "CCollision/Aabb.h"
 #include "CCollision/Broadphase.h"
+#include "CCollision/Obb.h"
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Primitives.h"
 #include "CURDF/Urdf.h"
@@ -392,6 +394,304 @@ void testMeshCollision() {
     tu::RmDir(dir);
 }
 
+
+// ---------------------------------------------------------------- OBB
+Obb randomObb(Rng& r, float span, float maxHalf) {
+    const dhVector h(r.range(0.0f, maxHalf), r.range(0.0f, maxHalf), r.range(0.0f, maxHalf));
+    const Aabb box = Aabb::FromCenterHalfExtents(dhVector(0, 0, 0), h);
+    dhMat m = dhMat::Trans(r.range(0, span), r.range(0, span), r.range(0, span)) * dhMat::RotZ(r.range(-3.14f, 3.14f)) *
+              dhMat::RotY(r.range(-3.14f, 3.14f)) * dhMat::RotX(r.range(-3.14f, 3.14f));
+    return Obb::FromAabb(box).Transformed(m);
+}
+
+// SAT 구현과 독립적인 기준 구현: 꼭짓점을 15개 축에 직접 투영해서 구간이 겹치는지 본다 (double)
+bool refProject(const Obb& a, const Obb& b, const double L[3]) {
+    dhVector ca[8], cb[8];
+    a.Corners(ca);
+    b.Corners(cb);
+    double amin = 1e300, amax = -1e300, bmin = 1e300, bmax = -1e300;
+    for (int i = 0; i < 8; i++) {
+        const double pa = ca[i].x * L[0] + ca[i].y * L[1] + ca[i].z * L[2];
+        const double pb = cb[i].x * L[0] + cb[i].y * L[1] + cb[i].z * L[2];
+        amin = std::min(amin, pa); amax = std::max(amax, pa);
+        bmin = std::min(bmin, pb); bmax = std::max(bmax, pb);
+    }
+    return !(amax < bmin || bmax < amin);
+}
+
+bool refOverlap(const Obb& a, const Obb& b) {
+    std::vector<double> axes;
+    const dhVector* av = a.axis;
+    const dhVector* bv = b.axis;
+    for (int i = 0; i < 3; i++) {
+        axes.push_back(av[i].x); axes.push_back(av[i].y); axes.push_back(av[i].z);
+        axes.push_back(bv[i].x); axes.push_back(bv[i].y); axes.push_back(bv[i].z);
+    }
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) {
+            const double c[3] = {static_cast<double>(av[i].y) * bv[j].z - static_cast<double>(av[i].z) * bv[j].y,
+                                 static_cast<double>(av[i].z) * bv[j].x - static_cast<double>(av[i].x) * bv[j].z,
+                                 static_cast<double>(av[i].x) * bv[j].y - static_cast<double>(av[i].y) * bv[j].x};
+            const double n = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+            if (n < 1e-6) continue;  // 평행한 축은 외적이 0 이므로 건너뛴다
+            axes.push_back(c[0] / n); axes.push_back(c[1] / n); axes.push_back(c[2] / n);
+        }
+    for (size_t k = 0; k + 2 < axes.size(); k += 3)
+        if (!refProject(a, b, &axes[k])) return false;
+    return true;
+}
+
+// 표본 점 기준 "확실히 겹침" 판정: A 안의 점 하나가 B 안에 있으면 겹친다
+bool sampleOverlap(const Obb& a, const Obb& b) {
+    for (int ix = -4; ix <= 4; ix++)
+        for (int iy = -4; iy <= 4; iy++)
+            for (int iz = -4; iz <= 4; iz++) {
+                const float fx = static_cast<float>(ix) / 4.0f, fy = static_cast<float>(iy) / 4.0f, fz = static_cast<float>(iz) / 4.0f;
+                const dhVector p = a.center + a.axis[0] * (a.half.x * fx) + a.axis[1] * (a.half.y * fy) + a.axis[2] * (a.half.z * fz);
+                if (b.Contains(p)) return true;
+            }
+    return false;
+}
+
+void testObbBasics() {
+    check(Obb().IsEmpty(), "default OBB is empty");
+    check(!Obb().Overlaps(Obb()), "empty OBB overlaps nothing");
+    check(Obb::FromAabb(Aabb()).IsEmpty(), "OBB from empty AABB is empty");
+
+    const Aabb a(dhVector(0, 0, 0), dhVector(2, 4, 6));
+    const Obb o = Obb::FromAabb(a);
+    check(!o.IsEmpty() && nearly(o.Volume(), 48.0) && nearly(o.center.y, 2.0), "FromAabb: center and volume");
+    check(boxIs(o.ToAabb(), 0, 0, 0, 2, 4, 6), "FromAabb -> ToAabb round trip");
+    check(o.Contains(dhVector(1, 2, 3)) && o.Contains(dhVector(2, 4, 6)) && !o.Contains(dhVector(2.01f, 2, 3)), "Contains (closed)");
+    check(boxIs(o.Inflated(1.0f).ToAabb(), -1, -1, -1, 3, 5, 7), "Inflated");
+    check(o.Inflated(-2.0f).IsEmpty(), "shrinking past zero gives empty");
+
+    // 회전하면 상자가 돈다: ToAabb 는 커지고 부피는 그대로
+    const Obb rot = o.Transformed(dhMat::RotZ(static_cast<float>(dhRad(45))));
+    check(nearly(rot.Volume(), 48.0, 1e-3), "rotation keeps the OBB volume");
+    check(rot.ToAabb().Volume() > 48.0f * 1.2f, "rotated OBB's AABB is larger");
+    check(nearly(rot.axis[0].x, std::cos(dhRad(45)), 1e-5) && nearly(rot.axis[0].y, std::sin(dhRad(45)), 1e-5), "axis follows the rotation");
+
+    // 균일 스케일
+    const Obb sc = o.Transformed(dhMat::Scale(2.0f));
+    check(nearly(sc.half.x, 2.0) && nearly(sc.axis[0].x, 1.0), "uniform scale doubles the half extents");
+    // 이동
+    check(boxIs(o.Transformed(dhMat::Trans(1, 1, 1)).ToAabb(), 1, 1, 1, 3, 5, 7), "translation");
+    check(Obb().Transformed(dhMat::Trans(1, 1, 1)).IsEmpty(), "transform of empty is empty");
+
+    // 꼭짓점 8개가 모두 상자에 포함되고, AABB 는 꼭짓점의 AABB 와 같다
+    Rng r(5);
+    for (int iter = 0; iter < 100; iter++) {
+        const Obb b = randomObb(r, 5, 2);
+        dhVector c[8];
+        b.Corners(c);
+        Aabb brute;
+        bool allIn = true;
+        for (int i = 0; i < 8; i++) {
+            brute.Expand(c[i]);
+            allIn = allIn && b.Inflated(1e-4f).Contains(c[i]);
+        }
+        check(allIn, "corners are inside the OBB");
+        const Aabb t = b.ToAabb();
+        check(boxIs(t, brute.lo.x, brute.lo.y, brute.lo.z, brute.hi.x, brute.hi.y, brute.hi.z, 1e-4), "ToAabb == AABB of corners");
+        // Transformed 는 축을 직교로 유지한다
+        check(nearly(b.axis[0].Dot(b.axis[1]), 0.0, 1e-4) && nearly(b.axis[0].Dot(b.axis[2]), 0.0, 1e-4) &&
+                  nearly(b.axis[1].Dot(b.axis[2]), 0.0, 1e-4) && nearly(b.axis[0].Norm(), 1.0, 1e-4),
+              "axes stay orthonormal");
+    }
+}
+
+void testObbOverlap() {
+    // 기본 사례
+    const Obb a = Obb::FromAabb(Aabb(dhVector(0, 0, 0), dhVector(1, 1, 1)));
+    check(a.Overlaps(a), "box overlaps itself");
+    check(a.Overlaps(Obb::FromAabb(Aabb(dhVector(1, 0, 0), dhVector(2, 1, 1)))), "touching faces overlap");
+    check(!a.Overlaps(Obb::FromAabb(Aabb(dhVector(1.01f, 0, 0), dhVector(2, 1, 1)))), "separated along x");
+    check(a.Overlaps(Obb::FromAabb(Aabb(dhVector(0.2f, 0.2f, 0.2f), dhVector(0.4f, 0.4f, 0.4f)))), "contained box overlaps");
+    check(!a.Overlaps(Obb()), "empty never overlaps");
+
+    // 평평한(두께 0) 상자
+    const Obb flat = Obb::FromAabb(Aabb(dhVector(-1, -1, 0.5f), dhVector(2, 2, 0.5f)));
+    check(a.Overlaps(flat), "zero-thickness box crossing the cube");
+    check(!a.Overlaps(flat.Transformed(dhMat::Trans(0, 0, 1))), "zero-thickness box above the cube");
+
+    // AABB 는 겹치지만 OBB 는 겹치지 않는 경우: 나란한 대각선 막대 두 개 (OBB 를 쓰는 이유)
+    const Obb bar = Obb::FromAabb(Aabb(dhVector(-2, -0.05f, -0.05f), dhVector(2, 0.05f, 0.05f)));
+    const dhMat diag = dhMat::RotZ(static_cast<float>(dhRad(45)));
+    const Obb b1 = bar.Transformed(diag);
+    const Obb b2 = bar.Transformed(dhMat::Trans(-0.2121f, 0.2121f, 0) * diag);  // 대각선에 수직으로 0.3 떨어뜨림
+    check(b1.ToAabb().Overlaps(b2.ToAabb()), "diagonal bars: AABBs overlap");
+    check(!b1.Overlaps(b2), "diagonal bars: OBBs do not overlap");
+    const Obb b3 = bar.Transformed(dhMat::Trans(-0.035f, 0.035f, 0) * diag);  // 0.05 떨어뜨림 (두께 0.1 보다 작음)
+    check(b1.Overlaps(b3), "diagonal bars: close enough to overlap");
+
+    // 모서리-모서리로만 분리되는 경우 (면 법선 6개로는 분리를 못 찾고 외적 축이 필요하다)
+    const Obb ex = Obb::FromAabb(Aabb(dhVector(-2, -0.1f, -0.1f), dhVector(2, 0.1f, 0.1f)));
+    const Obb ey = Obb::FromAabb(Aabb(dhVector(-0.1f, -2, -0.1f), dhVector(0.1f, 2, 0.1f)));
+    const dhMat tilt = dhMat::RotX(static_cast<float>(dhRad(45)));
+    // ex 는 x 방향 막대, ey 를 x 축으로 45도 돌려서 위로 띄운다. 외적 축 x 방향... 아래에서 기준 구현과 일치하는지 본다.
+    for (int k = 0; k < 12; k++) {
+        const Obb e2 = ey.Transformed(dhMat::Trans(0, 0, 0.05f * static_cast<float>(k)) * tilt);
+        check(ex.Overlaps(e2) == refOverlap(ex, e2), "crossing bars match the reference");
+    }
+
+    // 임의 상자 쌍: 기준 구현(꼭짓점 투영)과 표본 검사에 대조
+    int overlaps = 0, separated = 0, crossOnly = 0;
+    for (unsigned seed = 1; seed <= 40; seed++) {
+        Rng r(seed * 7919u);
+        for (int iter = 0; iter < 150; iter++) {
+            const Obb p = randomObb(r, 4, 1.2f);
+            const Obb q = randomObb(r, 4, 1.2f);
+            const bool sat = p.Overlaps(q);
+            const bool ref = refOverlap(p, q);
+            // 정확히 닿는 경계 근처만 아니면 두 구현은 일치해야 한다 (SAT 는 반올림 오차 쪽으로 여유를 둔다)
+            check(!ref || sat, "SAT never misses an overlap the reference sees");
+            check(!sat || refOverlap(p.Inflated(1e-3f), q), "SAT overlap implies reference overlap (with tiny tolerance)");
+            if (sampleOverlap(p, q) || sampleOverlap(q, p)) check(sat, "a shared sample point implies SAT overlap");
+            check(p.Overlaps(q) == q.Overlaps(p), "overlap is symmetric");
+            sat ? overlaps++ : separated++;
+            // 면 법선 6개만으로는 겹친다고 나오는데 15축 전체로는 분리되는 경우를 센다
+            if (!sat) {
+                bool faceSeparated = false;
+                const Obb* ob[2] = {&p, &q};
+                for (int w = 0; w < 2 && !faceSeparated; w++)
+                    for (int i = 0; i < 3 && !faceSeparated; i++) {
+                        const double L[3] = {ob[w]->axis[i].x, ob[w]->axis[i].y, ob[w]->axis[i].z};
+                        if (!refProject(p, q, L)) faceSeparated = true;
+                    }
+                if (!faceSeparated) crossOnly++;
+            }
+        }
+    }
+    check(overlaps > 500 && separated > 500, "random test covers both outcomes");
+    check(crossOnly > 5, "random test includes pairs separated only by an edge-cross axis");
+
+    // 같은 방향의 축(평행)에서도 분리를 놓치거나 거짓 분리를 만들지 않는다
+    Rng r(42);
+    for (int iter = 0; iter < 200; iter++) {
+        const Obb p = randomObb(r, 3, 1.0f);
+        const dhMat shift = dhMat::Trans(r.range(-2, 2), r.range(-2, 2), r.range(-2, 2));
+        const Obb q = p.Transformed(shift);  // 같은 자세, 위치만 다름 (모든 외적 축이 0 에 가까움)
+        check(p.Overlaps(q) == refOverlap(p, q) || p.Overlaps(q), "parallel boxes: no false separation");
+        check(!p.Overlaps(q) || refOverlap(p.Inflated(1e-3f), q), "parallel boxes: no false overlap");
+    }
+
+    // NaN
+    Obb nanBox = a;
+    nanBox.center.x = NAN;
+    check(!a.Overlaps(nanBox) && !nanBox.Overlaps(a), "NaN center never overlaps");
+}
+
+void testObbGeometry() {
+    urdf::Geometry box;
+    box.type = urdf::kGeomBox;
+    box.size[0] = 0.4f;
+    box.size[1] = 0.2f;
+    box.size[2] = 1.0f;
+    const dhMat w = dhMat::Trans(1, 2, 3) * dhMat::RotZ(static_cast<float>(dhRad(90)));
+    const Obb o = ObbOfGeometry(box, w, NULL);
+    check(nearly(o.center.x, 1.0) && nearly(o.center.y, 2.0) && nearly(o.half.x, 0.2) && nearly(o.half.z, 0.5), "box OBB");
+    check(nearly(o.axis[0].y, 1.0, 1e-5), "box OBB axis follows RotZ(90)");
+    // 같은 도형의 AABB 는 OBB 의 AABB 와 같다 (box 는 정확)
+    const Aabb ab = AabbOfGeometry(box, w, NULL);
+    const Aabb ob = o.ToAabb();
+    check(boxIs(ob, ab.lo.x, ab.lo.y, ab.lo.z, ab.hi.x, ab.hi.y, ab.hi.z, 1e-5), "box: OBB's AABB == exact AABB");
+
+    urdf::Geometry cyl;
+    cyl.type = urdf::kGeomCylinder;
+    cyl.radius = 0.1f;
+    cyl.length = 1.0f;
+    const Obb oc = ObbOfGeometry(cyl, dhMat::RotY(static_cast<float>(dhRad(90))), NULL);
+    check(nearly(oc.half.z, 0.5) && nearly(oc.axis[2].x, 1.0, 1e-5), "cylinder OBB lies along x");
+    // 원기둥 OBB 의 AABB 는 해석적 AABB 를 포함한다 (모서리 때문에 조금 더 크다)
+    Rng r(3);
+    for (int iter = 0; iter < 40; iter++) {
+        const dhMat pose = randomPose(r);
+        check(ObbOfGeometry(cyl, pose, NULL).ToAabb().Inflated(1e-4f).Contains(AabbOfGeometry(cyl, pose, NULL)), "cylinder OBB contains the exact AABB");
+    }
+
+    urdf::Geometry mesh;
+    mesh.type = urdf::kGeomMesh;
+    const Aabb local(dhVector(0, 0, 0), dhVector(2, 2, 2));
+    check(nearly(ObbOfGeometry(mesh, dhMat::Trans(1, 0, 0), &local).center.x, 2.0), "mesh OBB from local bounds");
+    check(ObbOfGeometry(mesh, dhMat(), NULL).IsEmpty(), "mesh without bounds is empty");
+    check(ObbOfGeometry(urdf::Geometry(), dhMat(), NULL).IsEmpty(), "no geometry is empty");
+}
+
+// AABB 로 거른 뒤 OBB 로 다시 검사하는 로봇 자기충돌
+const char* kBars =
+    "<robot name='bars'>"
+    " <link name='root'/>"
+    " <link name='a'><collision><geometry><box size='4 0.1 0.1'/></geometry></collision></link>"
+    " <link name='b'><collision><geometry><box size='4 0.1 0.1'/></geometry></collision></link>"
+    " <joint name='ja' type='fixed'><parent link='root'/><child link='a'/><origin rpy='0 0 0.7853982'/></joint>"
+    " <joint name='jb' type='prismatic'><parent link='root'/><child link='b'/><origin rpy='0 0 0.7853982'/><axis xyz='0 1 0'/>"
+    "   <limit lower='-1' upper='1' effort='1' velocity='1'/></joint>"
+    "</robot>";
+
+void testTwoPhaseSelfCollision() {
+    urdf::Robot robot;
+    std::string err;
+    check(urdf::LoadUrdfFromString(kBars, &robot, &err), "bars urdf loads");
+    RobotCollisionModel model;
+    check(BuildCollisionModel(robot, CollisionModelOptions(), &model) && model.shapes.size() == 2, "bars model");
+    const int a = robot.FindLink("a"), b = robot.FindLink("b");
+    const CollisionPair ab(std::min(a, b), std::max(a, b));
+
+    // b 를 막대에 수직으로 0.3 띄움: AABB 는 겹치지만 OBB 는 떨어져 있다
+    urdf::JointValues q;
+    q["jb"] = 0.3f;
+    SelfCollisionReport rep = CheckSelfCollisions(robot, model, q);
+    check(rep.aabbCandidates.size() == 1 && rep.aabbCandidates[0] == ab, "AABB phase reports the pair");
+    check(rep.collisions.empty() && rep.shapePairs.empty(), "OBB phase rejects it");
+    check(rep.linkAabbs.size() == robot.links.size() && rep.shapeObbs.size() == model.shapes.size(), "report sizes");
+
+    // 0.05 로 가까이: 진짜 겹침
+    q["jb"] = 0.05f;
+    rep = CheckSelfCollisions(robot, model, q);
+    check(rep.collisions.size() == 1 && rep.collisions[0] == ab, "overlapping bars collide");
+    check(rep.shapePairs.size() == 1, "one shape pair is the cause");
+
+    // margin: 간격 = 0.3 - 0.1 = 0.2. margin 0.3 이면 충돌로 본다, 0.1 이면 아니다
+    q["jb"] = 0.3f;
+    SelfCollisionOptions opt;
+    opt.margin = 0.1f;
+    check(CheckSelfCollisions(robot, model, q, opt).collisions.empty(), "margin 0.1 < gap 0.2");
+    opt.margin = 0.3f;
+    check(CheckSelfCollisions(robot, model, q, opt).collisions.size() == 1, "margin 0.3 > gap 0.2");
+
+    // 1.0 떨어져도 대각선 막대의 AABB 는 여전히 겹친다 (AABB 가 헐렁하다는 증거). OBB 는 정확히 걸러낸다.
+    q["jb"] = 1.0f;
+    rep = CheckSelfCollisions(robot, model, q);
+    check(rep.aabbCandidates.size() == 1 && rep.collisions.empty(), "gap 0.9: AABB candidate, but no collision");
+
+    // ignoredPairs 는 두 단계 모두에서 적용된다
+    q["jb"] = 0.05f;
+    SelfCollisionOptions ign;
+    ign.ignoredPairs.push_back(std::make_pair(std::string("b"), std::string("a")));
+    rep = CheckSelfCollisions(robot, model, q, ign);
+    check(rep.aabbCandidates.empty() && rep.collisions.empty(), "ignored pair");
+
+    // 링크에 도형이 여러 개이면 그중 하나만 겹쳐도 충돌: 막대 a 옆에 작은 상자를 단 링크
+    urdf::Robot multi;
+    check(urdf::LoadUrdfFromString(
+              "<robot name='m'><link name='root'/>"
+              " <link name='a'><collision><geometry><box size='4 0.1 0.1'/></geometry></collision></link>"
+              " <link name='c'>"
+              "  <collision><origin xyz='0 3 0'/><geometry><box size='0.2 0.2 0.2'/></geometry></collision>"
+              "  <collision><origin xyz='0 0.05 0'/><geometry><box size='0.2 0.2 0.2'/></geometry></collision></link>"
+              " <joint name='ja' type='fixed'><parent link='root'/><child link='a'/></joint>"
+              " <joint name='jc' type='fixed'><parent link='root'/><child link='c'/></joint></robot>",
+              &multi, &err),
+          "multi-shape urdf loads");
+    RobotCollisionModel mm;
+    check(BuildCollisionModel(multi, CollisionModelOptions(), &mm) && mm.shapes.size() == 3, "multi-shape model");
+    rep = CheckSelfCollisions(multi, mm, urdf::JointValues());
+    check(rep.collisions.size() == 1 && rep.shapePairs.size() == 1, "one of two shapes is enough");
+    // 닿은 도형은 c 의 두 번째 도형 (model.shapes 인덱스 2)
+    check(rep.shapePairs.size() == 1 && rep.shapePairs[0].b == 2, "the reported shape is the one that overlaps");
+}
+
 }  // namespace
 
 int main() {
@@ -402,6 +702,10 @@ int main() {
     testBroadphase();
     testRobot();
     testMeshCollision();
+    testObbBasics();
+    testObbOverlap();
+    testObbGeometry();
+    testTwoPhaseSelfCollision();
     if (g_fail == 0) std::printf("test_ccollision: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }
