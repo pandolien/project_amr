@@ -12,7 +12,10 @@
 #include <memory>
 #include <vector>
 
+#include <QStringList>
+
 #include "3d/dhMat.h"
+#include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
 #include "CURDF/Urdf.h"
 
@@ -40,11 +43,19 @@ public:
 
     void FitView();                    // 모델 전체가 보이도록 카메라를 맞춘다
     void SetShowGrid(bool show);
+
+    // AABB 충돌 (로봇 링크 자기충돌 후보). 링크마다 AABB 와이어 박스를 그리고, 겹친 링크는 빨갛게 그린다.
+    // <collision> 이 없는 링크는 <visual> 로 대신한다. 관절 값이 바뀔 때마다 다시 계산한다.
+    void SetShowCollisionBoxes(bool show);
+    bool ShowCollisionBoxes() const { return showBoxes_; }
+    const std::vector<amr::CollisionPair>& SelfCollisions() const { return selfCollisions_; }  // 링크 인덱스 쌍
+    QStringList CollisionDescriptions() const;  // "링크A <-> 링크B"
     QString Summary() const;           // "삼각형 N개, 크기 ..." 같은 한 줄 설명
     const QStringList& Warnings() const { return warnings_; }
 
 signals:
     void modelChanged();
+    void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
 
 protected:
     void initializeGL() override;
@@ -75,6 +86,7 @@ private:
     void rebuildGrid();
     void uploadBuffers();
     void releaseBuffers();
+    void recomputeCollisions();
     QMatrix4x4 viewMatrix() const;
 
     std::vector<std::unique_ptr<Item> > items_;
@@ -83,6 +95,10 @@ private:
     amr::urdf::Robot robot_;
     amr::urdf::LoadOptions options_;
     std::vector<dhMat> linkT_;
+    amr::urdf::JointValues q_;
+    amr::RobotCollisionModel colModel_;
+    std::vector<amr::Aabb> linkBoxes_;
+    std::vector<amr::CollisionPair> selfCollisions_;
     QStringList warnings_;
     size_t triangleCount_;
 
@@ -92,6 +108,7 @@ private:
     float dist_, yaw_, pitch_;
     QPoint lastPos_;
 
+    bool showBoxes_;
     bool showGrid_;
     std::vector<float> gridData_;   // 격자 선분의 위치(3) 배열
     float extent_[3];               // 경계 상자의 크기 (x, y, z)

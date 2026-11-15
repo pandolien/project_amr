@@ -13,6 +13,7 @@
 #include <windows.h>
 #endif
 
+#include "CCollision/RobotCollision.h"
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
 
@@ -28,11 +29,12 @@ void InitConsole() {
 struct Options {
     std::string file;
     bool info;                 // 창 없이 정보만 출력
+    bool aabb;                 // AABB 충돌 박스를 처음부터 표시
     std::string shot;          // 비어 있지 않으면 화면을 PNG 로 저장하고 종료
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), width(1100), height(720) {}
+    Options() : info(false), aabb(false), width(1100), height(720) {}
 };
 
 void PrintUsage(const char* exe) {
@@ -40,6 +42,7 @@ void PrintUsage(const char* exe) {
         "사용법: %s [옵션] [파일]\n"
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
+        "  --aabb             AABB 충돌 박스를 표시 (창 없이 --info 와 같이 쓰면 링크별 AABB 와 겹침을 출력)\n"
         "  --joint 이름=값    관절 값 지정 (revolute/continuous: 도, prismatic: m), 여러 번 가능\n"
         "  --package 이름=폴더 package://이름/ 을 찾을 폴더, 여러 번 가능\n"
         "  --shot 파일.png    화면을 저장하고 종료 (Qt 빌드에서만)\n"
@@ -62,6 +65,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         const std::string a = argv[i];
         if (a == "-h" || a == "--help") { PrintUsage(argv[0]); return 1; }
         if (a == "--info") { o->info = true; continue; }
+        if (a == "--aabb") { o->aabb = true; continue; }
         const bool hasNext = i + 1 < argc;
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
         if (a == "--joint" && hasNext) {
@@ -97,6 +101,40 @@ std::string LowerExt(const std::string& p) {
     return e;
 }
 
+// 링크별 AABB 와 겹치는 링크 쌍을 출력한다 (--joint 로 준 자세 기준)
+void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr::urdf::LoadOptions& load) {
+    amr::urdf::JointValues q;
+    for (size_t i = 0; i < o.joints.size(); i++) {
+        const int ji = robot.FindJoint(o.joints[i].first);
+        if (ji < 0) { std::fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
+        const bool prismatic = robot.joints[static_cast<size_t>(ji)].type == amr::urdf::kJointPrismatic;
+        q[o.joints[i].first] = static_cast<float>(prismatic ? o.joints[i].second : o.joints[i].second * 3.14159265358979 / 180.0);
+    }
+    amr::CollisionModelOptions copt;
+    copt.load = load;
+    copt.fallbackToVisual = true;
+    amr::RobotCollisionModel model;
+    amr::BuildCollisionModel(robot, copt, &model);
+    for (size_t i = 0; i < model.warnings.size(); i++) std::printf("경고: %s\n", model.warnings[i].c_str());
+    size_t fromVisual = 0;
+    for (size_t i = 0; i < model.shapes.size(); i++) if (model.shapes[i].fromVisual) fromVisual++;
+    std::printf("AABB 충돌 검사: 도형 %zu개 (visual 로 대체한 것 %zu개)\n", model.shapes.size(), fromVisual);
+    const std::vector<amr::Aabb> boxes = amr::ComputeLinkAabbs(robot, model, q);
+    for (size_t i = 0; i < boxes.size(); i++) {
+        if (boxes[i].IsEmpty()) continue;
+        const amr::Aabb& b = boxes[i];
+        std::printf("  link '%s': (%.3f, %.3f, %.3f) ~ (%.3f, %.3f, %.3f)\n", robot.links[i].name.c_str(), static_cast<double>(b.lo.x),
+                    static_cast<double>(b.lo.y), static_cast<double>(b.lo.z), static_cast<double>(b.hi.x), static_cast<double>(b.hi.y),
+                    static_cast<double>(b.hi.z));
+    }
+    const std::vector<amr::CollisionPair> pairs = amr::FindSelfCollisions(robot, boxes);
+    std::printf("AABB 겹침 후보 %zu건 (직접 연결된 링크는 제외)", pairs.size());
+    for (size_t i = 0; i < pairs.size(); i++)
+        std::printf("%s %s <-> %s", i == 0 ? ":" : ",", robot.links[static_cast<size_t>(pairs[i].a)].name.c_str(),
+                    robot.links[static_cast<size_t>(pairs[i].b)].name.c_str());
+    std::printf("\n");
+}
+
 // 창 없이 파일 정보를 출력한다. 성공하면 0.
 int PrintInfo(const Options& o) {
     if (o.file.empty()) { PrintUsage("amr_main"); return 2; }
@@ -115,6 +153,7 @@ int PrintInfo(const Options& o) {
         std::printf("visual %zu개 읽음, 삼각형 %zu개\n", meshes.visuals.size(), tris);
         for (size_t i = 0; i < robot.warnings.size(); i++) std::printf("경고: %s\n", robot.warnings[i].c_str());
         for (size_t i = 0; i < meshes.warnings.size(); i++) std::printf("경고: %s\n", meshes.warnings[i].c_str());
+        if (o.aabb) PrintCollisions(robot, o, opt);
         return ok ? 0 : 1;
     }
     amr::Scene scene;
@@ -138,6 +177,7 @@ int PrintInfo(const Options& o) {
 #include <QDockWidget>
 #include <QDragEnterEvent>
 #include <QFileDialog>
+#include <QLabel>
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -190,6 +230,15 @@ public:
         grid->setCheckable(true);
         grid->setChecked(true);
         QObject::connect(grid, &QAction::toggled, viewer_, &ModelViewer::SetShowGrid);
+        QAction* boxes = view->addAction(QString::fromUtf8("AABB 충돌 박스"));
+        boxes->setShortcut(Qt::Key_B);
+        boxes->setCheckable(true);
+        boxes->setChecked(o.aabb);
+        viewer_->SetShowCollisionBoxes(o.aabb);
+        QObject::connect(boxes, &QAction::toggled, viewer_, &ModelViewer::SetShowCollisionBoxes);
+        collisionLabel_ = new QLabel;
+        statusBar()->addPermanentWidget(collisionLabel_);
+        QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { updateCollisionLabel(); });
         statusBar()->showMessage(QString::fromUtf8("파일 > 열기 (Ctrl+O) 또는 파일을 창에 끌어다 놓으세요. 왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대"));
     }
 
@@ -225,7 +274,23 @@ protected:
     }
 
 private:
+    void updateCollisionLabel() {
+        if (!viewer_->HasRobot()) {
+            collisionLabel_->clear();
+            return;
+        }
+        const QStringList d = viewer_->CollisionDescriptions();
+        if (d.isEmpty()) {
+            collisionLabel_->setText(QString::fromUtf8("AABB 충돌: 없음"));
+            collisionLabel_->setStyleSheet(QString());
+        } else {
+            collisionLabel_->setText(QString::fromUtf8("AABB 충돌 %1건: %2").arg(d.size()).arg(d.join(", ")));
+            collisionLabel_->setStyleSheet("color: #d33; font-weight: bold;");
+        }
+    }
+
     void afterLoad(const QString& path) {
+        updateCollisionLabel();
         if (viewer_->HasRobot()) {
             panel_->SetRobot(viewer_->Robot());
             dock_->setVisible(!panel_->IsEmpty());
@@ -241,6 +306,7 @@ private:
     ModelViewer* viewer_;
     JointPanel* panel_;
     QDockWidget* dock_;
+    QLabel* collisionLabel_;
 };
 
 }  // namespace

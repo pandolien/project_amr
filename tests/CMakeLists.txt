@@ -26,7 +26,18 @@ target_link_libraries(test_curdf PRIVATE Core)
 amr_set_warnings(test_curdf)
 add_test(NAME test_curdf COMMAND test_curdf)
 
+add_executable(test_ccollision test_ccollision.cpp)
+target_link_libraries(test_ccollision PRIVATE Core)
+amr_set_warnings(test_ccollision)
+add_test(NAME test_ccollision COMMAND test_ccollision)
+
 # 샘플 URDF 를 창 없이 읽어 보는 스모크 테스트 (amr_main 이 만들어졌을 때만)
 if(TARGET amr_main)
     add_test(NAME sample_urdf_info COMMAND amr_main --info ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
+    # AABB 자기충돌: 기본 자세는 겹침 없음, 팔을 아래로 접으면 base/shoulder 와 겹침 3건
+    add_test(NAME sample_urdf_aabb_free COMMAND amr_main --info --aabb ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
+    set_tests_properties(sample_urdf_aabb_free PROPERTIES PASS_REGULAR_EXPRESSION "AABB 겹침 후보 0건")
+    add_test(NAME sample_urdf_aabb_folded COMMAND amr_main --info --aabb --joint shoulder_pitch=90 --joint elbow_pitch=-170
+             ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
+    set_tests_properties(sample_urdf_aabb_folded PROPERTIES PASS_REGULAR_EXPRESSION "AABB 겹침 후보 3건")
 endif()

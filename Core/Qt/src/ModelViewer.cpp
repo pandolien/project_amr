@@ -53,7 +53,7 @@ const float kDefaultColor[4] = {0.72f, 0.74f, 0.78f, 1.0f};
 
 ModelViewer::ModelViewer(QWidget* parent)
     : QOpenGLWidget(parent), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
-      dist_(3.0f), yaw_(-60.0f), pitch_(25.0f), showGrid_(true), gridCell_(1.0f) {
+      dist_(3.0f), yaw_(-60.0f), pitch_(25.0f), showBoxes_(false), showGrid_(true), gridCell_(1.0f) {
     extent_[0] = extent_[1] = extent_[2] = 0.0f;
     setMinimumSize(320, 240);
     setFocusPolicy(Qt::StrongFocus);
@@ -85,6 +85,10 @@ void ModelViewer::Clear() {
     hasRobot_ = false;
     robot_ = amr::urdf::Robot();
     linkT_.clear();
+    q_.clear();
+    colModel_ = amr::RobotCollisionModel();
+    linkBoxes_.clear();
+    selfCollisions_.clear();
     warnings_.clear();
     triangleCount_ = 0;
     buffersDirty_ = false;
@@ -150,6 +154,12 @@ void ModelViewer::SetRobot(const amr::urdf::Robot& robot, const amr::urdf::Robot
     }
     for (size_t i = 0; i < meshes.warnings.size(); i++) warnings_ << QString::fromStdString(meshes.warnings[i]);
     for (size_t i = 0; i < robot_.warnings.size(); i++) warnings_ << QString::fromStdString(robot_.warnings[i]);
+    amr::CollisionModelOptions copt;
+    copt.load = options_;
+    copt.fallbackToVisual = true;  // <collision> 이 없는 URDF 도 박스를 볼 수 있게 한다
+    amr::BuildCollisionModel(robot_, copt, &colModel_);
+    for (size_t i = 0; i < colModel_.warnings.size(); i++) warnings_ << QString::fromStdString(colModel_.warnings[i]);
+    recomputeCollisions();
     buffersDirty_ = true;
     updateBounds();
     FitView();
@@ -158,8 +168,32 @@ void ModelViewer::SetRobot(const amr::urdf::Robot& robot, const amr::urdf::Robot
 
 void ModelViewer::SetJointValues(const amr::urdf::JointValues& q) {
     if (!hasRobot_) return;
+    q_ = q;
     linkT_ = robot_.LinkTransforms(q);
+    recomputeCollisions();
     update();
+}
+
+void ModelViewer::recomputeCollisions() {
+    const std::vector<amr::CollisionPair> before = selfCollisions_;
+    linkBoxes_ = amr::ComputeLinkAabbs(robot_, colModel_, q_);
+    selfCollisions_ = amr::FindSelfCollisions(robot_, linkBoxes_);
+    if (!(before == selfCollisions_)) emit collisionsChanged();
+}
+
+void ModelViewer::SetShowCollisionBoxes(bool show) {
+    showBoxes_ = show;
+    update();
+}
+
+QStringList ModelViewer::CollisionDescriptions() const {
+    QStringList out;
+    for (size_t i = 0; i < selfCollisions_.size(); i++) {
+        const amr::CollisionPair& p = selfCollisions_[i];
+        out << QString::fromStdString(robot_.links[static_cast<size_t>(p.a)].name) + QString::fromUtf8(" <-> ") +
+                   QString::fromStdString(robot_.links[static_cast<size_t>(p.b)].name);
+    }
+    return out;
 }
 
 bool ModelViewer::LoadFile(const QString& path, QString* error) {
@@ -328,6 +362,33 @@ void ModelViewer::paintGL() {
             prog_->setAttributeArray(0, GL_FLOAT, axes[a], 3);
             glDrawArrays(GL_LINES, 0, 2);
         }
+        // AABB 박스: 겹친 링크는 빨강, 나머지는 노랑
+        if (showBoxes_ && hasRobot_) {
+            std::vector<bool> hit(linkBoxes_.size(), false);
+            for (size_t i = 0; i < selfCollisions_.size(); i++) {
+                hit[static_cast<size_t>(selfCollisions_[i].a)] = true;
+                hit[static_cast<size_t>(selfCollisions_[i].b)] = true;
+            }
+            glLineWidth(2.0f);
+            for (size_t i = 0; i < linkBoxes_.size(); i++) {
+                const amr::Aabb& b = linkBoxes_[i];
+                if (b.IsEmpty()) continue;
+                const float x[2] = {b.lo.x, b.hi.x}, y[2] = {b.lo.y, b.hi.y}, z[2] = {b.lo.z, b.hi.z};
+                float v[24][3];
+                int n = 0;
+                for (int a = 0; a < 4; a++) {  // 12 개 모서리 = 24 끝점
+                    const int p = a & 1, q = a >> 1;
+                    const float e[6][3] = {{x[0], y[p], z[q]}, {x[1], y[p], z[q]},   // x 방향
+                                           {x[p], y[0], z[q]}, {x[p], y[1], z[q]},   // y 방향
+                                           {x[p], y[q], z[0]}, {x[p], y[q], z[1]}};  // z 방향
+                    for (int k = 0; k < 6; k++, n++) { v[n][0] = e[k][0]; v[n][1] = e[k][1]; v[n][2] = e[k][2]; }
+                }
+                prog_->setUniformValue("uColor", hit[i] ? QVector4D(1.0f, 0.2f, 0.2f, 1.0f) : QVector4D(0.95f, 0.8f, 0.2f, 1.0f));
+                prog_->setAttributeArray(0, GL_FLOAT, v, 3);
+                glDrawArrays(GL_LINES, 0, 24);
+            }
+        }
+        glLineWidth(1.0f);
         prog_->disableAttributeArray(0);
     }
 

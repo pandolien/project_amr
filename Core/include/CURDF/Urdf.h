@@ -135,6 +135,12 @@ bool LoadUrdfFromString(const std::string& xml, Robot* out, std::string* error, 
 //   file:///abs/path, 절대 경로, 상대 경로(URDF 폴더 -> searchDirs)
 bool ResolveMeshPath(const std::string& filename, const std::string& baseDir, const LoadOptions& opt, std::string* resolved);
 
+// Geometry 하나를 Scene 으로 만든다. box/cylinder/sphere 는 기본 도형을 생성하고, mesh 는 파일을 읽은 뒤
+// URDF 의 scale 과 축 변환(opt.glbYUpToZUp)을 적용한다. cache 를 주면 같은 파일을 다시 읽지 않는다
+// (경로 -> scale 적용 전 Scene). kGeomNone 이면 false 를 돌려주고 error 는 비워 둔다.
+bool LoadGeometryScene(const Geometry& g, const std::string& baseDir, const LoadOptions& opt, Scene* out,
+                       std::string* error, std::map<std::string, Scene>* cache = 0);
+
 struct LinkVisual {
     int link;       // Robot::links 인덱스
     int visual;     // Link::visuals 인덱스
