@@ -42,6 +42,7 @@ public:
     bool HasRobot() const { return hasRobot_; }
     const amr::urdf::Robot& Robot() const { return robot_; }
     void SetJointValues(const amr::urdf::JointValues& q);  // 관절 값(rad, m)으로 링크 위치 갱신
+    const amr::urdf::JointValues& CurrentJointValues() const { return q_; }
     amr::urdf::LoadOptions& LoadOptions() { return options_; }  // package:// 경로 등
 
     void FitView();                    // 모델 전체가 보이도록 카메라를 맞춘다
@@ -77,9 +78,13 @@ public:
     int PickAt(const QPoint& pos, bool* model = nullptr) const;
 
     // 이동: 선택한 것의 좌표계 화살표를 끌면 그 축 방향으로 움직인다. 움직일 수 있는 것은 정적 모델(전체)과 로봇의 루트 링크
-    // (로봇 전체가 AMR 위치처럼 같이 움직인다). 팔 중간 링크는 관절에 묶여 있어서 관절 값으로만 움직인다.
+    // (로봇 전체가 AMR 위치처럼 같이 움직인다). 팔 중간 링크는 관절에 묶여 있어서 위치를 직접 바꾸지 못하고, 아래 CanIkSelection 처럼 IK 로 관절 값을 바꿔서 움직인다.
     // 위치는 월드 기준 m. 관절 값, 충돌 검사, 중력 계산은 로봇 자신의 좌표계(루트 기준)에서 하므로 이동의 영향을 받지 않는다.
     bool CanMoveSelection() const;
+    // 팔 중간 링크(루트가 아닌 로봇 링크)를 선택하고 좌표계 화살표를 끌면 역기구학(CKinematics, 위치만 맞춤)으로 그 링크의 원점이
+    // 화살표 방향으로 따라오도록 관절 값이 바뀐다. 닿지 못하면 가장 가까운 자세에서 멈춘다 (관절 한계 준수).
+    // 관절 값이 바뀔 때마다 jointValuesDragged 가 나가므로 슬라이더 등을 그 값으로 갱신하면 된다.
+    bool CanIkSelection() const;
     void SetObjectPosition(float x, float y, float z);
     dhVector ObjectPosition() const;
     void ResetObjectPosition() { SetObjectPosition(0, 0, 0); }
@@ -104,6 +109,7 @@ public:
 signals:
     void modelChanged();
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
+    void jointValuesDragged(const amr::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
     void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
     void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
@@ -169,6 +175,9 @@ private:
     bool dragged_;
     dhVector objectPos_;   // 이동량 (월드, m)
     int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2
+    bool dragIk_;          // 그 끌기가 IK(관절 값 변경)인가, 아니면 물체 이동인가
+    QVector3D dragIkOrigin_;  // IK 끌기를 시작한 순간의 좌표계 원점/축 (월드)
+    QVector3D dragIkAxes_[3];
     float dragU0_;
     dhVector dragStart_;
     QTimer* fallTimer_;

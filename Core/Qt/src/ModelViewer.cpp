@@ -1,3 +1,4 @@
+#include "CKinematics/IK.h"
 #include "CoreQt/QtString.h"
 #include "CoreQt/ModelViewer.h"
 
@@ -62,6 +63,7 @@ ModelViewer::ModelViewer(QWidget* parent)
     gizmoDirty_ = false;
     dragged_ = false;
     dragAxis_ = -1;
+    dragIk_ = false;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
@@ -267,6 +269,24 @@ bool ModelViewer::SelectedFrame(dhMat* out) const {
 bool ModelViewer::CanMoveSelection() const {
     if (selectedModel_) return true;
     return hasRobot_ && selectedLink_ >= 0 && selectedLink_ == robot_.root;
+}
+
+bool ModelViewer::CanIkSelection() const {
+    if (!hasRobot_ || selectedLink_ < 0 || static_cast<size_t>(selectedLink_) >= robot_.links.size() || selectedLink_ == robot_.root) return false;
+    int cur = selectedLink_;
+    for (size_t guard = 0; guard <= robot_.joints.size(); guard++) {
+        int parentJoint = -1;
+        for (size_t j = 0; j < robot_.joints.size(); j++)
+            if (robot_.FindLink(robot_.joints[j].child) == cur) {
+                parentJoint = static_cast<int>(j);
+                break;
+            }
+        if (parentJoint < 0) return false;
+        if (robot_.joints[static_cast<size_t>(parentJoint)].IsMovable()) return true;
+        cur = robot_.FindLink(robot_.joints[static_cast<size_t>(parentJoint)].parent);
+        if (cur < 0) return false;
+    }
+    return false;
 }
 
 void ModelViewer::SetObjectPosition(float x, float y, float z) {
@@ -711,6 +731,11 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
             dragAxis_ = axis;
             dragU0_ = u;
             dragStart_ = objectPos_;
+            dragIk_ = !CanMoveSelection();
+            if (dragIk_) {  // 시작 순간의 좌표계를 기억해 둔다 (관절이 움직여도 축이 흔들리지 않게)
+                float s = 0;
+                selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
+            }
         }
     }
 }
@@ -720,6 +745,7 @@ void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
     if (dragAxis_ >= 0) {  // 화살표를 끌던 중이었다: 선택은 그대로 두고 끝낸다
         dragAxis_ = -1;
+        dragIk_ = false;
         update();
         return;
     }
@@ -771,7 +797,7 @@ static bool RayAxisParam(const QVector3D& o, const QVector3D& d, const QVector3D
 int ModelViewer::hitGizmoAxis(const QPoint& pos, float* uOut) const {
     QVector3D o, d, p, ax[3];
     float s = 0;
-    if (!showFrame_ || !CanMoveSelection() || !mouseRay(pos, &o, &d) || !selectionGizmo(&p, ax, &s)) return -1;
+    if (!showFrame_ || !(CanMoveSelection() || CanIkSelection()) || !mouseRay(pos, &o, &d) || !selectionGizmo(&p, ax, &s)) return -1;
     int best = -1;
     float bestDist = 0.10f * s;  // 화살촉 반지름(0.075) 보다 조금 넉넉하게
     for (int i = 0; i < 3; i++) {
@@ -820,7 +846,23 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
     const QPoint d = e->pos() - lastPos_;
     lastPos_ = e->pos();
     if ((e->pos() - pressPos_).manhattanLength() > 4) dragged_ = true;
-    if (dragAxis_ >= 0 && (e->buttons() & Qt::LeftButton)) {
+    if (dragAxis_ >= 0 && dragIk_ && (e->buttons() & Qt::LeftButton)) {
+        QVector3D o, dd;
+        float u = 0;
+        if (mouseRay(e->pos(), &o, &dd) && RayAxisParam(o, dd, dragIkOrigin_, dragIkAxes_[dragAxis_], &u) &&
+            selectedLink_ >= 0 && static_cast<size_t>(selectedLink_) < linkT_.size()) {
+            const QVector3D w = dragIkOrigin_ + dragIkAxes_[dragAxis_] * (u - dragU0_);  // 월드 목표
+            dhMat target = linkT_[static_cast<size_t>(selectedLink_)];                     // 자세는 그대로, 위치만 옮긴다
+            target.v[12] = w.x() - objectPos_.x;  // 로봇 자신의 좌표계(루트 기준)로
+            target.v[13] = w.y() - objectPos_.y;
+            target.v[14] = w.z() - objectPos_.z;
+            amr::kinematics::IkOptions opt;
+            opt.maxIterations = 40;
+            const amr::kinematics::IkResult r = amr::kinematics::SolveIk(robot_, q_, selectedLink_, target, opt);
+            SetJointValues(r.q);
+            emit jointValuesDragged(r.q);
+        }
+    } else if (dragAxis_ >= 0 && (e->buttons() & Qt::LeftButton)) {
         QVector3D o, dd, p, ax[3];
         float s = 0, u = 0;
         // 이동 중에도 좌표계는 시작 위치를 기준으로 계산해야 흔들리지 않는다: 시작 위치로 되돌려 놓고 축을 구한다

@@ -6,6 +6,11 @@ target_link_libraries(test_cbase PRIVATE Core)
 amr_set_warnings(test_cbase)
 add_test(NAME test_cbase COMMAND test_cbase)
 
+add_executable(test_ckinematics test_ckinematics.cpp)
+target_link_libraries(test_ckinematics PRIVATE Core)
+amr_set_warnings(test_ckinematics)
+add_test(NAME test_ckinematics COMMAND test_ckinematics)
+
 add_executable(test_3d test_3d.cpp)
 target_link_libraries(test_3d PRIVATE Core)
 amr_set_warnings(test_3d)

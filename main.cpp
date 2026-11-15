@@ -70,7 +70,7 @@ void PrintUsage(const char* exe) {
         "  --shot 파일.png    3D 화면을 저장하고 종료 (Qt 빌드에서만)\n"
         "  --shot-window 파일.png  창 전체(구조 트리, 관절 패널 포함)를 저장하고 종료\n"
         "  --select 링크이름  시작할 때 그 링크를 선택해서 강조\n"
-        "  --drag x0,y0,x1,y1 3D 화면에서 마우스를 (x0,y0) 에서 누르고 (x1,y1) 까지 끈 것처럼 처리 (좌표계 화살표 이동 확인용)\n"
+        "  --drag x0,y0,x1,y1 3D 화면에서 마우스를 (x0,y0) 에서 누르고 (x1,y1) 까지 끈 것처럼 처리 (좌표계 화살표 이동 확인용. 팔 링크를 --select 로 골라 끌면 IK 로 관절이 따라오고 관절 값을 출력)\n"
         "  --motors-off       모터를 끈 상태로 시작: 관절이 중력, 관성, 마찰에 따라 움직임 (보기 > 모터 끄기 / M)\n"
         "  --simulate 초      (확인용) 모터를 끄고 그 시간만큼 진행한 뒤 관절 값을 출력\n"
         "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
@@ -337,6 +337,19 @@ public:
             updateSelectionLabel();
         });
         QObject::connect(viewer_, &ModelViewer::objectMoved, this, [this]() { updateSelectionLabel(); });
+        // 팔 링크를 끌어서(IK) 관절 값이 바뀌면 슬라이더와 토크 표시를 따라 갱신하고, 모터가 꺼져 있으면 시뮬레이션도 그 값에서 다시 시작한다
+        QObject::connect(viewer_, &ModelViewer::jointValuesDragged, this, [this](const amr::urdf::JointValues& q) {
+            panel_->ShowValues(q);
+            if (motorsOff_) {
+                const amr::Array<int> act = viewer_->Robot().ActuatedJoints();
+                for (size_t i = 0; i < act.size(); i++) {
+                    const amr::String& n = viewer_->Robot().joints[static_cast<size_t>(act[i])].name;
+                    sim_.SetValue(n, q.at(n));
+                }
+            }
+            updateTorques(q);
+            updateSelectionLabel();
+        });
         loadGizmo();
 
         panel_ = new JointPanel;
@@ -730,6 +743,15 @@ int main(int argc, char** argv) {
                 QApplication::sendEvent(v, &release);
                 const dhVector pos = v->ObjectPosition();
                 printf("드래그 (%d,%d)->(%d,%d) -> 오브젝트 위치 %.4f, %.4f, %.4f m\n", d0x, d0y, d1x, d1y, static_cast<double>(pos.x), static_cast<double>(pos.y), static_cast<double>(pos.z));
+                dhMat sel;
+                if (v->SelectedLink() >= 0 && v->SelectedFrame(&sel)) {  // 팔 링크를 끌었다면 IK 로 옮겨진 링크 위치와 관절 값
+                    printf("선택 링크 %d 원점 %.4f, %.4f, %.4f m\n", v->SelectedLink(), static_cast<double>(sel.v[12]), static_cast<double>(sel.v[13]), static_cast<double>(sel.v[14]));
+                    const amr::Array<int> act = v->Robot().ActuatedJoints();
+                    for (size_t i = 0; i < act.size(); i++) {
+                        const amr::urdf::Joint& j = v->Robot().joints[static_cast<size_t>(act[i])];
+                        printf("  %s = %.3f %s\n", j.name.c_str(), j.ToDisplay(static_cast<double>(v->Robot().EffectiveJointValue(v->CurrentJointValues(), act[i]))), j.DisplayUnit());
+                    }
+                }
                 v->repaint();
             }
             if (cx >= 0 && cy >= 0) {  // 실제 마우스 이벤트를 보내서 클릭 선택까지 한꺼번에 확인한다

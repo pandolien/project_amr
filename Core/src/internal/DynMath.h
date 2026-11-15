@@ -110,6 +110,25 @@ inline Kinematics Forward(const urdf::Robot& robot, const urdf::JointValues& q, 
     return k;
 }
 
+// 관절 하나가 따라가는 구동 관절(마스터)과 배율. mimic 이 아니면 자기 자신과 1.
+struct MasterOf {
+    int index;
+    double factor;
+};
+
+inline MasterOf FindMaster(const urdf::Robot& robot, size_t ji) {
+    MasterOf r;
+    r.index = static_cast<int>(ji);
+    r.factor = 1.0;
+    for (size_t depth = 0; depth < robot.joints.size() && robot.joints[static_cast<size_t>(r.index)].hasMimic; depth++) {
+        const int m = robot.FindJoint(robot.joints[static_cast<size_t>(r.index)].mimicJoint);
+        if (m < 0) break;
+        r.factor *= static_cast<double>(robot.joints[static_cast<size_t>(r.index)].mimicMultiplier);
+        r.index = m;
+    }
+    return r;
+}
+
 // 링크 질량과 월드 질량중심. 질량이 없으면 mass = 0.
 inline void LinkMass(const urdf::Robot& robot, const Kinematics& k, size_t link, double* mass, V3* com) {
     const urdf::Link& l = robot.links[link];

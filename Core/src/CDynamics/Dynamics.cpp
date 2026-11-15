@@ -15,25 +15,6 @@ using namespace detail;
 
 namespace {
 
-// 관절 하나가 따라가는 구동 관절(마스터)과 배율. mimic 이 아니면 자기 자신과 1.
-struct MasterOf {
-    int index;
-    double factor;
-};
-
-MasterOf FindMaster(const urdf::Robot& robot, size_t ji) {
-    MasterOf r;
-    r.index = static_cast<int>(ji);
-    r.factor = 1.0;
-    for (size_t depth = 0; depth < robot.joints.size() && robot.joints[static_cast<size_t>(r.index)].hasMimic; depth++) {
-        const int m = robot.FindJoint(robot.joints[static_cast<size_t>(r.index)].mimicJoint);
-        if (m < 0) break;
-        r.factor *= static_cast<double>(robot.joints[static_cast<size_t>(r.index)].mimicMultiplier);
-        r.index = m;
-    }
-    return r;
-}
-
 // 3x3 대칭 관성 텐서를 월드 좌표로: R_link * R_origin * I * (R_link * R_origin)^T
 M3 WorldInertia(const urdf::Link& l, const M3& Rlink) {
     M3 I;

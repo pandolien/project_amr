@@ -40,6 +40,7 @@ project_amr/
 | CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
+| CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
 | CSock | 외부 통신 | - |
@@ -197,6 +198,16 @@ amr::urdf::LoadRobotMeshes(robot, amr::urdf::LoadOptions(), &meshes);  // visual
 | `Simulator` | RK4(1/500 초 이하)로 (q, qd) 적분. limit 에서 멈춤, 모터 토크 기본 0 |
 
 검증: 정지 상태 RNEA = 중력 토크, M 이 대칭이고 양의 정부호, `RNEA(qdd) = M qdd`, 코리올리/원심력/자이로 항을 **질량 행렬의 수치 미분**으로 독립 계산해서 대조, 감쇠 없는 에너지 보존(회전/이동/mimic/회전된 관성 텐서), 진자 주기 `2π sqrt(M / (m g L))`, 점성 감쇠 `exp(-d t / M)`, 쿨롱 마찰 감속 `f / M`, limit 정지. 변이 테스트 13종을 모두 잡았습니다.
+
+## 역기구학 (CKinematics: IK.h)
+
+URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `SolveIk(robot, 시작 관절값, 링크, 목표 자세, 옵션)`. 자코비안을 관절 축/원점에서 만들고 감쇠 최소제곱(Levenberg-Marquardt)으로 풉니다.
+- 위치만(기본) 또는 위치 + 자세(`useOrientation`), mimic 관절은 마스터에 합쳐서 풉니다.
+- 관절 한계를 지킵니다 (한계에 닿은 관절은 고정하고 나머지로 다시 풉니다). 닿을 수 없으면 `converged = false` 와 함께 가장 가까운 값을 돌려줍니다.
+- 시작 값에 가까운 해로 수렴하고, 중복 자유도(7축 등)는 가장 적게 움직이는 해를 고릅니다.
+- 일직선 같은 특이 자세 근처에서는 국소 최솟값에 멈출 수 있습니다. 한 번에 해를 찾아야 하면 `restarts` (한계 안의 무작위 값으로 다시 시작, 시드 고정)를 씁니다.
+- 로봇 전용 해석적 IK 가 필요하면 같은 시그니처로 따로 추가하고 호출부만 바꾸면 됩니다.
+- 뷰어: 팔 링크를 선택하고 좌표계 화살표를 끌면 위치만 맞추는 IK 로 관절이 따라옵니다.
 
 ## 충돌 감지 (CCollision)
 
