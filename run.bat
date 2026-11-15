@@ -107,7 +107,7 @@ if errorlevel 1 (
         echo [run.bat] clapack is not installed. Run: "%VCPKG_DIR%\vcpkg.exe" install clapack:%TRIPLET%
         exit /b 1
     )
-    echo [run.bat] Installing clapack (LAPACK) with vcpkg ^(first time takes a while^)
+    echo [run.bat] Installing clapack ^(LAPACK^) with vcpkg ^(first time takes a while^)
     "%VCPKG_DIR%\vcpkg.exe" install clapack:%TRIPLET%
     if errorlevel 1 (echo [run.bat] vcpkg install failed & exit /b 1)
 ) else (
@@ -148,7 +148,7 @@ if exist "%APP%" (
     "%APP%"%APP_ARGS%
     exit /b !errorlevel!
 )
-echo [run.bat] amr_main does not exist yet ^(main.cpp is empty^). Running the tests instead.
+echo [run.bat] amr_main was not built. Running the tests instead.
 
 :runtests
 pushd build
