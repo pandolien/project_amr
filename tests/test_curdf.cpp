@@ -331,7 +331,37 @@ void testMeshes() {
 
 }  // namespace
 
+void testDynamicsAndUnits() {
+    Robot r;
+    std::string err;
+    check(LoadUrdfFromString(
+              "<robot name='d'><link name='a'/><link name='b'/><link name='c'/>"
+              "<joint name='j1' type='revolute'><parent link='a'/><child link='b'/><axis xyz='0 0 1'/>"
+              "<limit lower='-1' upper='1' effort='5' velocity='1'/><dynamics damping='0.25' friction='0.5'/></joint>"
+              "<joint name='j2' type='prismatic'><parent link='b'/><child link='c'/><axis xyz='1 0 0'/>"
+              "<limit lower='0' upper='1' effort='5' velocity='1'/></joint></robot>",
+              &r, &err),
+          "dynamics urdf loads");
+    const Joint& j1 = r.joints[static_cast<size_t>(r.FindJoint("j1"))];
+    const Joint& j2 = r.joints[static_cast<size_t>(r.FindJoint("j2"))];
+    check(j1.hasDynamics && nearly(j1.damping, 0.25) && nearly(j1.friction, 0.5), "dynamics damping/friction parsed");
+    check(!j2.hasDynamics && j2.damping == 0 && j2.friction == 0, "no <dynamics>: zero");
+    check(!LoadUrdfFromString(
+              "<robot name='d'><link name='a'/><link name='b'/>"
+              "<joint name='j' type='revolute'><parent link='a'/><child link='b'/><axis xyz='0 0 1'/>"
+              "<limit lower='-1' upper='1' effort='5' velocity='1'/><dynamics damping='-1'/></joint></robot>",
+              &r, &err),
+          "negative damping is rejected");
+    // 단위 변환: 각도 관절은 degree, 이동 관절은 m 그대로
+    check(j1.IsAngular() && !j2.IsAngular(), "IsAngular");
+    check(nearly(j1.ToDisplay(3.14159265358979 / 2), 90.0, 1e-9) && nearly(j1.FromDisplay(180.0), 3.14159265358979, 1e-9), "angular joint: rad <-> deg");
+    check(nearly(j2.ToDisplay(0.25), 0.25) && nearly(j2.FromDisplay(0.25), 0.25), "prismatic joint: m unchanged");
+    check(std::string(j1.DisplayUnit()) == "deg" && std::string(j2.DisplayUnit()) == "m", "display units");
+    check(std::string(j1.TorqueUnit()) == "N*m" && std::string(j2.TorqueUnit()) == "N", "torque units");
+}
+
 int main() {
+    testDynamicsAndUnits();
     testParse();
     testKinematics();
     testRpyConvention();

@@ -31,6 +31,11 @@ target_link_libraries(test_ccollision PRIVATE Core)
 amr_set_warnings(test_ccollision)
 add_test(NAME test_ccollision COMMAND test_ccollision)
 
+add_executable(test_cdynamics test_cdynamics.cpp)
+target_link_libraries(test_cdynamics PRIVATE Core)
+amr_set_warnings(test_cdynamics)
+add_test(NAME test_cdynamics COMMAND test_cdynamics)
+
 # 샘플 URDF 를 창 없이 읽어 보는 스모크 테스트 (amr_main 이 만들어졌을 때만)
 if(TARGET amr_main)
     add_test(NAME sample_urdf_info COMMAND amr_main --info ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
@@ -40,6 +45,10 @@ if(TARGET amr_main)
     add_test(NAME sample_urdf_aabb_folded COMMAND amr_main --info --aabb --joint shoulder_pitch=90 --joint elbow_pitch=-170
              ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
     set_tests_properties(sample_urdf_aabb_folded PROPERTIES PASS_REGULAR_EXPRESSION "AABB 겹침 후보 3건")
+    # 중력 토크: 수평으로 뻗은 샘플 팔의 어깨/팔꿈치 토크 (손계산: 9.80665 * (1.2*0.3 + 0.8*0.85 + 0.3*1.16) = 13.6116 등)
+    add_test(NAME sample_urdf_torque COMMAND amr_main --info --torque ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
+    set_tests_properties(sample_urdf_torque PROPERTIES PASS_REGULAR_EXPRESSION
+        "shoulder_pitch +0.000 deg +토크 +-13.6116 N\\*m.*elbow_pitch +0.000 deg +토크 +-3.6088 N\\*m")
     # OBB 로 다시 확인하면 3건 중 2건만 실제 충돌 (shoulder-forearm 은 AABB 만 겹침)
     add_test(NAME sample_urdf_obb_folded COMMAND amr_main --info --obb --joint shoulder_pitch=90 --joint elbow_pitch=-170
              ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)

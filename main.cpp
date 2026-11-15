@@ -1,6 +1,7 @@
 // AMR + 로봇 팔 시스템 진입점.
 //   amr_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,6 +15,7 @@
 #endif
 
 #include "CCollision/RobotCollision.h"
+#include "CDynamics/Gravity.h"
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
 
@@ -31,13 +33,19 @@ struct Options {
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
     bool obb;                  // OBB 충돌 박스를 처음부터 표시
+    bool torque;               // 관절별 중력 토크를 출력 (--info 와 같이)
+    double gravity[3];         // 중력 가속도 (m/s^2, 루트 링크 좌표계)
     std::string shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
     std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
     std::string select;        // 시작할 때 선택(강조)할 링크 이름
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), obb(false), width(1100), height(720) {}
+    Options() : info(false), aabb(false), obb(false), torque(false), width(1100), height(720) {
+        gravity[0] = 0;
+        gravity[1] = 0;
+        gravity[2] = -amr::dynamics::kStandardGravity;
+    }
 };
 
 void PrintUsage(const char* exe) {
@@ -46,6 +54,8 @@ void PrintUsage(const char* exe) {
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
         "  --aabb, --obb      AABB / OBB 충돌 박스를 표시 (--info 와 같이 쓰면 링크별 AABB 와 충돌 목록을 출력)\n"
+        "  --torque           관절별 중력 토크를 출력 (--info 와 같이 쓰거나, 창의 관절 패널에서 확인)\n"
+        "  --gravity gx,gy,gz 중력 가속도 m/s^2 (루트 링크 좌표계, 기본 0,0,-9.80665)\n"
         "  --joint 이름=값    관절 값 지정 (revolute/continuous: 도, prismatic: m), 여러 번 가능\n"
         "  --package 이름=폴더 package://이름/ 을 찾을 폴더, 여러 번 가능\n"
         "  --shot 파일.png    3D 화면을 저장하고 종료 (Qt 빌드에서만)\n"
@@ -72,6 +82,14 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--info") { o->info = true; continue; }
         if (a == "--aabb") { o->aabb = true; continue; }
         if (a == "--obb") { o->obb = true; continue; }
+        if (a == "--torque") { o->torque = true; continue; }
+        if (a == "--gravity" && i + 1 < argc) {
+            if (std::sscanf(argv[++i], "%lf,%lf,%lf", &o->gravity[0], &o->gravity[1], &o->gravity[2]) != 3) {
+                std::fprintf(stderr, "--gravity 는 gx,gy,gz 형식입니다 (예: 0,0,-9.80665)\n");
+                return 2;
+            }
+            continue;
+        }
         const bool hasNext = i + 1 < argc;
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
         if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
@@ -109,15 +127,20 @@ std::string LowerExt(const std::string& p) {
     return e;
 }
 
-// 링크별 AABB 와 겹치는 링크 쌍(AABB 후보 -> OBB 로 확인한 충돌)을 출력한다 (--joint 로 준 자세 기준)
-void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr::urdf::LoadOptions& load) {
+// --joint 로 받은 값(각도 관절은 degree, 이동 관절은 m)을 내부 값(rad, m)으로 바꾼다
+amr::urdf::JointValues JointValuesFromOptions(const amr::urdf::Robot& robot, const Options& o) {
     amr::urdf::JointValues q;
     for (size_t i = 0; i < o.joints.size(); i++) {
         const int ji = robot.FindJoint(o.joints[i].first);
         if (ji < 0) { std::fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
-        const bool prismatic = robot.joints[static_cast<size_t>(ji)].type == amr::urdf::kJointPrismatic;
-        q[o.joints[i].first] = static_cast<float>(prismatic ? o.joints[i].second : o.joints[i].second * 3.14159265358979 / 180.0);
+        q[o.joints[i].first] = static_cast<float>(robot.joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
     }
+    return q;
+}
+
+// 링크별 AABB 와 겹치는 링크 쌍(AABB 후보 -> OBB 로 확인한 충돌)을 출력한다 (--joint 로 준 자세 기준)
+void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr::urdf::LoadOptions& load) {
+    const amr::urdf::JointValues q = JointValuesFromOptions(robot, o);
     amr::CollisionModelOptions copt;
     copt.load = load;
     copt.fallbackToVisual = true;
@@ -147,6 +170,29 @@ void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr:
     }
 }
 
+// 관절별 중력 토크 (--joint 로 준 자세, --gravity 방향 기준)
+void PrintTorques(const amr::urdf::Robot& robot, const Options& o) {
+    const amr::urdf::JointValues q = JointValuesFromOptions(robot, o);
+    const amr::dynamics::Gravity g(o.gravity[0], o.gravity[1], o.gravity[2]);
+    const amr::dynamics::JointTorques t = amr::dynamics::GravityTorques(robot, q, g);
+    std::printf("중력 토크: g = (%.4f, %.4f, %.4f) m/s^2 (루트 링크 좌표계)\n", g.x, g.y, g.z);
+    double com[3], mass = 0;
+    if (amr::dynamics::CenterOfMass(robot, q, com, &mass))
+        std::printf("  전체 질량 %.4f kg, 질량중심 (%.4f, %.4f, %.4f) m\n", mass, com[0], com[1], com[2]);
+    else
+        std::printf("  (<inertial> 질량이 있는 링크가 없습니다)\n");
+    const std::vector<int> act = robot.ActuatedJoints();
+    for (size_t i = 0; i < act.size(); i++) {
+        const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(act[i])];
+        const amr::urdf::JointValues::const_iterator qi = q.find(j.name);
+        const double shown = j.ToDisplay(qi == q.end() ? 0.0 : static_cast<double>(qi->second));
+        const double tau = t.find(j.name)->second;
+        std::printf("  %-16s %9.3f %-3s  토크 %10.4f %s", j.name.c_str(), shown, j.DisplayUnit(), tau, j.TorqueUnit());
+        if (j.effort > 0.0f) std::printf("  (한계 %g%s)", static_cast<double>(j.effort), std::fabs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
+        std::printf("\n");
+    }
+}
+
 // 창 없이 파일 정보를 출력한다. 성공하면 0.
 int PrintInfo(const Options& o) {
     if (o.file.empty()) { PrintUsage("amr_main"); return 2; }
@@ -166,6 +212,7 @@ int PrintInfo(const Options& o) {
         for (size_t i = 0; i < robot.warnings.size(); i++) std::printf("경고: %s\n", robot.warnings[i].c_str());
         for (size_t i = 0; i < meshes.warnings.size(); i++) std::printf("경고: %s\n", meshes.warnings[i].c_str());
         if (o.aabb || o.obb) PrintCollisions(robot, o, opt);
+        if (o.torque) PrintTorques(robot, o);
         return ok ? 0 : 1;
     }
     amr::Scene scene;
@@ -189,6 +236,8 @@ int PrintInfo(const Options& o) {
 #include <QDockWidget>
 #include <QDragEnterEvent>
 #include <QFileDialog>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QLabel>
 #include <QMainWindow>
 #include <QMenuBar>
@@ -206,7 +255,7 @@ namespace {
 
 class MainWindow : public QMainWindow {
 public:
-    explicit MainWindow(const Options& o) : QMainWindow(nullptr) {
+    explicit MainWindow(const Options& o) : QMainWindow(nullptr), gravity_(o.gravity[0], o.gravity[1], o.gravity[2]) {
         setWindowTitle("AMR RobotArm Viewer");
         resize(o.width, o.height);
         setAcceptDrops(true);
@@ -228,7 +277,10 @@ public:
         dock_->setWidget(panel_);
         addDockWidget(Qt::RightDockWidgetArea, dock_);
         dock_->hide();
-        QObject::connect(panel_, &JointPanel::valuesChanged, this, [this]() { viewer_->SetJointValues(panel_->Values()); });
+        QObject::connect(panel_, &JointPanel::valuesChanged, this, [this]() {
+            viewer_->SetJointValues(panel_->Values());
+            updateTorques();
+        });
 
         QMenu* file = menuBar()->addMenu(QString::fromUtf8("파일"));
         QAction* open = file->addAction(QString::fromUtf8("열기..."));
@@ -250,6 +302,31 @@ public:
         grid->setCheckable(true);
         grid->setChecked(true);
         QObject::connect(grid, &QAction::toggled, viewer_, &ModelViewer::SetShowGrid);
+        QAction* grav = view->addAction(QString::fromUtf8("중력 방향..."));
+        QObject::connect(grav, &QAction::triggered, this, [this]() {
+            bool ok = false;
+            const QString cur = QString("%1, %2, %3").arg(gravity_.x).arg(gravity_.y).arg(gravity_.z);
+            const QString text = QInputDialog::getText(this, QString::fromUtf8("중력 가속도"),
+                                                       QString::fromUtf8("gx, gy, gz (m/s², 루트 링크 좌표계)\n경사면의 AMR 이면 기울어진 방향을 넣으세요."),
+                                                       QLineEdit::Normal, cur, &ok);
+            if (!ok) return;
+            QString flat = text;
+            flat.replace(',', ' ');
+            const QStringList p = flat.simplified().split(' ');
+            bool a = false, b = false, c = false;
+            double gx = 0, gy = 0, gz = 0;
+            if (p.size() == 3) {
+                gx = p[0].toDouble(&a);
+                gy = p[1].toDouble(&b);
+                gz = p[2].toDouble(&c);
+            }
+            if (a && b && c) {
+                gravity_ = amr::dynamics::Gravity(gx, gy, gz);
+                updateTorques();
+            } else {
+                QMessageBox::warning(this, QString::fromUtf8("중력 가속도"), QString::fromUtf8("숫자 세 개(gx, gy, gz)를 넣어 주세요."));
+            }
+        });
         QAction* structure = treeDock_->toggleViewAction();
         structure->setText(QString::fromUtf8("구조 트리"));
         structure->setShortcut(Qt::Key_T);
@@ -283,13 +360,12 @@ public:
         return true;
     }
 
-    // 명령행에서 받은 관절 값을 적용한다 (revolute/continuous 는 도 -> rad)
+    // 명령행에서 받은 관절 값을 적용한다 (각도 관절은 degree 로 받아 rad 로 바꾼다)
     void applyJoints(const Options& o) {
         for (size_t i = 0; i < o.joints.size(); i++) {
             const int ji = viewer_->Robot().FindJoint(o.joints[i].first);
             if (ji < 0) { std::fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
-            const bool prismatic = viewer_->Robot().joints[static_cast<size_t>(ji)].type == amr::urdf::kJointPrismatic;
-            panel_->SetValue(QString::fromStdString(o.joints[i].first), prismatic ? o.joints[i].second : o.joints[i].second * 3.14159265358979 / 180.0);
+            panel_->SetValue(QString::fromStdString(o.joints[i].first), viewer_->Robot().joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
         }
     }
 
@@ -314,6 +390,13 @@ protected:
     }
 
 private:
+    // 현재 자세와 중력으로 관절별 중력 토크를 다시 계산해서 패널에 보여준다
+    void updateTorques() {
+        if (!viewer_->HasRobot()) return;
+        panel_->SetTorques(amr::dynamics::GravityTorques(viewer_->Robot(), panel_->Values(), gravity_));
+        dock_->setWindowTitle(QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5));
+    }
+
     void updateCollisionLabel() {
         if (!viewer_->HasRobot()) {
             collisionLabel_->clear();
@@ -335,6 +418,7 @@ private:
             tree_->SetRobot(viewer_->Robot());
             tree_->SetCollidingLinks(viewer_->CollidingLinks());
             panel_->SetRobot(viewer_->Robot());
+            updateTorques();
             dock_->setVisible(!panel_->IsEmpty());
         } else {
             if (viewer_->HasScene()) tree_->SetScene(viewer_->StaticScene());
@@ -356,6 +440,7 @@ private:
     StructurePanel* tree_;
     QDockWidget* treeDock_;
     QLabel* collisionLabel_;
+    amr::dynamics::Gravity gravity_;
 };
 
 }  // namespace

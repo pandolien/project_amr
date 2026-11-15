@@ -1,5 +1,7 @@
 #include "3d/dhQuat.h"
 
+#include <cmath>
+
 #include "3d/dhEuler.h"
 #include "3d/dhMat.h"
 
@@ -17,4 +19,38 @@ dhMat dhQuat::GetMat() const {
 dhEuler dhQuat::GetEuler() const {
     // 쿼터니언 -> 행렬 -> 오일러각(dhMat::RPY) 순서로 변환
     return GetMat().RPY();
+}
+
+dhQuat dhQuat::FromAxisAngle(float angle, const dhVector& axis) {
+    const float n = axis.Norm();
+    if (!(n > 0.0f) || !std::isfinite(n)) return dhQuat();
+    const float h = angle * 0.5f;
+    const float s = std::sin(h) / n;
+    return dhQuat(axis.x * s, axis.y * s, axis.z * s, std::cos(h));
+}
+
+float dhQuat::Norm() const { return std::sqrt(w * w + x * x + y * y + z * z); }
+
+float dhQuat::Dot(const dhQuat& o) const { return w * o.w + x * o.x + y * o.y + z * o.z; }
+
+dhQuat dhQuat::Normalized() const {
+    const float n = Norm();
+    if (!(n > 0.0f) || !std::isfinite(n)) return dhQuat();
+    return dhQuat(x / n, y / n, z / n, w / n);
+}
+
+dhQuat dhQuat::Conjugate() const { return dhQuat(-x, -y, -z, w); }
+
+dhQuat dhQuat::operator*(const dhQuat& o) const {
+    return dhQuat(w * o.x + x * o.w + y * o.z - z * o.y,   //
+                  w * o.y - x * o.z + y * o.w + z * o.x,   //
+                  w * o.z + x * o.y - y * o.x + z * o.w,   //
+                  w * o.w - x * o.x - y * o.y - z * o.z);
+}
+
+dhVector dhQuat::Rotate(const dhVector& v) const {
+    // v' = v + 2w (u x v) + 2 u x (u x v),  u = (x, y, z)
+    const dhVector u(x, y, z);
+    const dhVector t = (u * v) * 2.0f;
+    return v + t * w + u * t;
 }

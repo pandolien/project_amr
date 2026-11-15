@@ -35,17 +35,29 @@ project_amr/
 | 모듈 | 역할 | 의존 |
 |---|---|---|
 | CMat | 행렬 연산 (SVD, 의사역행렬: LAPACK `dgesvd`, double 정밀도로 계산) | LAPACK |
-| 3d | 3차원 공간 (dhVector/dhMat/dhQuat/dhEuler/dhVertex) | - |
+| 3d | 3차원 공간 (dhVector/dhMat/dhQuat/dhEuler/dhVertex), 자세 `dhPose`(위치 m + 쿼터니언), 단위 변환 `Units.h` | - |
 | CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
-| CDynamics | 동역학 연산 | 3d |
+| CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
 | CSock | 외부 통신 | - |
 
 헤더는 `#include "CMat/CMat.h"` 형태로 사용합니다.
 `Core/src` 아래에 `.cpp`를 추가하면 CMake가 자동으로 인식합니다.
 재사용할 Qt 위젯은 `Core/Qt`(`#include "CoreQt/..."`)에 둡니다.
+
+## 단위와 자세 규약
+
+| 구간 | 규약 |
+|---|---|
+| 내부 계산, 데이터 전송 | 길이 **m**, 각도 **rad**, 방향은 **쿼터니언 (x, y, z, w)**, 관절 값은 rad / m |
+| 사람에게 보이는 곳 (화면, 콘솔, 명령행) | 각도는 **deg** (이동 관절은 m 그대로) |
+
+- 자세는 `dhPose`(`3d/dhPose.h`)로 주고받습니다. 전송 형식은 7개 값 `x, y, z, qx, qy, qz, qw` 이고, `ToArray` 는 쿼터니언을 정규화하고 `w >= 0` 으로 맞춥니다(`q` 와 `-q` 는 같은 회전). `FromArray` 는 NaN/무한대와 길이 0 쿼터니언을 거부하고 정규화합니다.
+- degree 변환은 사람과 맞닿는 경계에서만 합니다: `amr::units::RadToDeg/DegToRad`, 화면용 방향 `RpyDegFromQuat`(roll/pitch/yaw, URDF rpy 규약), 관절은 `Joint::ToDisplay/FromDisplay`(각도 관절만 변환), `DisplayUnit()`, `TorqueUnit()`.
+- 주의: `dhQuat` 의 생성자 순서는 `(x, y, z, w)` 이고 멤버 선언 순서는 `w, x, y, z` 입니다. `dhQuat(1, 0, 0, 0)` 은 항등이 아니라 X축 180도 회전입니다.
+- 중력/동역학은 double 로 계산합니다 (입력인 `dhMat`, `Robot` 값은 float 이므로 입력 정밀도는 float 입니다).
 
 ## 3D 뷰어 (amr_main)
 
@@ -65,6 +77,7 @@ project_amr/
 - Qt 없이 빌드(`-DAMR_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 5 를 찾거나(`CMAKE_PREFIX_PATH`) vcpkg 로 설치한 뒤 창 모드로 빌드합니다 (`--no-qt` 로 끔). vcpkg 의 Qt 는 5.15 대입니다 (5.12 이상이면 동작).
 - **구조 트리** (왼쪽, `보기 > 구조 트리` / `T`): URDF 는 루트 링크부터 관절을 따라 이어지는 링크 계층(관절 이름, 종류와 limit, visual/collision 개수, 질량)을, 정적 모델은 노드 계층을 보여줍니다. 링크를 클릭하면 뷰어에서 그 링크가 밝게 강조되고, 충돌 중인 링크는 트리에서 빨갛게 표시됩니다.
 - **충돌 박스** (`보기 > OBB 충돌 박스` `O`, `보기 > AABB 충돌 박스` `B`, 또는 `--obb` / `--aabb`): AABB(링크마다, 노랑 / 후보이면 주황)와 OBB(도형마다, 하늘색 / 충돌하면 빨강)를 그립니다. 상태바 오른쪽에 OBB 로 확인된 충돌 쌍과 AABB 후보 수가 나옵니다 (부모-자식으로 직접 이어진 링크는 항상 맞닿으므로 제외). 창 없이 `--info --obb --joint 이름=값` 으로 링크별 AABB 와 충돌 목록을 출력할 수도 있습니다.
+- **중력 토크**: 관절 패널의 슬라이더 아래에 관절별 중력 토크(회전 N·m, 이동 N)가 나오고, URDF `effort` 한계를 넘으면 빨갛게 표시됩니다. `보기 > 중력 방향...` 이나 `--gravity gx,gy,gz` 로 중력 방향을 바꿀 수 있습니다(루트 링크 좌표계, 경사면의 AMR 이면 기울어진 방향). 창 없이 `--info --torque [--joint 이름=도] [--gravity ...]` 로 표로 출력할 수도 있습니다.
 - `--select 링크이름` 으로 시작할 때 링크를 선택하고, `--shot-window 파일.png` 로 패널을 포함한 창 전체를 저장합니다.
 - 마우스 조작과 실제 GPU 환경은 아직 사람 손으로 확인하지 못했습니다 (가상 화면의 소프트웨어 렌더링으로 그림은 확인).
 
@@ -188,6 +201,22 @@ rep.linkAabbs, rep.shapeObbs;                   // 그릴 때 쓰는 상자들
 - AABB: box / sphere / cylinder 는 기울어져 있어도 **정확한** 값이고, mesh 는 로컬 AABB 를 변환한 값이라 회전하면 조금 더 큽니다. OBB: box 는 정확, cylinder 는 (지름 x 지름 x 길이) 상자, sphere 는 지름 정육면체, mesh 는 로컬 AABB 를 도형 방향으로 돌린 상자입니다 (모두 실제 모양을 완전히 감싸는 보수적인 상자).
 - 자기충돌은 부모-자식 링크를 기본으로 제외하고, `SelfCollisionOptions::ignoredPairs` 로 이름 쌍을 더 뺄 수 있습니다.
 - 멤버 이름이 `min`/`max` 가 아니라 `lo`/`hi` 인 것은 Windows 의 `min`/`max` 매크로와 충돌하지 않게 하려는 것입니다.
+
+## 중력 / 동역학 (CDynamics)
+
+`CDynamics/Gravity.h` (`amr::dynamics`), 계산은 double, 단위는 SI 입니다.
+
+```cpp
+amr::dynamics::Gravity g;                                   // 기본 (0, 0, -9.80665) m/s^2, 루트 링크 좌표계
+amr::dynamics::JointTorques t = amr::dynamics::GravityTorques(robot, q, g);   // 관절 이름 -> N*m (이동 관절은 N)
+double com[3], mass;
+amr::dynamics::CenterOfMass(robot, q, com, &mass);          // 로봇 전체 질량중심 (AMR 전도 여부 확인 등에 사용)
+```
+
+- `GravityTorques` 는 정지 상태에서 각 관절이 중력을 버티려고 내야 하는 토크, 즉 운동방정식 `M q'' + C + g(q) = tau` 의 `g(q) = dU/dq` 입니다. 부호는 관절 좌표(axis 방향 회전, 이동)의 + 방향 기준입니다. 수평으로 뻗은 팔이 +y 축 관절에 달려 있으면 처지는 방향이 +y 회전이므로 음수가 나옵니다.
+- 결과에는 구동 관절(움직이면서 mimic 이 아닌 것)만 들어가고, mimic 관절의 토크는 `multiplier` 배로 원본 관절에 합쳐집니다. 질량은 URDF `<inertial>` 의 `mass` 와 `origin`(질량중심)을 씁니다. 중력 토크에는 관성 텐서가 필요 없어서 아직 쓰이지 않습니다 (RNEA 로 확장할 때 쓸 예정).
+- URDF `<dynamics damping friction>` 은 `Joint::damping/friction` 으로 읽어 두었고, 아직 계산에는 쓰이지 않습니다 (마찰 토크는 다음 단계).
+- 검증: 진자/슬라이더 해석해와 비교하고, 가지가 있는 로봇(회전+이동+fixed+mimic+continuous, 회전된 관절/관성 원점)은 float FK 의 위치에너지를 수치 미분한 `dU/dq` 와 대조합니다.
 
 ## Qt 라이선스 주의 (LGPLv3)
 

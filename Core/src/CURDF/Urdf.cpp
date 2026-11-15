@@ -280,6 +280,12 @@ struct Parser {
         } else if (j.type == kJointRevolute || j.type == kJointPrismatic) {
             robot->warnings.push_back(ctx + ": limit 이 없어 제한 없이 움직입니다 (URDF 규격상 필수)");
         }
+        XMLElement* dyn = e->FirstChildElement("dynamics");
+        if (dyn) {
+            if (!Float(dyn, "damping", 0, &j.damping, ctx.c_str()) || !Float(dyn, "friction", 0, &j.friction, ctx.c_str())) return false;
+            if (j.damping < 0 || j.friction < 0) return Fail(ctx + ": dynamics 의 damping/friction 은 음수일 수 없습니다");
+            j.hasDynamics = true;
+        }
         XMLElement* mi = e->FirstChildElement("mimic");
         if (mi) {
             if (!mi->Attribute("joint")) return Fail(ctx + ": mimic 에 joint 가 없습니다");

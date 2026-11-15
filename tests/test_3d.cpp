@@ -2,8 +2,10 @@
 #include <cmath>
 #include <cstdio>
 
+#include "3d/Units.h"
 #include "3d/dhEuler.h"
 #include "3d/dhMat.h"
+#include "3d/dhPose.h"
 #include "3d/dhQuat.h"
 #include "3d/dhVector.h"
 #include "3d/dhVertex.h"
@@ -178,6 +180,73 @@ void testEulerClass() {
 
 }  // namespace
 
+// ---- 쿼터니언 연산, Pose, 단위
+void testQuatOps() {
+    const dhVector ax(1, 2, 3);
+    const dhQuat q = dhQuat::FromAxisAngle(0.8f, ax);
+    check(nearly(q.Norm(), 1.0f), "FromAxisAngle gives a unit quaternion");
+    check(nearlyMat(q.GetMat(), dhMat::Quat(0.8f, ax)), "FromAxisAngle == dhMat::Quat");
+    check(nearly(dhQuat::FromAxisAngle(1.0f, dhVector(0, 0, 0)).w, 1.0f), "zero axis -> identity");
+
+    const dhVector v(0.3f, -1.2f, 2.0f);
+    check(nearlyVec(q.Rotate(v), q.GetMat() * dhVector(0, 0, 0) + dhVector(0, 0, 0) + (q.GetMat() * v)), "Rotate == matrix * v (rotation only)");
+    const dhQuat a = dhQuat::FromAxisAngle(0.5f, dhVector(1, 0, 0)), b = dhQuat::FromAxisAngle(1.1f, dhVector(0, 1, 1));
+    check(nearlyVec((a * b).Rotate(v), a.Rotate(b.Rotate(v))), "(a*b) applies b first, then a");
+    check(nearlyMat((a * b).GetMat(), a.GetMat() * b.GetMat()), "quaternion product == matrix product");
+    check(nearlyVec(q.Conjugate().Rotate(q.Rotate(v)), v), "Conjugate is the inverse rotation");
+    check(nearly(dhQuat(0, 0, 0, 2).Normalized().w, 1.0f), "Normalized");
+    check(nearly(dhQuat(0, 0, 0, 0).Normalized().w, 1.0f), "zero quaternion normalizes to identity");
+    check(nearly(dhQuat(NAN, 0, 0, 1).Normalized().w, 1.0f), "NaN quaternion normalizes to identity");
+}
+
+void testPose() {
+    const dhPose p(dhVector(1, 2, 3), dhQuat::FromAxisAngle(0.7f, dhVector(0, 0, 1)));
+    check(nearlyMat(p.ToMat(), dhMat::Trans(1, 2, 3) * dhMat::RotZ(0.7f)), "Pose::ToMat == Trans * Rot");
+    const dhPose back = dhPose::FromMat(p.ToMat());
+    check(nearlyVec(back.position, p.position) && nearly(std::fabs(back.orientation.Dot(p.orientation)), 1.0f), "FromMat round trip");
+
+    const dhPose q(dhVector(-0.5f, 0.2f, 1.0f), dhQuat::FromAxisAngle(1.3f, dhVector(1, 1, 0)));
+    check(nearlyMat((p * q).ToMat(), p.ToMat() * q.ToMat()), "Pose composition == matrix product");
+    const dhVector pt(0.4f, 0.1f, -0.7f);
+    check(nearlyVec(p * pt, p.ToMat() * pt), "Pose * point");
+    check(nearlyMat((p * p.Inv()).ToMat(), dhMat()), "pose * inverse = identity");
+    check(nearlyVec((p * q).Inv() * ((p * q) * pt), pt), "inverse of a composition");
+
+    // 전송 형식: x y z qx qy qz qw, 정규화, w >= 0
+    double w[7];
+    dhPose(dhVector(1, 2, 3), dhQuat(0, 0, 0.5f * 2, -2)).ToArray(w);  // (0,0,1,-2) 를 정규화하면 w < 0 -> 부호 반전
+    check(w[0] == 1 && w[1] == 2 && w[2] == 3, "ToArray: position (m) first");
+    check(w[6] > 0 && nearly(static_cast<float>(w[3] * w[3] + w[4] * w[4] + w[5] * w[5] + w[6] * w[6]), 1.0f), "ToArray: unit quaternion with w >= 0");
+    check(nearly(static_cast<float>(w[5]), -0.4472136f) && nearly(static_cast<float>(w[6]), 0.8944272f), "ToArray: order is x y z w");
+    dhPose r;
+    check(dhPose::FromArray(w, &r) && nearlyVec(r.position, dhVector(1, 2, 3)), "FromArray");
+    check(nearly(r.orientation.z, -0.4472136f) && nearly(r.orientation.w, 0.8944272f), "FromArray: x y z w order");
+    double bad[7] = {0, 0, 0, 0, 0, 0, 0};
+    check(!dhPose::FromArray(bad, &r), "FromArray rejects a zero quaternion");
+    double nanv[7] = {0, 0, NAN, 0, 0, 0, 1};
+    check(!dhPose::FromArray(nanv, &r), "FromArray rejects NaN");
+    double unnorm[7] = {0, 0, 0, 0, 0, 3, 4};
+    check(dhPose::FromArray(unnorm, &r) && nearly(r.orientation.Norm(), 1.0f), "FromArray normalizes");
+}
+
+void testUnits() {
+    check(std::fabs(amr::units::DegToRad(180.0) - 3.14159265358979323846) < 1e-12, "DegToRad(180) = pi");
+    check(std::fabs(amr::units::RadToDeg(3.14159265358979323846 / 2) - 90.0) < 1e-12, "RadToDeg(pi/2) = 90");
+    // 표시용 rpy(deg) 왕복. 짐벌 락에서 먼 값만 쓴다.
+    const amr::units::RpyDeg d(20.0, -35.0, 110.0);
+    const dhQuat q = amr::units::QuatFromRpyDeg(d);
+    check(nearly(q.Norm(), 1.0f), "QuatFromRpyDeg is a unit quaternion");
+    const amr::units::RpyDeg e = amr::units::RpyDegFromQuat(q);
+    check(std::fabs(e.roll - 20.0) < 1e-2 && std::fabs(e.pitch + 35.0) < 1e-2 && std::fabs(e.yaw - 110.0) < 1e-2, "rpy(deg) round trip");
+    // URDF rpy 규약과 같다: yaw 90 도이면 x 축이 y 축이 된다
+    check(nearlyVec(amr::units::QuatFromRpyDeg(amr::units::RpyDeg(0, 0, 90)).Rotate(dhVector(1, 0, 0)), dhVector(0, 1, 0)), "yaw 90 deg maps x to y");
+    // -q 도 같은 회전이므로 같은 표시값이 나온다
+    const dhQuat nq(-q.x, -q.y, -q.z, -q.w);
+    const amr::units::RpyDeg f = amr::units::RpyDegFromQuat(nq);
+    check(std::fabs(f.roll - e.roll) < 1e-2 && std::fabs(f.pitch - e.pitch) < 1e-2 && std::fabs(f.yaw - e.yaw) < 1e-2, "q and -q display the same angles");
+}
+
+
 int main() {
     testVector();
     testVertex();
@@ -190,6 +259,9 @@ int main() {
     testVertexExtras();
     testQuatClass();
     testEulerClass();
+    testQuatOps();
+    testPose();
+    testUnits();
 
     if (g_fail) {
         std::printf("test_3d: %d 실패\n", g_fail);

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "3d/dhMat.h"
+#include "3d/Units.h"
 #include "3d/dhVector.h"
 #include "CMesh/Mesh.h"
 
@@ -80,13 +81,24 @@ struct Joint {
     dhVector axis;       // 정규화된 회전/이동 축 (관절 좌표계, 기본 1 0 0)
     float lower, upper, effort, velocity;
     bool hasLimit;
+    // <dynamics>: 점성 마찰 계수 damping (N·m·s/rad 또는 N·s/m)와 쿨롱 마찰 friction (N·m 또는 N). 없으면 0.
+    float damping, friction;
+    bool hasDynamics;
     bool hasMimic;
     std::string mimicJoint;
     float mimicMultiplier, mimicOffset;
     Joint() : type(kJointFixed), axis(1, 0, 0), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
-              hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
+              damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
     // 회전/이동으로 움직이는 관절인가 (fixed, floating, planar 는 움직이지 않는 것으로 취급)
     bool IsMovable() const { return type == kJointRevolute || type == kJointContinuous || type == kJointPrismatic; }
+    // 회전하는 관절인가 (각도: rad). prismatic 은 이동(m).
+    bool IsAngular() const { return type == kJointRevolute || type == kJointContinuous; }
+    // 사람에게 보여주는 값 <-> 내부 값(rad, m). 각도 관절만 degree 로 바꾸고 이동 관절은 그대로다.
+    double ToDisplay(double si) const { return IsAngular() ? amr::units::RadToDeg(si) : si; }
+    double FromDisplay(double display) const { return IsAngular() ? amr::units::DegToRad(display) : display; }
+    const char* DisplayUnit() const { return IsAngular() ? "deg" : "m"; }
+    // 토크/힘의 단위: 회전 관절은 N·m, 이동 관절은 N
+    const char* TorqueUnit() const { return IsAngular() ? "N*m" : "N"; }
 };
 
 typedef std::map<std::string, float> JointValues;  // 관절 이름 -> 각도(rad) 또는 변위(m)
