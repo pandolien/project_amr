@@ -107,8 +107,25 @@ void JointPanel::SetValue(const QString& jointName, double value) {
     }
 }
 
+void JointPanel::ShowValues(const amr::urdf::JointValues& q) {
+    for (size_t i = 0; i < rows_.size(); i++) {
+        Row& r = rows_[i];
+        const amr::urdf::JointValues::const_iterator it = q.find(r.name);
+        if (it == q.end() || r.slider->isSliderDown()) continue;
+        const double span = r.upper - r.lower;
+        const double c = std::max(r.lower, std::min(r.upper, static_cast<double>(it->second)));
+        const bool blocked = r.slider->blockSignals(true);
+        r.slider->setValue(span > 0 ? static_cast<int>(std::lround((c - r.lower) / span * kSteps)) : 0);
+        r.slider->blockSignals(blocked);
+        // 라벨에는 반올림 전의 값을 그대로 보여준다
+        r.value->setText(r.angular ? QString("%1°").arg(amr::units::RadToDeg(c), 0, 'f', 1) : QString("%1 m").arg(c, 0, 'f', 3));
+    }
+}
+
 void JointPanel::onSlider() {
     for (size_t i = 0; i < rows_.size(); i++) updateLabel(rows_[i]);
+    for (size_t i = 0; i < rows_.size(); i++)
+        if (rows_[i].slider == sender()) emit valueEdited(QString::fromStdString(rows_[i].name), valueOf(rows_[i]));
     emit valuesChanged();
 }
 

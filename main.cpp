@@ -39,6 +39,8 @@ struct Options {
     std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
     std::string select;        // 시작할 때 선택(강조)할 링크 이름
     int dragX0, dragY0, dragX1, dragY1;  // --drag: 눌렀다가 끌고 떼는 마우스 동작 (-1 이면 안 함)
+    bool motorsOff;            // --motors-off: 처음부터 모터를 끈다 (관절이 중력에 처짐)
+    double simulate;           // --simulate 초: 모터를 끄고 그 시간만큼 시뮬레이션한 뒤 관절 값을 출력 (확인용, 실시간이 아님)
     bool noFall;               // --no-fall: 중력 낙하를 끈다
     bool settle;               // --settle: 낙하가 끝날 때까지 진행한 뒤 위치를 출력 (확인용)
     bool hasMove;
@@ -47,7 +49,7 @@ struct Options {
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -amr::dynamics::kStandardGravity;
@@ -68,6 +70,8 @@ void PrintUsage(const char* exe) {
         "  --shot-window 파일.png  창 전체(구조 트리, 관절 패널 포함)를 저장하고 종료\n"
         "  --select 링크이름  시작할 때 그 링크를 선택해서 강조\n"
         "  --drag x0,y0,x1,y1 3D 화면에서 마우스를 (x0,y0) 에서 누르고 (x1,y1) 까지 끈 것처럼 처리 (좌표계 화살표 이동 확인용)\n"
+        "  --motors-off       모터를 끈 상태로 시작: 관절이 중력, 관성, 마찰에 따라 움직임 (보기 > 모터 끄기 / M)\n"
+        "  --simulate 초      (확인용) 모터를 끄고 그 시간만큼 진행한 뒤 관절 값을 출력\n"
         "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
@@ -109,6 +113,8 @@ int ParseArgs(int argc, char** argv, Options* o) {
             if (std::sscanf(argv[++i], "%d,%d,%d,%d", &o->dragX0, &o->dragY0, &o->dragX1, &o->dragY1) != 4) { std::fprintf(stderr, "--drag 는 x0,y0,x1,y1 형식입니다\n"); return false; }
             continue;
         }
+        if (a == "--motors-off") { o->motorsOff = true; continue; }
+        if (a == "--simulate" && hasNext) { o->simulate = std::atof(argv[++i]); o->motorsOff = true; continue; }
         if (a == "--no-fall") { o->noFall = true; continue; }
         if (a == "--settle") { o->settle = true; continue; }
         if (a == "--move" && hasNext) {
@@ -290,10 +296,12 @@ int PrintInfo(const Options& o) {
 #include <QTimer>
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFileInfo>
 
 #include "3d/Units.h"
+#include "CDynamics/Dynamics.h"
 #include "3d/dhPose.h"
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/ModelViewer.h"
@@ -335,6 +343,9 @@ public:
         dock_->setWidget(panel_);
         addDockWidget(Qt::RightDockWidgetArea, dock_);
         dock_->hide();
+        QObject::connect(panel_, &JointPanel::valueEdited, this, [this](const QString& name, double value) {
+            if (motorsOff_) sim_.SetValue(name.toStdString(), value);  // 손으로 옮긴 관절은 속도를 0 으로 다시 시작
+        });
         QObject::connect(panel_, &JointPanel::valuesChanged, this, [this]() {
             viewer_->SetJointValues(panel_->Values());
             updateTorques();
@@ -382,6 +393,7 @@ public:
             if (a && b && c) {
                 gravity_ = amr::dynamics::Gravity(gx, gy, gz);
                 viewer_->SetGravity(gx, gy, gz);
+                sim_.SetGravity(gravity_);
                 updateTorques();
             } else {
                 QMessageBox::warning(this, QString::fromUtf8("중력 가속도"), QString::fromUtf8("숫자 세 개(gx, gy, gz)를 넣어 주세요."));
@@ -402,6 +414,20 @@ public:
         viewer_->SetFallEnabled(!o.noFall);
         viewer_->SetGravity(gravity_.x, gravity_.y, gravity_.z);
         QObject::connect(fall, &QAction::toggled, viewer_, &ModelViewer::SetFallEnabled);
+        QAction* motors = view->addAction(QString::fromUtf8("모터 끄기 (관절이 중력에 처짐)"));
+        motors->setShortcut(Qt::Key_M);
+        motors->setCheckable(true);
+        simManual_ = o.simulate > 0;
+        QObject::connect(motors, &QAction::toggled, this, [this](bool on) { setMotorsOff(on); });
+        simTimer_ = new QTimer(this);
+        simTimer_->setInterval(16);
+        QObject::connect(simTimer_, &QTimer::timeout, this, [this]() {
+            double dt = static_cast<double>(simClock_.restart()) / 1000.0;
+            if (dt > 0.05) dt = 0.05;
+            stepSimulation(dt);
+        });
+        motorsOff_ = false;
+        motors->setChecked(o.motorsOff);
         QAction* resetPos = view->addAction(QString::fromUtf8("오브젝트 위치 초기화"));
         QObject::connect(resetPos, &QAction::triggered, viewer_, [this]() { viewer_->ResetObjectPosition(); });
         QAction* obbs = view->addAction(QString::fromUtf8("OBB 충돌 박스"));
@@ -457,6 +483,23 @@ public:
         if (o.hasMove) viewer_->SetObjectPosition(o.move[0], o.move[1], o.move[2]);
     }
 
+    // 확인용: 모터를 끈 시뮬레이션을 seconds 초만큼 (1/60 초씩) 진행하고 관절 값을 출력한다
+    void runSimulation(double seconds) {
+        if (!viewer_->HasRobot() || !motorsOff_) return;
+        for (double t = 0; t < seconds - 1e-9; t += 1.0 / 60.0) stepSimulation(1.0 / 60.0);
+        const amr::urdf::JointValues q = sim_.Values();
+        const amr::urdf::Robot& robot = viewer_->Robot();
+        std::printf("시뮬레이션 %.2f 초 후 (모터 꺼짐, 중력 %.3f, %.3f, %.3f):\n", seconds, gravity_.x, gravity_.y, gravity_.z);
+        const std::vector<int> act = robot.ActuatedJoints();
+        for (size_t i = 0; i < act.size(); i++) {
+            const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(act[i])];
+            const amr::urdf::JointValues::const_iterator it = q.find(j.name);
+            if (it == q.end()) continue;
+            std::printf("  %-18s %9.3f %s\n", j.name.c_str(), j.ToDisplay(static_cast<double>(it->second)), j.DisplayUnit());
+        }
+        std::printf("  총 에너지 %.4f J (운동 %.4f)\n", sim_.TotalEnergy(), sim_.KineticEnergy());
+    }
+
     ModelViewer* viewer() { return viewer_; }
 
 protected:
@@ -469,6 +512,39 @@ protected:
     }
 
 private:
+    // 모터 끄기: 켜면 지금 관절 값에서 시작해서 중력, 관성, 마찰로 움직인다. 끄면(모터 켜짐) 지금 자세를 유지한다.
+    void setMotorsOff(bool on) {
+        motorsOff_ = on;
+        if (!on) {
+            simTimer_->stop();
+            return;
+        }
+        resetSimulation();
+        if (!simManual_) {
+            simClock_.restart();
+            simTimer_->start();
+        }
+    }
+
+    void resetSimulation() {
+        if (!motorsOff_ || !viewer_->HasRobot()) return;
+        sim_.Reset(viewer_->Robot(), panel_->Values());
+        sim_.SetGravity(gravity_);
+        amr::dynamics::DynamicsOptions opt;
+        opt.defaultDamping = 0.2;  // URDF 에 감쇠가 없는 관절도 영원히 흔들리지 않도록 약한 점성 감쇠를 준다
+        sim_.SetOptions(opt);
+    }
+
+    void stepSimulation(double dt) {
+        if (!sim_.IsReady()) return;
+        sim_.Step(dt);
+        const amr::urdf::JointValues q = sim_.Values();
+        viewer_->SetJointValues(q);
+        panel_->ShowValues(q);
+        updateTorques(q);
+        updateSelectionLabel();
+    }
+
     // 좌표계 OBJ 를 찾아서 뷰어에 넣는다: 소스의 Data 폴더(개발 중), 실행 파일 옆 Data 폴더(배포) 순서
     void loadGizmo() {
         QStringList dirs;
@@ -508,10 +584,10 @@ private:
     }
 
     // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
-    void updateTorques() {
+    void updateTorques() { updateTorques(panel_->Values()); }
+    void updateTorques(const amr::urdf::JointValues& q) {
         if (!viewer_->HasRobot()) return;
         const amr::urdf::Robot& robot = viewer_->Robot();
-        const amr::urdf::JointValues q = panel_->Values();
         const amr::dynamics::JointTorques motor = amr::dynamics::GravityTorques(robot, q, gravity_);
         panel_->SetTorques(motor);
         dock_->setWindowTitle(QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5));
@@ -575,6 +651,7 @@ private:
         updateCollisionLabel();
         QString msg = path + "  -  " + viewer_->Summary();
         if (!viewer_->Warnings().isEmpty()) msg += QString::fromUtf8("  (경고 %1건: %2)").arg(viewer_->Warnings().size()).arg(viewer_->Warnings()[0]);
+        resetSimulation();
         infoMessage_ = msg;
         statusBar()->showMessage(msg);
         updateSelectionLabel();
@@ -587,6 +664,11 @@ private:
     StructurePanel* tree_;
     QDockWidget* treeDock_;
     QLabel* collisionLabel_;
+    amr::dynamics::Simulator sim_;
+    QTimer* simTimer_;
+    QElapsedTimer simClock_;
+    bool motorsOff_;
+    bool simManual_;   // --simulate: 타이머 없이 runSimulation 으로만 진행
     QString infoMessage_;   // 선택이 없을 때 상태바에 보이는 파일 정보
     amr::dynamics::Gravity gravity_;
 };
@@ -624,8 +706,9 @@ int main(int argc, char** argv) {
         MainWindow* win = &w;
         const int cx = o.clickX, cy = o.clickY;
         const bool settle = o.settle;
+        const double simSeconds = o.simulate;
         const int d0x = o.dragX0, d0y = o.dragY0, d1x = o.dragX1, d1y = o.dragY1;
-        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle]() {
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle, simSeconds]() {
             bool ok = true;
             if (d0x >= 0 && d0y >= 0 && d1x >= 0 && d1y >= 0) {
                 const QPoint p0(d0x, d0y), p1(d1x, d1y);
@@ -657,6 +740,7 @@ int main(int argc, char** argv) {
                 std::printf("클릭 (%d,%d) -> 선택 링크 %d%s\n", cx, cy, v->SelectedLink(), v->ModelSelected() ? " (모델)" : "");
                 v->repaint();
             }
+            if (simSeconds > 0) win->runSimulation(simSeconds);
             if (settle) {  // 낙하가 끝날 때까지 시간을 진행시킨다
                 const double z0 = static_cast<double>(v->ObjectPosition().z);
                 const double t = v->SimulateFall(10.0);

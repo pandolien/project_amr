@@ -3,7 +3,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
+#include "CDynamics/Dynamics.h"
 #include "CDynamics/FreeFall.h"
 #include "CDynamics/Gravity.h"
 #include "CURDF/Urdf.h"
@@ -415,10 +417,272 @@ void testFreeFall() {
     check(!flat.Step(0.01, g) && flat.height == 0.0, "an object on the floor stays");
 }
 
+// ---- 질량 행렬, 역동역학(RNEA), 순동역학, 시뮬레이터
+// kTree 의 모든 링크에 (회전된 질량중심과 함께 효과를 내는) 관성 텐서를 넣은 버전
+std::string treeWithInertia(const char* inertiaTag = "<inertia ixx='0.02' ixy='0.003' ixz='-0.002' iyy='0.03' iyz='0.001' izz='0.025'/>") {
+    std::string s = kTree;
+    const std::string in = std::string(inertiaTag) + "</inertial>";
+    size_t pos = 0;
+    while ((pos = s.find("</inertial>", pos)) != std::string::npos) {
+        s.replace(pos, 11, in);
+        pos += in.size();
+    }
+    return s;
+}
+
+urdf::JointValues randomTreePose(Rng& rng) {
+    urdf::JointValues q;
+    q["j1"] = static_cast<float>(rng.range(-2, 2));
+    q["j2"] = static_cast<float>(rng.range(-0.15, 0.45));
+    q["j4"] = static_cast<float>(rng.range(-2, 2));
+    q["j5"] = static_cast<float>(rng.range(-2, 2));
+    q["j7"] = static_cast<float>(rng.range(-3, 3));
+    return q;
+}
+
+void testRneaAndMass() {
+    const std::string xml = treeWithInertia();
+    const urdf::Robot r = load(xml.c_str());
+    const std::vector<std::string> names = ActuatedJointNames(r);
+    check(names.size() == 5 && names[0] == "j1" && names[4] == "j7", "actuated joint names");
+    Rng rng(99);
+    double worstStatic = 0, worstSym = 0, worstId = 0;
+    bool pd = true;
+    for (int iter = 0; iter < 60; iter++) {
+        const urdf::JointValues q = randomTreePose(rng);
+        // 1) 정지 상태의 RNEA = 중력 토크
+        const JointTorques zero;
+        const JointTorques id = InverseDynamics(r, q, zero, zero);
+        const JointTorques gt = GravityTorques(r, q);
+        for (size_t i = 0; i < names.size(); i++) worstStatic = std::max(worstStatic, std::fabs(id.at(names[i]) - gt.at(names[i])));
+        // 2) 질량 행렬: 대칭, 양의 정부호
+        const MassMatrix m = ComputeMassMatrix(r, q);
+        const size_t n = m.n();
+        for (size_t i = 0; i < n; i++)
+            for (size_t j = 0; j < n; j++) worstSym = std::max(worstSym, std::fabs(m.At(i, j) - m.At(j, i)));
+        for (int k = 0; k < 20; k++) {
+            std::vector<double> x(n);
+            for (size_t i = 0; i < n; i++) x[i] = rng.range(-1, 1);
+            double e = 0;
+            for (size_t i = 0; i < n; i++)
+                for (size_t j = 0; j < n; j++) e += x[i] * m.At(i, j) * x[j];
+            if (!(e > 1e-6)) pd = false;
+        }
+        // 3) 중력 없이 속도 0 일 때 RNEA(qdd) = M qdd
+        JointTorques qdd;
+        for (size_t i = 0; i < n; i++) qdd[names[i]] = rng.range(-3, 3);
+        const JointTorques tau = InverseDynamics(r, q, zero, qdd, Gravity(0, 0, 0));
+        for (size_t i = 0; i < n; i++) {
+            double mq = 0;
+            for (size_t j = 0; j < n; j++) mq += m.At(i, j) * qdd.at(names[j]);
+            worstId = std::max(worstId, std::fabs(tau.at(names[i]) - mq));
+        }
+    }
+    check(worstStatic < 1e-9, "RNEA at rest equals GravityTorques");
+    check(worstSym < 1e-9, "mass matrix is symmetric");
+    check(pd, "mass matrix is positive definite");
+    check(worstId < 1e-9, "RNEA(qdd, no gravity) = M qdd");
+    // 기구학 하나만 따로: 팔 길이 L, 점질량 m (관성 0) 이면 M = m L^2
+    const urdf::Robot pend = load("<robot name='p'><link name='base'/><link name='arm'><inertial><origin xyz='0.5 0 0'/><mass value='2'/></inertial></link>"
+                                  " <joint name='j' type='revolute'><parent link='base'/><child link='arm'/><axis xyz='0 1 0'/>"
+                                  " <limit lower='-3.2' upper='3.2' effort='50' velocity='1'/></joint></robot>");
+    check(nearly(ComputeMassMatrix(pend, urdf::JointValues()).At(0, 0), 2 * 0.25, 1e-12), "point mass: M = m L^2");
+    // 관성 텐서가 더해진다: 축 둘레 관성 + m L^2
+    const urdf::Robot pendI = load(kPendulum);
+    check(nearly(ComputeMassMatrix(pendI, urdf::JointValues()).At(0, 0), 0.1 + 2 * 0.25, 1e-6), "M = I + m L^2 (parallel axis theorem)");
+}
+
+// 코리올리/원심력(자이로 항 포함)을 질량 행렬의 수치 미분으로 독립적으로 구해서 RNEA 와 맞춘다:
+//   h_i = sum_jk (dM_ij/dq_k) qd_j qd_k  -  1/2 sum_jk (dM_jk/dq_i) qd_j qd_k
+void testCoriolisAgainstMassDerivative() {
+    const std::string xml = treeWithInertia("<inertia ixx='0.6' ixy='0.1' ixz='-0.15' iyy='1.2' iyz='0.2' izz='0.9'/>");
+    const urdf::Robot r = load(xml.c_str());
+    const std::vector<std::string> names = ActuatedJointNames(r);
+    const size_t n = names.size();
+    Rng rng(21);
+    double worst = 0, scale = 0;
+    for (int iter = 0; iter < 25; iter++) {
+        const urdf::JointValues q = randomTreePose(rng);
+        JointTorques qd, zero;
+        for (size_t i = 0; i < n; i++) qd[names[i]] = rng.range(-3, 3);
+        // dM/dq_k (중앙 차분)
+        std::vector<MassMatrix> dM;
+        const float eps = 2e-3f;
+        for (size_t k = 0; k < n; k++) {
+            urdf::JointValues a = q, b = q;
+            a[names[k]] += eps;
+            b[names[k]] -= eps;
+            MassMatrix ma = ComputeMassMatrix(r, a, false), mb = ComputeMassMatrix(r, b, false);
+            for (size_t e = 0; e < ma.m.size(); e++) ma.m[e] = (ma.m[e] - mb.m[e]) / (2.0 * static_cast<double>(eps));
+            dM.push_back(ma);
+        }
+        // 속도 항: 중력 없이 qdd = 0 으로 RNEA
+        const JointTorques h = InverseDynamics(r, q, qd, zero, Gravity(0, 0, 0), false);
+        for (size_t i = 0; i < n; i++) {
+            double ref = 0;
+            for (size_t j = 0; j < n; j++)
+                for (size_t k = 0; k < n; k++) {
+                    ref += dM[k].At(i, j) * qd.at(names[j]) * qd.at(names[k]);
+                    ref -= 0.5 * dM[i].At(j, k) * qd.at(names[j]) * qd.at(names[k]);
+                }
+            worst = std::max(worst, std::fabs(h.at(names[i]) - ref));
+            scale = std::max(scale, std::fabs(ref));
+        }
+    }
+    check(scale > 1.0, "velocity terms are large enough to matter");
+    check(worst < 2e-3 * scale, "Coriolis/centrifugal/gyroscopic terms match the mass-matrix derivative");
+}
+
+void testSimulator() {
+    // 1) 에너지 보존 (감쇠 0, 모터 꺼짐): 코리올리/원심력, 이동 관절, mimic, 회전된 관성 모두 맞아야 유지된다
+    {
+        // limit 에 부딪히면 에너지가 사라지므로 이 시험에서는 limit 을 넉넉하게 넓힌다 (limit 동작은 아래 6번에서 따로 본다)
+        std::string xml = treeWithInertia();
+        for (const char* lim : {"lower='-3' upper='3'", "lower='-0.2' upper='0.5'"}) {
+            size_t pos = 0;
+            while ((pos = xml.find(lim, pos)) != std::string::npos) xml.replace(pos, std::string(lim).size(), "lower='-100' upper='100'");
+        }
+        const urdf::Robot r = load(xml.c_str());
+        Rng rng(5);
+        urdf::JointValues q = randomTreePose(rng);
+        q["j2"] = 0.15f;
+        Simulator sim;
+        sim.Reset(r, q);
+        sim.SetOptions(DynamicsOptions());
+        // 초기 속도: SetValue 는 속도를 0 으로 하므로, 한 번 흔들어서 속도를 만든 뒤 시작한다
+        sim.Step(0.15);
+        const double e0 = sim.TotalEnergy();
+        double worst = 0, kmax = 0;
+        for (int i = 0; i < 100; i++) {
+            sim.Step(0.01);
+            worst = std::max(worst, std::fabs(sim.TotalEnergy() - e0));
+            kmax = std::max(kmax, sim.KineticEnergy());
+        }
+        check(kmax > 0.2, "the arm really moves (kinetic energy builds up)");
+        check(worst < 1e-4, "energy is conserved without damping (Coriolis, prismatic, mimic, inertia tensors)");
+    }
+    // 2) 진자: 평형(수직 아래, 90도) 주변의 작은 진동 주기 T = 2 pi sqrt(M / (m g L))
+    {
+        const urdf::Robot r = load(kPendulum);
+        const double Mi = 0.1 + 2 * 0.25, w2 = 2 * G * 0.5 / Mi, T = 2 * 3.14159265358979 / std::sqrt(w2);
+        const double th0 = 3.14159265358979 / 2 + 0.02;
+        urdf::JointValues q;
+        q["j"] = static_cast<float>(th0);
+        Simulator sim;
+        sim.Reset(r, q);
+        sim.Step(T / 2);
+        check(std::fabs(static_cast<double>(sim.Values().at("j")) - (3.14159265358979 - th0)) < 1e-4, "pendulum is at the other side after half a period");
+        sim.Step(T / 2);
+        check(std::fabs(static_cast<double>(sim.Values().at("j")) - th0) < 1e-4, "pendulum returns after one period");
+    }
+    // 3) 점성 감쇠: 중력 없이 qd(t) = qd0 exp(-d t / M)
+    {
+        const std::string xml = std::string(kPendulum);
+        std::string damped = xml;
+        damped.insert(damped.find("</joint>"), "<dynamics damping='0.3' friction='0'/>");
+        const urdf::Robot r = load(damped.c_str());
+        Simulator sim;
+        sim.Reset(r, urdf::JointValues());
+        sim.SetGravity(Gravity(0, 0, 0));
+        // 속도를 주기 위해 토크로 한 번 가속한다: tau = M * a  (감쇠가 있으니 아주 짧게)
+        JointTorques tau;
+        tau["j"] = 0.6 * 100.0;
+        sim.SetTorques(tau);
+        sim.Step(0.01);
+        sim.SetTorques(JointTorques());
+        const double v0 = sim.Velocities().at("j");
+        sim.Step(1.0);
+        const double v1 = sim.Velocities().at("j");
+        check(v0 > 0.5 && std::fabs(v1 / v0 - std::exp(-0.3 * 1.0 / 0.6)) < 1e-3, "viscous damping decays velocity exponentially");
+        // defaultDamping 옵션은 감쇠가 없는 관절에 같은 효과를 준다
+        const urdf::Robot plain = load(kPendulum);
+        Simulator s2;
+        s2.Reset(plain, urdf::JointValues());
+        s2.SetGravity(Gravity(0, 0, 0));
+        DynamicsOptions o;
+        o.defaultDamping = 0.3;
+        s2.SetOptions(o);
+        s2.SetTorques(tau);
+        s2.Step(0.01);
+        s2.SetTorques(JointTorques());
+        const double w0 = s2.Velocities().at("j");
+        s2.Step(1.0);
+        check(std::fabs(s2.Velocities().at("j") / w0 - std::exp(-0.3 / 0.6)) < 1e-3, "defaultDamping applies to joints without <dynamics>");
+    }
+    // 4) 쿨롱 마찰: 일정한 감속 f / M
+    {
+        std::string fr = kPendulum;
+        fr.insert(fr.find("</joint>"), "<dynamics damping='0' friction='0.5'/>");
+        const urdf::Robot r = load(fr.c_str());
+        Simulator sim;
+        sim.Reset(r, urdf::JointValues());
+        sim.SetGravity(Gravity(0, 0, 0));
+        JointTorques tau;
+        tau["j"] = 0.6 * 100.0;
+        sim.SetTorques(tau);
+        sim.Step(0.01);
+        const double v0 = sim.Velocities().at("j");  // 마찰이 있어서 약간 모자란다
+        sim.SetTorques(JointTorques());
+        sim.Step(0.4);
+        check(std::fabs(sim.Velocities().at("j") - (v0 - 0.5 / 0.6 * 0.4)) < 2e-3, "Coulomb friction decelerates at f / M");
+        sim.Step(5.0);
+        check(std::fabs(sim.Velocities().at("j")) < 1e-3, "and the joint stops");
+    }
+    // 5) 모터 토크: 중력 없이 일정 토크 -> qdd = tau / M
+    {
+        const urdf::Robot r = load(kPendulum);
+        JointTorques tau, qd;
+        tau["j"] = 1.2;
+        const JointTorques a = ForwardDynamics(r, urdf::JointValues(), qd, tau, Gravity(0, 0, 0));
+        check(nearly(a.at("j"), 1.2 / 0.6, 1e-6), "qdd = tau / M");
+        // 중력이 있고 수평이면 모터가 g 토크를 정확히 주면 가속도 0 (모터가 버틴다)
+        const JointTorques hold = GravityTorques(r, urdf::JointValues());
+        check(nearly(ForwardDynamics(r, urdf::JointValues(), qd, hold).at("j"), 0.0, 1e-6), "holding torque gives zero acceleration");
+        // 모터가 꺼지면 수평 팔은 아래로(+y 축 회전의 + 방향) 처진다
+        check(ForwardDynamics(r, urdf::JointValues(), qd, JointTorques()).at("j") > 0.0, "unpowered horizontal arm starts to fall");
+    }
+    // 6) limit: 위쪽 limit 에 닿으면 멈춘다
+    {
+        const urdf::Robot r = load(kPendulum);
+        urdf::JointValues q;
+        q["j"] = 3.1f;
+        Simulator sim;
+        sim.Reset(r, q);
+        sim.SetGravity(Gravity(0, 0, 0));
+        JointTorques tau;
+        tau["j"] = 20.0;
+        sim.SetTorques(tau);
+        sim.Step(0.5);
+        check(sim.Values().at("j") <= 3.2f + 1e-6f && sim.Velocities().at("j") <= 1e-9, "joint stops at its upper limit");
+        sim.SetValue("j", 100.0);
+        check(sim.Values().at("j") <= 3.2f + 1e-6f, "SetValue clamps to the limit");
+    }
+    // 7) 안전: 질량 없는 로봇, 준비 안 된 시뮬레이터, 구동 관절 없음
+    {
+        const urdf::Robot massless = load("<robot name='m'><link name='a'/><link name='b'/><joint name='j' type='revolute'><parent link='a'/><child link='b'/>"
+                                          "<limit lower='-1' upper='1' effort='1' velocity='1'/></joint></robot>");
+        JointTorques none;
+        const JointTorques a = ForwardDynamics(massless, urdf::JointValues(), none, none);
+        check(a.size() == 1 && a.at("j") == 0.0, "massless joint does not accelerate (and gives no NaN)");
+        Simulator sim;
+        sim.Step(1.0);
+        check(!sim.IsReady() && sim.Values().empty(), "unready simulator does nothing");
+        sim.Reset(massless, urdf::JointValues());
+        sim.Step(1.0);
+        check(std::isfinite(sim.TotalEnergy()) && sim.Values().at("j") == 0.0f, "massless robot stays put");
+        const urdf::Robot fixedOnly = load("<robot name='f'><link name='a'/><link name='b'/><joint name='j' type='fixed'><parent link='a'/><child link='b'/></joint></robot>");
+        sim.Reset(fixedOnly, urdf::JointValues());
+        check(!sim.IsReady(), "no actuated joint means not ready");
+    }
+}
+
 }  // namespace
 
 int main() {
     testFreeFall();
+    testRneaAndMass();
+    testCoriolisAgainstMassDerivative();
+    testSimulator();
     testPendulum();
     testPrismatic();
     testGradientOfPotential();
