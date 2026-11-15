@@ -309,11 +309,11 @@ void testRobot() {
     check(hasPair(pa, l1, l2), "adjacent links are reported when not ignored");
 
     // margin: 곧은 자세에서 base 와 link2 사이 간격은 0.35
-    SelfCollisionOptions near;
-    near.margin = 0.3f;
-    check(FindSelfCollisions(robot, boxes, near).empty(), "margin 0.3 < gap 0.35");
-    near.margin = 0.4f;
-    check(hasPair(FindSelfCollisions(robot, boxes, near), std::min(base, l2), std::max(base, l2)), "margin 0.4 > gap 0.35");
+    SelfCollisionOptions closeOpt;
+    closeOpt.margin = 0.3f;
+    check(FindSelfCollisions(robot, boxes, closeOpt).empty(), "margin 0.3 < gap 0.35");
+    closeOpt.margin = 0.4f;
+    check(hasPair(FindSelfCollisions(robot, boxes, closeOpt), std::min(base, l2), std::max(base, l2)), "margin 0.4 > gap 0.35");
 
     // j1 = +90 도: link1 이 +x 로 눕는다 (회전축 y, z -> x)
     q["j1"] = static_cast<float>(dhRad(90));
