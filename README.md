@@ -34,8 +34,10 @@ project_amr/
 
 | 모듈 | 역할 | 의존 |
 |---|---|---|
-| CMat | 행렬 연산 | - |
-| 3d | 3차원 공간 | - |
+| CMat | 행렬 연산 (SVD, 의사역행렬: LAPACKE `dgesvd`, double 정밀도로 계산) | LAPACKE |
+| 3d | 3차원 공간 (dhVector/dhMat/dhQuat/dhEuler/dhVertex) | - |
+| CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
+| CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CDynamics | 동역학 연산 | 3d |
 | CSimul | 시뮬레이션 | CDynamics |
 | CSock | 외부 통신 | - |
@@ -44,10 +46,32 @@ project_amr/
 `Core/src` 아래에 `.cpp`를 추가하면 CMake가 자동으로 인식합니다.
 재사용할 Qt 위젯은 `Core/Qt`(`#include "CoreQt/..."`)에 둡니다.
 
+## 한 번에 실행 (run.sh / run.bat)
+
+```bash
+./run.sh              # Linux: 없는 패키지 설치 -> 구성/빌드 -> 실행
+./run.sh --test       # 실행 대신 테스트
+./run.sh --no-qt      # Qt 없이 (qtbase5-dev 설치도 생략)
+./run.sh --no-install # 설치하지 않고 부족한 패키지 목록만 안내
+./run.sh --clean      # build/ 를 비우고 처음부터
+./run.sh -- 인자들     # amr_main 에 넘길 인자
+```
+
+```bat
+run.bat               :: Windows: CMake/Git(winget), Visual Studio 확인, vcpkg+OpenBLAS 설치 -> 빌드 -> 실행
+run.bat --test        :: 같은 옵션: --test --qt --no-install --clean --debug, -- 뒤는 amr_main 인자
+```
+
+- 이미 모두 설치되어 있으면 설치 단계는 건너뛰고 바로 빌드/실행합니다. 설치는 첫 실행에서만 시간이 걸립니다.
+- `main.cpp` 가 비어 있는 동안에는 `amr_main` 이 만들어지지 않으므로, 두 스크립트는 대신 테스트를 실행합니다.
+- `run.bat` 은 Visual Studio Build Tools 가 없으면 설치 여부를 물어보고(수 GB), 설치 후에는 새 터미널에서 다시 실행해야 합니다.
+  vcpkg 는 `VCPKG_ROOT` 가 있으면 그것을, 없으면 프로젝트 안 `.vcpkg/` 에 받아 사용합니다. Qt 는 `--qt` 와 `QT_DIR`/`CMAKE_PREFIX_PATH` 로 켭니다.
+- `run.bat` 은 아직 실제 Windows 에서 실행해 보지 못했습니다 (아래 Windows 빌드 절은 MinGW 로만 검증).
+
 ## 빌드
 
 ```bash
-sudo apt install build-essential cmake qtbase5-dev   # Ubuntu 20.04 (Qt 5.12.8)
+sudo apt install build-essential cmake qtbase5-dev liblapacke-dev libtinyxml2-dev   # Ubuntu 20.04 (Qt 5.12.8)
 
 cmake -S . -B build
 cmake --build build -j
@@ -57,10 +81,91 @@ cmake --build build -j
 
 Qt 없이 빌드: `cmake -S . -B build -DAMR_BUILD_QT=OFF`
 
-테스트: `cmake -S . -B build -DAMR_BUILD_TESTS=ON -DAMR_BUILD_QT=OFF && cmake --build build --target test_3d && (cd build && ctest)`
+테스트: `cmake -S . -B build -DAMR_BUILD_TESTS=ON -DAMR_BUILD_QT=OFF && cmake --build build --target test_3d test_cmat test_cmesh test_cmesh_formats test_curdf && (cd build && ctest)`
+
+## Windows 빌드
+
+Linux 와 같은 소스·CMake 로 빌드됩니다 (MSVC 2019+ 또는 MinGW-w64, C++11).
+
+```bat
+:: 의존성은 vcpkg 로 설치 (Qt 는 5.12 설치본 사용: CMAKE_PREFIX_PATH 에 Qt 폴더 지정)
+vcpkg install openblas:x64-windows
+
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake ^
+      -DAMR_BUILD_QT=OFF -DAMR_BUILD_TESTS=ON
+cmake --build build --config Release
+cd build && ctest -C Release
+```
+
+- **LAPACKE**: OpenBLAS 가 LAPACKE 를 포함합니다. 다른 곳의 `lapacke`/`openblas` 라이브러리를 쓰려면 `-DLAPACKE_LIBRARY=<경로>`.
+  DLL 로 링크했다면 `openblas.dll` 이 실행 파일 옆(또는 PATH)에 있어야 합니다 (vcpkg 툴체인은 자동 복사).
+- **tinyxml2**: 시스템에 없으면 `third_party/tinyxml2`(포함본)를 자동으로 빌드합니다 (`-DAMR_USE_BUNDLED_TINYXML2=ON` 으로 강제 가능).
+- 산출물: Visual Studio 같은 멀티 구성 생성기는 `build/bin/<Config>/` 아래에 생기고, `ctest` 에는 `-C <Config>` 가 필요합니다.
+- 소스는 UTF-8 이며 MSVC 에는 `/utf-8` 을 자동으로 붙입니다.
+- 파일 경로는 ANSI 코드 페이지 기준으로 열립니다. 한글처럼 코드 페이지 밖 문자가 들어간 경로의 모델 파일은 열리지 않을 수 있습니다.
+- 검증 범위: MinGW-w64(GCC 13) 로 Core 와 테스트 4종(3d, cmesh, cmesh_formats, curdf)을 Windows 용으로 빌드해 Wine 에서 실행해 통과를 확인했습니다
+  (경고 0). **MSVC 빌드, 실제 Windows 에서의 LAPACKE(OpenBLAS) 링크, Qt 빌드와 `test_cmat` 는 아직 확인하지 못했습니다.**
+
+## 3D 모델 / URDF 읽기 (CMesh, CURDF)
+
+```cpp
+#include "CMesh/MeshLoader.h"
+#include "CURDF/Urdf.h"
+
+amr::Scene scene;
+std::string err;
+if (!amr::LoadMesh("robot.glb", &scene, &err)) { /* err 에 원인 */ }   // 확장자로 형식 선택
+
+amr::urdf::Robot robot;
+amr::urdf::LoadUrdf("robot.urdf", &robot, &err);
+
+amr::urdf::JointValues q;  q["joint1"] = 0.5f;               // rad (prismatic 은 m)
+std::vector<dhMat> T = robot.LinkTransforms(q);               // link 별 월드 변환
+
+amr::urdf::RobotMeshes meshes;
+amr::urdf::LoadRobotMeshes(robot, amr::urdf::LoadOptions(), &meshes);  // visual 메시 (scale/축 변환 적용됨)
+// 그릴 때: 월드 변환 = T[visual.link] * visual.local * (scene 노드의 WorldTransforms())
+```
+
+- 지원 형식: `.glb` `.gltf` `.stl`(ASCII/바이너리) `.obj`(+`.mtl`) `.dae`. Draco/meshopt 압축 GLB, 스킨, 애니메이션은 지원하지 않습니다.
+- 좌표계: 로더는 파일 좌표를 그대로 두되, **DAE 는 `unit`(미터)과 `up_axis`(→ Z-up)를 읽는 즉시 정규화**합니다.
+  GLB 는 Y-up 이라, URDF 안에서 읽을 때만 X축 +90° 회전으로 Z-up 에 맞춥니다 (`LoadOptions::glbYUpToZUp`, 기본 true).
+- URDF: rpy 는 URDF 규약(`Rz(yaw)·Ry(pitch)·Rx(roll)`)입니다. 지원 관절은 revolute / continuous / prismatic / fixed 이고,
+  floating / planar 는 읽지만 움직이지 않습니다. mimic 지원, limit 은 `LinkTransforms` 에서 기본적으로 적용됩니다.
+- **xacro 는 지원하지 않습니다.** `xacro robot.urdf.xacro > robot.urdf` 로 먼저 변환하세요 (감지하면 오류 메시지를 냅니다).
+- `package://pkg/...` 는 `LoadOptions::packagePaths`(패키지 이름 → 폴더) → `searchDirs` → URDF 폴더와 상위 폴더 순서로 찾습니다.
+- 일부 메시를 못 읽어도 나머지는 채워지며(`LoadRobotMeshes` 가 false + `warnings`), 구조가 잘못된 URDF(루트 둘 이상, 순환,
+  이름 중복, 없는 link 참조 등)는 오류로 거부합니다.
 
 ## Qt 라이선스 주의 (LGPLv3)
 
 - Qt는 **동적 링크**로만 사용합니다 (정적 링크 금지).
 - GPL 전용 모듈(Qt Charts, Qt Data Visualization 등)은 사용하지 않습니다.
 - 배포 시 Qt LGPL 고지문과 라이선스 사본을 함께 포함합니다.
+
+## lMat(CMat) 사용 시 주의
+
+`lMat`은 연산 결과(임시 객체)를 `temp` 플래그로 표시하고, 다른 객체가 값 인자로 받을 때 메모리 소유권을 넘기는 방식으로 복사를 줄입니다. 이 방식은 C++11의 복사 생략(copy elision)과 맞지 않는 경우가 있어, 아래 사용법을 지켜야 합니다.
+
+| 사용 방식 | 결과 |
+|---|---|
+| `lMat C; C = A * B;` | 안전 (권장) |
+| `lMat C = A * B;` 후 `C.Out()`, `C.In()` 등으로 접근 | 안전 |
+| `lMat C = A * B;` 후 한 번도 접근하지 않고 소멸 | 메모리 누수 |
+| `lMat T = A * B;` 후 `R = E * T;` 처럼 T를 오른쪽 피연산자(값 인자)로 처음 사용 | `T`가 비워짐 (`R`은 정상) |
+| `lMat C = A * B; lMat D = C * C;` | 널 포인터 접근으로 크래시 |
+
+- 선언과 동시에 초기화(`lMat C = A * B;`)한 변수는, 처음 접근하기 전까지 `temp` 상태입니다. 처음 쓰는 곳이 오른쪽 피연산자나 인자이면 내용을 빼앗깁니다.
+- 컴파일 옵션 `-fno-elide-constructors`에서는 위 문제가 모두 사라지므로, 원인은 복사 생략입니다.
+- `A.SVD(U, S, Vt)`와 `Inv()`는 내부에서 `double` 로 올려 LAPACK `dgesvd` 로 계산하고 마지막에 `float` 로 한 번만 반올림합니다 (조건수 1e5 행렬의 역행렬 상대오차: float `sgesvd` 약 1e-4 → 약 4e-8). `A` 는 바뀌지 않습니다 (예전에는 덮어썼음).
+- 정밀도의 한계는 저장 형식(`float`)입니다. 입력 행렬이 `float` 이므로 특이값이 `max(r,c)·1.2e-7·최대특이값` 이하이면 잡음으로 보고 0 으로 취급합니다.
+- `A.SVD()`가 돌려주는 `S`는 `r x c`가 아니라 `p x p` (`p = min(r, c)`) 대각행렬입니다.
+
+## 서드파티 라이선스
+
+| 라이브러리 | 용도 | 라이선스 |
+|---|---|---|
+| Qt 5.12 | CoreQt | LGPLv3 (위 주의사항 참고) |
+| LAPACK / LAPACKE | CMat (SVD, 역행렬) | modified BSD |
+| cgltf 1.15 | GLB/glTF 읽기 (`third_party/cgltf`, 수정 없이 포함) | MIT |
+| tinyxml2 | URDF, COLLADA 의 XML 읽기 (Linux: apt 동적 링크, 없으면 `third_party/tinyxml2` 포함본 10.0.0) | zlib |

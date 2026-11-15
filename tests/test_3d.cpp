@@ -2,7 +2,9 @@
 #include <cmath>
 #include <cstdio>
 
+#include "3d/dhEuler.h"
 #include "3d/dhMat.h"
+#include "3d/dhQuat.h"
 #include "3d/dhVector.h"
 #include "3d/dhVertex.h"
 
@@ -120,7 +122,7 @@ void testGetQuatRoundTrip() {
 void testRPY() {
     dhMat h;
     h.Hmatrix(1, 2, 3, 0.5f, 0.3f, -0.8f);
-    _RPY p = h.RPY();
+    dhEuler p = h.RPY();
     check(nearly(p.a, 0.5f) && nearly(p.b, 0.3f) && nearly(p.r, -0.8f), "RPY 왕복");
     check(nearlyVec(h.O(), dhVector(1, 2, 3)), "Hmatrix: 이동 성분");
 }
@@ -128,6 +130,50 @@ void testRPY() {
 void testAngleHelpers() {
     check(std::fabs(dhRad(180.0) - dhPI) < 1e-9, "dhRad(180) = pi");
     check(std::fabs(dhDeg(dhPI / 2) - 90.0) < 1e-9, "dhDeg(pi/2) = 90");
+}
+
+void testVertexExtras() {
+    dhVertex a, b;
+    a.SetPoint(1, 2, 3);
+    b.SetPoint(4, 6, 3);
+    check(nearly(a.distance(&b), 5.0f), "vertex: distance");
+    check(nearly(a.at(0), 1) && nearly(a.at(1), 2) && nearly(a.at(2), 3), "vertex: at()");
+    check(nearly(a.at(3), 0) && nearly(a.at(-1), 0), "vertex: at() 범위 밖은 0");
+    check(nearly(a[1], 2), "vertex: operator[]");
+}
+
+void testQuatClass() {
+    const float H = kPi / 2;
+    dhQuat id;
+    check(nearly(id.w, 1) && nearly(id.x, 0) && nearly(id.y, 0) && nearly(id.z, 0), "dhQuat: 기본 생성자는 항등");
+    check(nearlyMat(id.GetMat(), dhMat()), "dhQuat: 항등 -> 단위행렬");
+
+    // 생성자 인자 순서는 (x, y, z, w)
+    dhQuat q(0, 0, std::sin(H / 2), std::cos(H / 2));
+    check(nearly(q.x, 0) && nearly(q.z, std::sin(H / 2)) && nearly(q.w, std::cos(H / 2)), "dhQuat: 생성자 인자 순서 (x,y,z,w)");
+    check(nearlyVec(q.GetMat() * dhVector(1, 0, 0), dhVector(0, 1, 0)), "dhQuat::GetMat: Z축 90도 (역방향 아님)");
+    check(nearlyMat(q.GetMat(), dhMat::RotZ(H)), "dhQuat::GetMat == RotZ(90)");
+    dhEuler e = q.GetEuler();
+    check(nearly(e.a, H) && nearly(e.b, 0) && nearly(e.r, 0), "dhQuat::GetEuler: Z축 90도");
+}
+
+void testEulerClass() {
+    dhEuler z;
+    check(nearly(z.a, 0) && nearly(z.b, 0) && nearly(z.r, 0), "dhEuler: 기본 생성자");
+    check(nearlyMat(z.GetMat(), dhMat()), "dhEuler: 0 -> 단위행렬");
+
+    // b 는 gimbal lock(±90도) 근처를 피한다
+    const float abr[][3] = {{0.5f, 0.3f, -0.8f}, {-1.2f, 0.9f, 2.0f}, {2.8f, -1.2f, -2.7f}, {0.1f, 1.3f, 0.4f}};
+    for (int i = 0; i < 4; i++) {
+        dhEuler e(abr[i][0], abr[i][1], abr[i][2]);
+        dhMat h;
+        h.Hmatrix(0, 0, 0, e.a, e.b, e.r);
+        check(nearlyMat(e.GetMat(), h), "dhEuler::GetMat == Hmatrix");
+        check(nearlyMat(e.GetMat(), dhMat::RotZ(e.a) * dhMat::RotY(e.b) * dhMat::RotX(e.r)), "dhEuler::GetMat == Rz*Ry*Rx");
+        check(nearlyMat(e.GetQuat().GetMat(), e.GetMat()), "dhEuler::GetQuat 왕복 (행렬)");
+        dhEuler back = e.GetQuat().GetEuler();
+        check(nearly(back.a, e.a) && nearly(back.b, e.b) && nearly(back.r, e.r), "dhEuler -> dhQuat -> dhEuler 왕복");
+    }
 }
 
 }  // namespace
@@ -141,6 +187,9 @@ int main() {
     testGetQuatRoundTrip();
     testRPY();
     testAngleHelpers();
+    testVertexExtras();
+    testQuatClass();
+    testEulerClass();
 
     if (g_fail) {
         std::printf("test_3d: %d 실패\n", g_fail);

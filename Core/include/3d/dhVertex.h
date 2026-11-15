@@ -21,6 +21,10 @@ public:
     dhVector GetPoint() const;
     dhVector GetNormalVector() const;
     void AddNrom(const dhVector& n);
+
+    float distance(const dhVertex* vt) const;
+    float at(int i) const;  // 0:x 1:y 2:z, 범위 밖은 0
+    float operator[](int i) const;
 };
 
 #endif  // CORE_3D_DHVERTEX_H

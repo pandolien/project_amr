@@ -17,6 +17,11 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# 소스 파일은 UTF-8(한글 주석 포함). MSVC 는 지정하지 않으면 시스템 코드 페이지로 읽는다.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # 산출물은 모두 build/ 아래로 (소스 트리에 lib을 두지 않음)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -36,12 +41,18 @@ set(AMR_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 add_subdirectory(Core)
 
 # ---- 메인 시스템 (main.cpp + 루트 src/ + 루트 include/) ----
-file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS src/*.cpp)
-add_executable(amr_main main.cpp ${PROJECT_SOURCES})
-target_include_directories(amr_main PRIVATE include)
-target_link_libraries(amr_main PRIVATE Core)
-target_compile_definitions(amr_main PRIVATE AMR_DATA_DIR="${AMR_DATA_DIR}")
-amr_set_warnings(amr_main)
+# main.cpp 가 비어 있는 동안(구조만 잡은 단계)에는 링크가 실패하므로 amr_main 을 만들지 않는다.
+file(SIZE ${CMAKE_SOURCE_DIR}/main.cpp AMR_MAIN_SIZE)
+if(AMR_MAIN_SIZE GREATER 0)
+    file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+    add_executable(amr_main main.cpp ${PROJECT_SOURCES})
+    target_include_directories(amr_main PRIVATE include)
+    target_link_libraries(amr_main PRIVATE Core)
+    target_compile_definitions(amr_main PRIVATE AMR_DATA_DIR="${AMR_DATA_DIR}")
+    amr_set_warnings(amr_main)
+else()
+    message(STATUS "main.cpp 가 비어 있어 amr_main 은 만들지 않습니다")
+endif()
 
 # ---- CoreQt (Qt 5.12) ----
 if(AMR_BUILD_QT)

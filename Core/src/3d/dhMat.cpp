@@ -1,5 +1,8 @@
 #include "3d/dhMat.h"
 
+#include "3d/dhEuler.h"
+#include "3d/dhQuat.h"
+
 #include <cmath>
 #include <cstring>
 
@@ -202,8 +205,8 @@ dhQuat dhMat::GetQuat() const {
     return q;
 }
 
-_RPY dhMat::RPY() const {
-    _RPY abr;
+dhEuler dhMat::RPY() const {
+    dhEuler abr;
     abr.b = std::atan2(-v[2], std::sqrt(v[0] * v[0] + v[1] * v[1]));
     float cb = std::cos(abr.b);
     abr.a = std::atan2(v[1] / cb, v[0] / cb);
