@@ -74,6 +74,14 @@ public:
     // 화면 좌표 pos 에 보이는 물체: 링크 번호를 돌려주고, 정적 모델이면 *model = true 와 -1, 아무것도 없으면 -1 과 false.
     int PickAt(const QPoint& pos, bool* model = nullptr) const;
 
+    // 이동: 선택한 것의 좌표계 화살표를 끌면 그 축 방향으로 움직인다. 움직일 수 있는 것은 정적 모델(전체)과 로봇의 루트 링크
+    // (로봇 전체가 AMR 위치처럼 같이 움직인다). 팔 중간 링크는 관절에 묶여 있어서 관절 값으로만 움직인다.
+    // 위치는 월드 기준 m. 관절 값, 충돌 검사, 중력 계산은 로봇 자신의 좌표계(루트 기준)에서 하므로 이동의 영향을 받지 않는다.
+    bool CanMoveSelection() const;
+    void SetObjectPosition(float x, float y, float z);
+    dhVector ObjectPosition() const;
+    void ResetObjectPosition() { SetObjectPosition(0, 0, 0); }
+
     // 정적 모델(.glb 등)을 열었으면 그 장면
     bool HasScene() const { return hasScene_; }
     const amr::Scene& StaticScene() const { return scene_; }
@@ -84,6 +92,7 @@ public:
 signals:
     void modelChanged();
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
+    void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
     void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
 protected:
@@ -120,6 +129,10 @@ private:
     static void releaseItems(ItemList& list);
     void releaseBuffers();
     QMatrix4x4 projMatrix() const;
+    bool mouseRay(const QPoint& pos, QVector3D* origin, QVector3D* dir) const;  // 화면 좌표의 월드 광선 (dir 은 길이 임의)
+    bool selectionGizmo(QVector3D* origin, QVector3D axis[3], float* scale) const;  // 좌표계의 월드 원점, 축 방향(단위), 화면상 크기
+    int hitGizmoAxis(const QPoint& pos, float* u) const;  // 마우스 아래의 화살표 (0 x, 1 y, 2 z, 없으면 -1) 와 그 축 위의 위치
+    dhMat itemWorld(const Item& it) const;
     void drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view);
     void recomputeCollisions();
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
@@ -141,6 +154,10 @@ private:
     bool gizmoDirty_;
     QPoint pressPos_;
     bool dragged_;
+    dhVector objectPos_;   // 이동량 (월드, m)
+    int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2
+    float dragU0_;
+    dhVector dragStart_;
     amr::Scene scene_;
     bool hasScene_;
     QStringList warnings_;

@@ -60,6 +60,8 @@ ModelViewer::ModelViewer(QWidget* parent)
     showFrame_ = true;
     gizmoDirty_ = false;
     dragged_ = false;
+    dragAxis_ = -1;
+    dragU0_ = 0;
     hasScene_ = false;
     extent_[0] = extent_[1] = extent_[2] = 0.0f;
     setMinimumSize(320, 240);
@@ -100,6 +102,7 @@ void ModelViewer::Clear() {
     report_ = amr::SelfCollisionReport();
     selectedLink_ = -1;
     selectedModel_ = false;
+    objectPos_ = dhVector(0, 0, 0);
     scene_ = amr::Scene();
     hasScene_ = false;
     warnings_.clear();
@@ -225,17 +228,37 @@ void ModelViewer::SetShowSelectionFrame(bool show) {
     update();
 }
 
+dhMat ModelViewer::itemWorld(const Item& it) const {
+    dhMat m = it.base;
+    if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+    return dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z) * m;
+}
+
 bool ModelViewer::SelectedFrame(dhMat* out) const {
+    const dhMat t = dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z);
     if (selectedLink_ >= 0 && static_cast<size_t>(selectedLink_) < linkT_.size()) {
-        if (out) *out = linkT_[static_cast<size_t>(selectedLink_)];
+        if (out) *out = t * linkT_[static_cast<size_t>(selectedLink_)];
         return true;
     }
     if (selectedModel_) {
-        if (out) *out = dhMat();
+        if (out) *out = t;
         return true;
     }
     return false;
 }
+
+bool ModelViewer::CanMoveSelection() const {
+    if (selectedModel_) return true;
+    return hasRobot_ && selectedLink_ >= 0 && selectedLink_ == robot_.root;
+}
+
+void ModelViewer::SetObjectPosition(float x, float y, float z) {
+    objectPos_ = dhVector(x, y, z);
+    update();
+    emit objectMoved();
+}
+
+dhVector ModelViewer::ObjectPosition() const { return objectPos_; }
 
 bool ModelViewer::LoadGizmo(const QString& objPath, QString* error) {
     amr::Scene scene;
@@ -426,9 +449,9 @@ void ModelViewer::drawBoxEdges(const dhVector c[8], const QVector4D& color) {
     for (int e = 0; e < 12; e++)
         for (int k = 0; k < 2; k++) {
             const dhVector& p = c[kEdges[e][k]];
-            v[e * 2 + k][0] = p.x;
-            v[e * 2 + k][1] = p.y;
-            v[e * 2 + k][2] = p.z;
+            v[e * 2 + k][0] = p.x + objectPos_.x;  // 박스는 로봇 좌표계에서 계산되므로 이동량을 더해서 그린다
+            v[e * 2 + k][1] = p.y + objectPos_.y;
+            v[e * 2 + k][2] = p.z + objectPos_.z;
         }
     prog_->setUniformValue("uColor", color);
     prog_->setAttributeArray(0, GL_FLOAT, v, 3);
@@ -523,9 +546,7 @@ void ModelViewer::paintGL() {
             const bool translucent = it.color[3] < 0.99f;
             if ((pass == 0) == translucent) continue;
             if (!it.vbo.isCreated() || !it.ibo.isCreated()) continue;
-            dhMat m = it.base;
-            if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
-            const QMatrix4x4 mv = view * ToQt(m);
+            const QMatrix4x4 mv = view * ToQt(itemWorld(it));
             prog_->setUniformValue("uMVP", proj * mv);
             prog_->setUniformValue("uModelView", mv);
             QVector4D col(it.color[0], it.color[1], it.color[2], it.color[3]);
@@ -607,11 +628,27 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
     lastPos_ = e->pos();
     pressPos_ = e->pos();
     dragged_ = false;
+    dragAxis_ = -1;
+    if (e->button() == Qt::LeftButton) {  // 좌표계 화살표 위에서 누르면 카메라가 아니라 물체를 움직인다
+        float u = 0;
+        const int axis = hitGizmoAxis(e->pos(), &u);
+        if (axis >= 0) {
+            dragAxis_ = axis;
+            dragU0_ = u;
+            dragStart_ = objectPos_;
+        }
+    }
 }
 
 void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     // 거의 움직이지 않고 뗀 왼쪽 버튼 = 클릭: 그 자리의 물체를 선택한다
-    if (e->button() != Qt::LeftButton || dragged_) return;
+    if (e->button() != Qt::LeftButton) return;
+    if (dragAxis_ >= 0) {  // 화살표를 끌던 중이었다: 선택은 그대로 두고 끝낸다
+        dragAxis_ = -1;
+        update();
+        return;
+    }
+    if (dragged_) return;
     bool model = false;
     const int link = PickAt(e->pos(), &model);
     selectedLink_ = link;
@@ -620,28 +657,76 @@ void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     emit selectionPicked(link, model);
 }
 
-int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
-    if (model) *model = false;
-    if (items_.empty() || width() <= 0 || height() <= 0) return -1;
+bool ModelViewer::mouseRay(const QPoint& pos, QVector3D* origin, QVector3D* dir) const {
+    if (width() <= 0 || height() <= 0) return false;
     bool ok = false;
     const QMatrix4x4 inv = (projMatrix() * viewMatrix()).inverted(&ok);
-    if (!ok) return -1;
+    if (!ok) return false;
     const float x = 2.0f * (static_cast<float>(pos.x()) + 0.5f) / static_cast<float>(width()) - 1.0f;
     const float y = 1.0f - 2.0f * (static_cast<float>(pos.y()) + 0.5f) / static_cast<float>(height());
     const QVector4D n4 = inv * QVector4D(x, y, -1.0f, 1.0f), f4 = inv * QVector4D(x, y, 1.0f, 1.0f);
-    if (n4.w() == 0.0f || f4.w() == 0.0f) return -1;
-    const QVector3D origin = n4.toVector3D() / n4.w(), farPoint = f4.toVector3D() / f4.w();
-    const QVector3D dir = farPoint - origin;  // 원점에서 farPoint 까지가 t = 0..1
+    if (n4.w() == 0.0f || f4.w() == 0.0f) return false;
+    *origin = n4.toVector3D() / n4.w();
+    *dir = f4.toVector3D() / f4.w() - *origin;  // 원점에서 먼 점까지가 t = 0..1
+    return true;
+}
+
+bool ModelViewer::selectionGizmo(QVector3D* origin, QVector3D axis[3], float* scale) const {
+    dhMat f;
+    if (!SelectedFrame(&f)) return false;
+    const QMatrix4x4 frame = ToQt(f);
+    *origin = frame.column(3).toVector3D();
+    for (int i = 0; i < 3; i++) axis[i] = frame.column(i).toVector3D().normalized();
+    const QVector3D eye = viewMatrix().inverted().column(3).toVector3D();
+    *scale = std::max((eye - *origin).length() * 0.14f, 1e-6f);  // drawSelectionFrame 과 같은 크기
+    return true;
+}
+
+// 광선과 축 직선(점 p, 단위 방향 a) 사이의 가장 가까운 점의 축 위 위치 u. 평행이면 false
+static bool RayAxisParam(const QVector3D& o, const QVector3D& d, const QVector3D& p, const QVector3D& a, float* u) {
+    const QVector3D w0 = o - p;
+    const float A = QVector3D::dotProduct(d, d), B = QVector3D::dotProduct(d, a);
+    const float D = QVector3D::dotProduct(d, w0), E = QVector3D::dotProduct(a, w0);
+    const float denom = A - B * B;
+    if (!(std::fabs(denom) > 1e-9f * std::max(A, 1e-12f))) return false;
+    *u = (A * E - B * D) / denom;
+    return true;
+}
+
+int ModelViewer::hitGizmoAxis(const QPoint& pos, float* uOut) const {
+    QVector3D o, d, p, ax[3];
+    float s = 0;
+    if (!showFrame_ || !CanMoveSelection() || !mouseRay(pos, &o, &d) || !selectionGizmo(&p, ax, &s)) return -1;
+    int best = -1;
+    float bestDist = 0.10f * s;  // 화살촉 반지름(0.075) 보다 조금 넉넉하게
+    for (int i = 0; i < 3; i++) {
+        float u = 0;
+        if (!RayAxisParam(o, d, p, ax[i], &u)) continue;
+        const float uc = std::max(0.0f, std::min(s, u));
+        const QVector3D q = p + ax[i] * uc;
+        const float dist = QVector3D::crossProduct(d, q - o).length() / std::max(d.length(), 1e-12f);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+            if (uOut) *uOut = u;
+        }
+    }
+    return best;
+}
+
+int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
+    if (model) *model = false;
+    if (items_.empty()) return -1;
+    QVector3D origin, dir;
+    if (!mouseRay(pos, &origin, &dir)) return -1;
     float bestT = 2.0f;
     int bestLink = -1;
     bool bestModel = false;
     for (size_t i = 0; i < items_.size(); i++) {
         const Item& it = *items_[i];
         if (it.link < 0 && !hasScene_) continue;
-        dhMat m = it.base;
-        if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
         bool inverted = false;
-        const QMatrix4x4 local = ToQt(m).inverted(&inverted);  // 광선을 물체 좌표로 옮겨서 검사한다
+        const QMatrix4x4 local = ToQt(itemWorld(it)).inverted(&inverted);  // 광선을 물체 좌표로 옮겨서 검사한다
         if (!inverted) continue;
         const QVector3D o = local.map(origin), d = local.mapVector(dir);
         float t = 0.0f;
@@ -660,7 +745,21 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
     const QPoint d = e->pos() - lastPos_;
     lastPos_ = e->pos();
     if ((e->pos() - pressPos_).manhattanLength() > 4) dragged_ = true;
-    if (e->buttons() & Qt::LeftButton) {
+    if (dragAxis_ >= 0 && (e->buttons() & Qt::LeftButton)) {
+        QVector3D o, dd, p, ax[3];
+        float s = 0, u = 0;
+        // 이동 중에도 좌표계는 시작 위치를 기준으로 계산해야 흔들리지 않는다: 시작 위치로 되돌려 놓고 축을 구한다
+        const dhVector cur = objectPos_;
+        objectPos_ = dragStart_;
+        const bool ok = mouseRay(e->pos(), &o, &dd) && selectionGizmo(&p, ax, &s) && RayAxisParam(o, dd, p, ax[dragAxis_], &u);
+        objectPos_ = cur;
+        if (ok) {
+            const QVector3D delta = ax[dragAxis_] * (u - dragU0_);
+            objectPos_ = dhVector(dragStart_.x + delta.x(), dragStart_.y + delta.y(), dragStart_.z + delta.z());
+            update();
+            emit objectMoved();
+        }
+    } else if (e->buttons() & Qt::LeftButton) {
         yaw_ -= static_cast<float>(d.x()) * 0.4f;
         pitch_ = std::max(-89.0f, std::min(89.0f, pitch_ + static_cast<float>(d.y()) * 0.4f));
         update();

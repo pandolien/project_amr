@@ -38,11 +38,14 @@ struct Options {
     std::string shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
     std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
     std::string select;        // 시작할 때 선택(강조)할 링크 이름
+    int dragX0, dragY0, dragX1, dragY1;  // --drag: 눌렀다가 끌고 떼는 마우스 동작 (-1 이면 안 함)
+    bool hasMove;
+    float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), obb(false), torque(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -amr::dynamics::kStandardGravity;
@@ -62,6 +65,8 @@ void PrintUsage(const char* exe) {
         "  --shot 파일.png    3D 화면을 저장하고 종료 (Qt 빌드에서만)\n"
         "  --shot-window 파일.png  창 전체(구조 트리, 관절 패널 포함)를 저장하고 종료\n"
         "  --select 링크이름  시작할 때 그 링크를 선택해서 강조\n"
+        "  --drag x0,y0,x1,y1 3D 화면에서 마우스를 (x0,y0) 에서 누르고 (x1,y1) 까지 끈 것처럼 처리 (좌표계 화살표 이동 확인용)\n"
+        "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
         "  -h, --help         도움말\n",
@@ -96,6 +101,15 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
         if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
         if (a == "--select" && hasNext) { o->select = argv[++i]; continue; }
+        if (a == "--drag" && hasNext) {
+            if (std::sscanf(argv[++i], "%d,%d,%d,%d", &o->dragX0, &o->dragY0, &o->dragX1, &o->dragY1) != 4) { std::fprintf(stderr, "--drag 는 x0,y0,x1,y1 형식입니다\n"); return false; }
+            continue;
+        }
+        if (a == "--move" && hasNext) {
+            if (std::sscanf(argv[++i], "%f,%f,%f", &o->move[0], &o->move[1], &o->move[2]) != 3) { std::fprintf(stderr, "--move 는 x,y,z 형식입니다\n"); return false; }
+            o->hasMove = true;
+            continue;
+        }
         if (a == "--click" && hasNext) {
             if (std::sscanf(argv[++i], "%d,%d", &o->clickX, &o->clickY) != 2) { std::fprintf(stderr, "--click 은 x,y 형식입니다\n"); return false; }
             continue;
@@ -307,6 +321,7 @@ public:
             tree_->SelectLink(link);
             updateSelectionLabel();
         });
+        QObject::connect(viewer_, &ModelViewer::objectMoved, this, [this]() { updateSelectionLabel(); });
         loadGizmo();
 
         panel_ = new JointPanel;
@@ -374,6 +389,8 @@ public:
         frame->setCheckable(true);
         frame->setChecked(true);
         QObject::connect(frame, &QAction::toggled, viewer_, &ModelViewer::SetShowSelectionFrame);
+        QAction* resetPos = view->addAction(QString::fromUtf8("오브젝트 위치 초기화"));
+        QObject::connect(resetPos, &QAction::triggered, viewer_, [this]() { viewer_->ResetObjectPosition(); });
         QAction* obbs = view->addAction(QString::fromUtf8("OBB 충돌 박스"));
         obbs->setShortcut(Qt::Key_O);
         obbs->setCheckable(true);
@@ -423,6 +440,10 @@ public:
         updateSelectionLabel();
     }
 
+    void applyMove(const Options& o) {
+        if (o.hasMove) viewer_->SetObjectPosition(o.move[0], o.move[1], o.move[2]);
+    }
+
     ModelViewer* viewer() { return viewer_; }
 
 protected:
@@ -464,12 +485,13 @@ private:
             name = QString::fromStdString(viewer_->Robot().links[static_cast<size_t>(viewer_->SelectedLink())].name);
         const dhPose pose = dhPose::FromMat(f).Normalized();
         const amr::units::RpyDeg r = amr::units::RpyDegFromQuat(pose.orientation);
-        statusBar()->showMessage(QString::fromUtf8("선택 %1 | 위치 %2, %3, %4 m | RPY %5°, %6°, %7° | 쿼터니언 %8, %9, %10, %11  ")
+        statusBar()->showMessage(QString::fromUtf8("선택 %1 | 위치 %2, %3, %4 m | RPY %5°, %6°, %7° | 쿼터니언 %8, %9, %10, %11  | %12")
                                      .arg(name)
                                      .arg(static_cast<double>(pose.position.x), 0, 'f', 3).arg(static_cast<double>(pose.position.y), 0, 'f', 3).arg(static_cast<double>(pose.position.z), 0, 'f', 3)
                                      .arg(r.roll, 0, 'f', 1).arg(r.pitch, 0, 'f', 1).arg(r.yaw, 0, 'f', 1)
                                      .arg(static_cast<double>(pose.orientation.x), 0, 'f', 3).arg(static_cast<double>(pose.orientation.y), 0, 'f', 3)
-                                     .arg(static_cast<double>(pose.orientation.z), 0, 'f', 3).arg(static_cast<double>(pose.orientation.w), 0, 'f', 3));
+                                     .arg(static_cast<double>(pose.orientation.z), 0, 'f', 3).arg(static_cast<double>(pose.orientation.w), 0, 'f', 3)
+                                     .arg(viewer_->CanMoveSelection() ? QString::fromUtf8("화살표를 끌어서 이동") : QString::fromUtf8("관절로 움직이는 링크")));
     }
 
     // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
@@ -580,6 +602,7 @@ int main(int argc, char** argv) {
         } else {
             w.applyJoints(o);
             w.applySelect(o);
+            w.applyMove(o);
         }
     }
     if (!o.shot.empty() || !o.shotWindow.empty()) {
@@ -587,8 +610,30 @@ int main(int argc, char** argv) {
         ModelViewer* v = w.viewer();
         MainWindow* win = &w;
         const int cx = o.clickX, cy = o.clickY;
-        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy]() {
+        const int d0x = o.dragX0, d0y = o.dragY0, d1x = o.dragX1, d1y = o.dragY1;
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y]() {
             bool ok = true;
+            if (d0x >= 0 && d0y >= 0 && d1x >= 0 && d1y >= 0) {
+                const QPoint p0(d0x, d0y), p1(d1x, d1y);
+                if (!v->HasSelection()) {  // 선택한 것이 없으면 시작점을 먼저 클릭해서 고른다
+                    QMouseEvent pick(QEvent::MouseButtonPress, p0, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QMouseEvent pickUp(QEvent::MouseButtonRelease, p0, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(v, &pick);
+                    QApplication::sendEvent(v, &pickUp);
+                }
+                QMouseEvent press(QEvent::MouseButtonPress, p0, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(v, &press);
+                for (int k = 1; k <= 8; k++) {  // 중간 지점을 거쳐서 끈다
+                    const QPoint pk(p0.x() + (p1.x() - p0.x()) * k / 8, p0.y() + (p1.y() - p0.y()) * k / 8);
+                    QMouseEvent mv(QEvent::MouseMove, pk, Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(v, &mv);
+                }
+                QMouseEvent release(QEvent::MouseButtonRelease, p1, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(v, &release);
+                const dhVector pos = v->ObjectPosition();
+                std::printf("드래그 (%d,%d)->(%d,%d) -> 오브젝트 위치 %.4f, %.4f, %.4f m\n", d0x, d0y, d1x, d1y, static_cast<double>(pos.x), static_cast<double>(pos.y), static_cast<double>(pos.z));
+                v->repaint();
+            }
             if (cx >= 0 && cy >= 0) {  // 실제 마우스 이벤트를 보내서 클릭 선택까지 한꺼번에 확인한다
                 const QPoint p(cx, cy);
                 QMouseEvent press(QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
