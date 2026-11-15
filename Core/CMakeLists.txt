@@ -53,7 +53,10 @@ target_include_directories(Core SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/cgltf
     ${TINYXML2_INCLUDE_DIR})
 
-target_link_libraries(Core PUBLIC
-    ${LAPACKE_LIBRARY} ${LAPACK_LIBRARIES} ${TINYXML2_LIBRARY})
+# find_package(LAPACK) 가 실패하면 LAPACK_LIBRARIES 는 "FALSE" 가 되므로(-> FALSE.lib 링크 오류) 찾았을 때만 링크한다.
+target_link_libraries(Core PUBLIC ${LAPACKE_LIBRARY} ${TINYXML2_LIBRARY})
+if(LAPACK_FOUND)
+    target_link_libraries(Core PUBLIC ${LAPACK_LIBRARIES})
+endif()
 
 amr_set_warnings(Core)
