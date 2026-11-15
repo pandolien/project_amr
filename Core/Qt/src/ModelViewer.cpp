@@ -630,8 +630,8 @@ int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
     const float y = 1.0f - 2.0f * (static_cast<float>(pos.y()) + 0.5f) / static_cast<float>(height());
     const QVector4D n4 = inv * QVector4D(x, y, -1.0f, 1.0f), f4 = inv * QVector4D(x, y, 1.0f, 1.0f);
     if (n4.w() == 0.0f || f4.w() == 0.0f) return -1;
-    const QVector3D origin = n4.toVector3D() / n4.w(), far = f4.toVector3D() / f4.w();
-    const QVector3D dir = far - origin;  // 원점에서 far 까지가 t = 0..1
+    const QVector3D origin = n4.toVector3D() / n4.w(), farPoint = f4.toVector3D() / f4.w();
+    const QVector3D dir = farPoint - origin;  // 원점에서 farPoint 까지가 t = 0..1
     float bestT = 2.0f;
     int bestLink = -1;
     bool bestModel = false;
