@@ -18,3 +18,6 @@ qrc_*.cpp
 
 # OS
 .DS_Store
+
+# run.bat 이 내려받는 vcpkg
+.vcpkg/

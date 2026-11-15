@@ -1,0 +1,174 @@
+@echo off
+rem ============================================================================
+rem  Install missing tools, build, and run (Windows 10/11, Visual Studio + vcpkg).
+rem
+rem  Usage: run.bat [options] [-- arguments for amr_main]
+rem    --test        run the tests (ctest) instead of the program
+rem    --qt          build CoreQt too (needs Qt 5.12 and QT_DIR or CMAKE_PREFIX_PATH set)
+rem    --no-install  never install anything; only report what is missing
+rem    --clean       wipe build\ and configure from scratch
+rem    --debug       build Debug (default Release)
+rem    -h, --help    show this help
+rem
+rem  Messages are in English on purpose: cmd.exe mangles UTF-8 text unless the
+rem  console code page is changed.
+rem ============================================================================
+setlocal EnableExtensions EnableDelayedExpansion
+cd /d "%~dp0"
+
+set "BUILD_TYPE=Release"
+set "USE_QT=OFF"
+set "DO_TEST=0"
+set "DO_CLEAN=0"
+set "DO_INSTALL=1"
+set "APP_ARGS="
+
+:parse
+if "%~1"=="" goto parsed
+if /i "%~1"=="--test"       (set "DO_TEST=1"    & shift & goto parse)
+if /i "%~1"=="--qt"         (set "USE_QT=ON"    & shift & goto parse)
+if /i "%~1"=="--no-install" (set "DO_INSTALL=0" & shift & goto parse)
+if /i "%~1"=="--clean"      (set "DO_CLEAN=1"   & shift & goto parse)
+if /i "%~1"=="--debug"      (set "BUILD_TYPE=Debug" & shift & goto parse)
+if /i "%~1"=="-h"           goto usage
+if /i "%~1"=="--help"       goto usage
+if "%~1"=="--" (shift & goto collect)
+echo [run.bat] Unknown option: %~1  (run.bat --help)
+exit /b 2
+
+:collect
+if "%~1"=="" goto parsed
+set "APP_ARGS=!APP_ARGS! %1"
+shift
+goto collect
+
+:usage
+echo Usage: run.bat [options] [-- arguments for amr_main]
+echo   --test        run the tests (ctest) instead of the program
+echo   --qt          build CoreQt too (needs Qt 5.12 and QT_DIR or CMAKE_PREFIX_PATH set)
+echo   --no-install  never install anything; only report what is missing
+echo   --clean       wipe build\ and configure from scratch
+echo   --debug       build Debug (default Release)
+exit /b 0
+
+:parsed
+
+rem ---- 1. CMake and Git -------------------------------------------------------
+call :need_tool cmake  Kitware.CMake "%ProgramFiles%\CMake\bin"
+if errorlevel 1 exit /b 1
+call :need_tool git    Git.Git       "%ProgramFiles%\Git\cmd"
+if errorlevel 1 exit /b 1
+
+rem ---- 2. C++ compiler (Visual Studio Build Tools) ------------------------------
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+set "VS_PATH="
+if exist "%VSWHERE%" (
+    for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_PATH=%%I"
+)
+if not defined VS_PATH (
+    echo [run.bat] Visual Studio with the "Desktop development with C++" workload was not found.
+    if "%DO_INSTALL%"=="0" (
+        echo [run.bat] Install Visual Studio Build Tools 2019 or newer, then run this again.
+        exit /b 1
+    )
+    where winget >nul 2>nul
+    if errorlevel 1 (
+        echo [run.bat] winget is not available. Install Visual Studio Build Tools manually, then run this again.
+        exit /b 1
+    )
+    echo [run.bat] Build Tools is a large download ^(several GB^).
+    choice /c YN /m "Install Visual Studio 2022 Build Tools now"
+    if errorlevel 2 exit /b 1
+    winget install -e --id Microsoft.VisualStudio.2022.BuildTools --accept-package-agreements --accept-source-agreements --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+    echo [run.bat] Installation finished. Open a NEW terminal and run run.bat again.
+    exit /b 1
+)
+echo [run.bat] Visual Studio: %VS_PATH%
+
+rem ---- 3. vcpkg + OpenBLAS (provides LAPACKE) -----------------------------------
+if defined VCPKG_ROOT (set "VCPKG_DIR=%VCPKG_ROOT%") else (set "VCPKG_DIR=%~dp0.vcpkg")
+if not exist "%VCPKG_DIR%\vcpkg.exe" (
+    if "%DO_INSTALL%"=="0" (
+        echo [run.bat] vcpkg not found at %VCPKG_DIR%. Run without --no-install to set it up.
+        exit /b 1
+    )
+    if not exist "%VCPKG_DIR%\bootstrap-vcpkg.bat" (
+        echo [run.bat] Cloning vcpkg into %VCPKG_DIR%
+        git clone --depth 1 https://github.com/microsoft/vcpkg.git "%VCPKG_DIR%"
+        if errorlevel 1 (echo [run.bat] git clone failed & exit /b 1)
+    )
+    call "%VCPKG_DIR%\bootstrap-vcpkg.bat" -disableMetrics
+    if errorlevel 1 (echo [run.bat] vcpkg bootstrap failed & exit /b 1)
+)
+set "TRIPLET=x64-windows"
+"%VCPKG_DIR%\vcpkg.exe" list openblas | findstr /i /c:"openblas:%TRIPLET%" >nul
+if errorlevel 1 (
+    if "%DO_INSTALL%"=="0" (
+        echo [run.bat] OpenBLAS is not installed. Run: "%VCPKG_DIR%\vcpkg.exe" install openblas:%TRIPLET%
+        exit /b 1
+    )
+    echo [run.bat] Installing OpenBLAS with vcpkg ^(first time takes a while^)
+    "%VCPKG_DIR%\vcpkg.exe" install openblas:%TRIPLET%
+    if errorlevel 1 (echo [run.bat] vcpkg install failed & exit /b 1)
+) else (
+    echo [run.bat] OpenBLAS is already installed.
+)
+rem DLLs of installed packages, so the programs can start even outside the build folder
+set "PATH=%VCPKG_DIR%\installed\%TRIPLET%\bin;%PATH%"
+
+if "%USE_QT%"=="ON" (
+    if not defined QT_DIR if not defined CMAKE_PREFIX_PATH (
+        echo [run.bat] --qt needs QT_DIR or CMAKE_PREFIX_PATH ^(your Qt 5.12 folder, e.g. C:\Qt\5.12.12\msvc2017_64^).
+        exit /b 1
+    )
+)
+
+rem ---- 4. Configure + build -----------------------------------------------------
+if "%DO_CLEAN%"=="1" (
+    echo [run.bat] Cleaning build\
+    if exist build (
+        for /d %%D in (build\*) do rmdir /s /q "%%D"
+        for %%F in (build\*) do if /i not "%%~nxF"==".gitkeep" del /q "%%F"
+    )
+)
+echo [run.bat] Configure: Qt=%USE_QT%, %BUILD_TYPE%
+cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE="%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=%TRIPLET% -DAMR_BUILD_QT=%USE_QT% -DAMR_BUILD_TESTS=ON
+if errorlevel 1 (echo [run.bat] CMake configure failed & exit /b 1)
+
+echo [run.bat] Build
+cmake --build build --config %BUILD_TYPE% --parallel
+if errorlevel 1 (echo [run.bat] Build failed & exit /b 1)
+
+rem ---- 5. Run -------------------------------------------------------------------
+if "%DO_TEST%"=="1" goto runtests
+
+set "APP=build\bin\%BUILD_TYPE%\amr_main.exe"
+if exist "%APP%" (
+    echo [run.bat] Running %APP%%APP_ARGS%
+    "%APP%"%APP_ARGS%
+    exit /b !errorlevel!
+)
+echo [run.bat] amr_main does not exist yet ^(main.cpp is empty^). Running the tests instead.
+
+:runtests
+pushd build
+ctest -C %BUILD_TYPE% --output-on-failure
+set "RC=!errorlevel!"
+popd
+exit /b !RC!
+
+rem ---- helper: make sure a command exists, installing it with winget if allowed ----
+:need_tool
+rem %1 command, %2 winget id, %3 folder to add to PATH after installing
+where %1 >nul 2>nul
+if not errorlevel 1 exit /b 0
+if exist "%~3\%1.exe" (set "PATH=%~3;!PATH!" & exit /b 0)
+echo [run.bat] %1 was not found.
+if "%DO_INSTALL%"=="0" (echo [run.bat] Install %1 and run this again. & exit /b 1)
+where winget >nul 2>nul
+if errorlevel 1 (echo [run.bat] winget is not available. Install %1 manually and run this again. & exit /b 1)
+winget install -e --id %2 --silent --accept-package-agreements --accept-source-agreements
+set "PATH=%~3;%PATH%"
+where %1 >nul 2>nul
+if errorlevel 1 (echo [run.bat] %1 was installed but is not on PATH yet. Open a new terminal and run again. & exit /b 1)
+exit /b 0
