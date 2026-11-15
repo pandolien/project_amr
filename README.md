@@ -116,7 +116,7 @@ cd build && ctest -C Release
 ```
 
 - **LAPACK**: `CMat` 은 LAPACK 의 `dgesvd_` 를 직접 호출합니다 (LAPACKE 불필요). Windows 에서는 vcpkg 의 `clapack`
-  (f2c 로 변환한 LAPACK, 정적 라이브러리)을 씁니다. 참고: vcpkg 의 `openblas` 는 BLAS 만 들어 있고 LAPACK 은 없습니다.
+  (f2c 로 변환한 LAPACK, 정적 라이브러리)의 CMake 설정(`lapack`, `f2c` 타깃)을 직접 사용합니다 (vcpkg 의 `find_package(LAPACK)` 는 `x64-windows` 에서 Fortran 이 필요한 `lapack-reference` 를 가리키기 때문). 참고: vcpkg 의 `openblas` 는 BLAS 만 들어 있고 LAPACK 은 없습니다.
   다른 LAPACK 을 쓰려면 `-DLAPACK_LIBRARIES="<lapack>;<blas>"`.
 - **tinyxml2**: 시스템에 없으면 `third_party/tinyxml2`(포함본)를 자동으로 빌드합니다 (`-DAMR_USE_BUNDLED_TINYXML2=ON` 으로 강제 가능).
 - 산출물: Visual Studio 같은 멀티 구성 생성기는 `build/bin/<Config>/` 아래에 생기고, `ctest` 에는 `-C <Config>` 가 필요합니다.

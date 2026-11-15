@@ -14,7 +14,22 @@ target_include_directories(Core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
 #   Windows     : vcpkg install clapack:x64-windows  (f2c 로 변환된 LAPACK, run.bat 이 설치함)
 #                 -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake 로 구성
 #   직접 지정    : -DLAPACK_LIBRARIES="<lapack>;<blas>..."
-find_package(LAPACK REQUIRED)
+# Windows 에서는 clapack 의 CMake 설정(lapack, f2c 타깃)을 직접 쓴다. vcpkg 의 find_package(LAPACK) 래퍼는
+# x64-windows(동적) 트리플렛에서 clapack 이 아니라 lapack-reference(Fortran 필요)를 가리키므로 쓰지 않는다.
+if(WIN32 AND NOT DEFINED LAPACK_LIBRARIES)
+    find_package(clapack CONFIG QUIET)
+endif()
+if(TARGET lapack AND TARGET f2c)
+    message(STATUS "LAPACK: clapack (vcpkg)")
+    set(AMR_LAPACK_LIBS lapack f2c)
+elseif(WIN32 AND NOT DEFINED LAPACK_LIBRARIES)
+    message(FATAL_ERROR "clapack 를 찾을 수 없습니다.\n"
+        "  vcpkg install clapack:x64-windows 후 vcpkg 툴체인을 지정하거나 (run.bat 이 해 줍니다),\n"
+        "  -DLAPACK_LIBRARIES=\"<lapack>;<blas>\" 로 직접 지정하세요")
+else()
+    find_package(LAPACK REQUIRED)
+    set(AMR_LAPACK_LIBS ${LAPACK_LIBRARIES})
+endif()
 
 # ---- tinyxml2: CURDF(URDF) 와 CMesh(COLLADA .dae) 의 XML 파싱 (zlib 라이선스)
 #   기본: 시스템에 있으면 그것을 쓰고(Ubuntu: sudo apt install libtinyxml2-dev), 없으면
@@ -42,6 +57,6 @@ target_include_directories(Core SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/cgltf
     ${TINYXML2_INCLUDE_DIR})
 
-target_link_libraries(Core PUBLIC ${LAPACK_LIBRARIES} ${TINYXML2_LIBRARY})
+target_link_libraries(Core PUBLIC ${AMR_LAPACK_LIBS} ${TINYXML2_LIBRARY})
 
 amr_set_warnings(Core)
