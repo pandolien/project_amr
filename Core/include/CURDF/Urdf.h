@@ -78,7 +78,7 @@ struct Joint {
     std::string parent;  // 부모 link 이름
     std::string child;   // 자식 link 이름
     dhMat origin;        // 부모 link -> 관절 좌표계
-    dhVector axis;       // 정규화된 회전/이동 축 (관절 좌표계, 기본 1 0 0)
+    dhVector axis;       // 정규화된 회전/이동 축 (관절 좌표계, <axis> 가 없으면 기본 0 0 1 = z축. URDF 규격의 기본값 x 가 아니라 이 프로젝트의 규약)
     float lower, upper, effort, velocity;
     bool hasLimit;
     // <dynamics>: 점성 마찰 계수 damping (N·m·s/rad 또는 N·s/m)와 쿨롱 마찰 friction (N·m 또는 N). 없으면 0.
@@ -87,7 +87,7 @@ struct Joint {
     bool hasMimic;
     std::string mimicJoint;
     float mimicMultiplier, mimicOffset;
-    Joint() : type(kJointFixed), axis(1, 0, 0), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
+    Joint() : type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
               damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
     // 회전/이동으로 움직이는 관절인가 (fixed, floating, planar 는 움직이지 않는 것으로 취급)
     bool IsMovable() const { return type == kJointRevolute || type == kJointContinuous || type == kJointPrismatic; }

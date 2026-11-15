@@ -203,8 +203,13 @@ void testErrors() {
     check(LoadUrdfFromString(Wrap("<link name=\"a\"/><link name=\"b\"/><joint name=\"j\" type=\"revolute\"><parent link=\"a\"/><child link=\"b\"/></joint>"), &r, &err),
           "missing limit is lenient");
     check(!r.warnings.empty(), "missing limit warns");
-    // 기본값: axis = X
-    check(nearly(r.joints[0].axis.x, 1), "default axis is X");
+    // 기본값: axis = Z (프로젝트 규약. URDF 규격은 X 이므로 경고를 남긴다)
+    check(nearly(r.joints[0].axis.z, 1) && nearly(r.joints[0].axis.x, 0), "default axis is Z");
+    bool axisWarn = false;
+    for (size_t i = 0; i < r.warnings.size(); i++) axisWarn = axisWarn || r.warnings[i].find("axis") != std::string::npos;
+    check(axisWarn, "missing axis on a movable joint warns");
+    check(LoadUrdfFromString(Wrap("<link name=\"a\"/><link name=\"b\"/><joint name=\"j\" type=\"fixed\"><parent link=\"a\"/><child link=\"b\"/></joint>"), &r, &err) && r.warnings.empty(),
+          "fixed joint without axis does not warn");
     // mesh scale 한 개만 있어도 허용
     check(LoadUrdfFromString(Wrap("<link name=\"a\"><visual><geometry><mesh filename=\"x.stl\" scale=\"0.001\"/></geometry></visual></link>"), &r, &err) &&
               nearly(r.links[0].visuals[0].geometry.scale[2], 0.001),

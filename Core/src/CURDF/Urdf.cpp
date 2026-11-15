@@ -270,6 +270,8 @@ struct Parser {
                 j.axis = dhVector(a[0] / len, a[1] / len, a[2] / len);
             }
         }
+        else if (j.IsMovable())
+            robot->warnings.push_back(ctx + ": axis 가 없어 z축 (0 0 1) 을 씁니다 (URDF 규격의 기본값은 x축)");
         XMLElement* lim = e->FirstChildElement("limit");
         if (lim) {
             if (!Float(lim, "lower", 0, &j.lower, ctx.c_str()) || !Float(lim, "upper", 0, &j.upper, ctx.c_str()) ||
