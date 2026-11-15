@@ -111,6 +111,22 @@ void testObj() {
     check(s.meshes[0].primitives.size() == 2 && s.materials.size() == 2, "2 groups for 2 materials");
     check(s.TriangleCount() == 3, "3 triangles total");
 
+    // 법선이 없는 상자: 면마다 정점을 따로 만들어 평평한 음영 (정점 24개, 법선은 축 방향)
+    const std::string cube =
+        "v 0 0 0\nv 2 0 0\nv 2 1 0\nv 0 1 0\nv 0 0 1\nv 2 0 1\nv 2 1 1\nv 0 1 1\n"
+        "f 1 4 3 2\nf 5 6 7 8\nf 1 2 6 5\nf 2 3 7 6\nf 3 4 8 7\nf 4 1 5 8\n";
+    check(LoadObjFromString(cube, &s, &err) && s.TriangleCount() == 12, "obj cube without normals");
+    if (!s.meshes.empty()) {
+        const Primitive& cp = s.meshes[0].primitives[0];
+        bool axisAligned = true;
+        for (size_t v = 0; v < cp.VertexCount(); v++) {
+            int big = 0;
+            for (int k = 0; k < 3; k++) if (nearly(std::fabs(cp.normals[v * 3 + static_cast<size_t>(k)]), 1.0)) big++;
+            if (big != 1) axisAligned = false;
+        }
+        check(cp.VertexCount() == 24 && axisAligned, "obj without normals is flat shaded (24 vertices, axis-aligned normals)");
+    }
+
     check(!LoadObjFromString("v 0 0 0\nv 1 0 0\nf 1 2 9\n", &s, &err), "out of range face index");
     check(!LoadObjFromString("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 x\n", &s, &err), "non-numeric face index");
     check(!LoadObjFromString("v 0 0\n", &s, &err), "bad v line");

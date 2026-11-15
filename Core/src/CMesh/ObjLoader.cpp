@@ -114,6 +114,7 @@ bool ParseObj(const std::string& text, const std::string& baseDir, bool loadMtl,
     std::istringstream in(text);
     std::string line;
     size_t lineNo = 0;
+    size_t faceNo = 0;
     while (std::getline(in, line)) {
         lineNo++;
         if (line.empty() || line[0] == '#') continue;
@@ -166,6 +167,10 @@ bool ParseObj(const std::string& text, const std::string& baseDir, bool loadMtl,
                 verts.push_back(k);
             }
             if (verts.size() < 3) continue;  // 점/선 취급, 무시
+            // 법선이 없는 정점은 면마다 따로 만들어(공유하지 않아) 평평한(flat) 음영이 되게 한다.
+            // 위치만 공유하면 모서리가 뭉개져 상자 같은 모델이 둥글게 보인다.
+            faceNo++;
+            for (size_t i = 0; i < verts.size(); i++) if (verts[i][2] < 0) verts[i][2] = -static_cast<int>(faceNo % 1000000000u) - 2;
             if (current == static_cast<size_t>(-1)) {
                 std::map<std::string, size_t>::iterator it = groupByMat.find(currentMat);
                 if (it == groupByMat.end() || it->second == static_cast<size_t>(-1)) {

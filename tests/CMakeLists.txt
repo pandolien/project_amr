@@ -25,3 +25,8 @@ add_executable(test_curdf test_curdf.cpp)
 target_link_libraries(test_curdf PRIVATE Core)
 amr_set_warnings(test_curdf)
 add_test(NAME test_curdf COMMAND test_curdf)
+
+# 샘플 URDF 를 창 없이 읽어 보는 스모크 테스트 (amr_main 이 만들어졌을 때만)
+if(TARGET amr_main)
+    add_test(NAME sample_urdf_info COMMAND amr_main --info ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
+endif()

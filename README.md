@@ -46,6 +46,24 @@ project_amr/
 `Core/src` 아래에 `.cpp`를 추가하면 CMake가 자동으로 인식합니다.
 재사용할 Qt 위젯은 `Core/Qt`(`#include "CoreQt/..."`)에 둡니다.
 
+## 3D 뷰어 (amr_main)
+
+```bash
+./run.sh -- Data/Object/samples/arm.urdf        # 예제 로봇 팔 (관절 슬라이더 포함)
+./build/bin/amr_main 모델.glb                    # GLB / glTF / STL / OBJ / DAE 도 열림
+./build/bin/amr_main robot.urdf --joint joint1=30 --package my_pkg=/path/to/my_pkg
+./build/bin/amr_main --info robot.urdf          # 창 없이 파일 정보만 출력
+./build/bin/amr_main robot.urdf --shot a.png    # 화면을 PNG 로 저장하고 종료
+```
+
+- 인자 없이 실행하면 빈 창이 뜨고, **파일 > 열기 (Ctrl+O)** 나 파일을 창에 끌어다 놓아서 열 수 있습니다.
+- 마우스: 왼쪽 드래그 = 회전, 오른쪽/가운데 드래그 = 이동, 휠 = 확대/축소, 더블클릭 또는 `F` = 화면에 맞춤.
+- URDF 를 열면 오른쪽에 관절 슬라이더가 생깁니다 (revolute/continuous 는 도, prismatic 은 m, limit 범위 안에서).
+- 좌표계는 Z-up 입니다. GLB(Y-up)는 열 때 Z-up 으로 돌려서 보여줍니다. OBJ 에 법선이 없으면 평평한(flat) 음영으로 그립니다.
+- OpenGL 2.1 이상이면 동작합니다 (`ModelViewer`, `JointPanel` 은 `Core/Qt`, 재사용 가능).
+- Qt 없이 빌드(`-DAMR_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 가 기본 꺼져 있으니 창을 보려면 `run.bat --qt` (Qt 5.12 경로 필요).
+- 마우스 조작과 실제 GPU 환경은 아직 사람 손으로 확인하지 못했습니다 (가상 화면의 소프트웨어 렌더링으로 그림은 확인).
+
 ## 한 번에 실행 (run.sh / run.bat)
 
 ```bash
@@ -63,7 +81,7 @@ run.bat --test        :: 같은 옵션: --test --qt --no-install --clean --debug
 ```
 
 - 이미 모두 설치되어 있으면 설치 단계는 건너뛰고 바로 빌드/실행합니다. 설치는 첫 실행에서만 시간이 걸립니다.
-- `main.cpp` 가 비어 있는 동안에는 `amr_main` 이 만들어지지 않으므로, 두 스크립트는 대신 테스트를 실행합니다.
+- 빌드가 끝나면 `amr_main`(3D 뷰어)을 실행합니다. 인자를 넘기려면 `./run.sh -- 파일.urdf`.
 - `run.bat` 은 Visual Studio Build Tools 가 없으면 설치 여부를 물어보고(수 GB), 설치 후에는 새 터미널에서 다시 실행해야 합니다.
   vcpkg 는 `VCPKG_ROOT` 가 있으면 그것을, 없으면 프로젝트 안 `.vcpkg/` 에 받아 사용합니다. Qt 는 `--qt` 와 `QT_DIR`/`CMAKE_PREFIX_PATH` 로 켭니다.
 - `run.bat` 은 아직 실제 Windows 에서 실행해 보지 못했습니다 (아래 Windows 빌드 절은 MinGW 로만 검증).
