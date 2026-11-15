@@ -49,6 +49,10 @@ if(TARGET amr_main)
     add_test(NAME sample_urdf_torque COMMAND amr_main --info --torque ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
     set_tests_properties(sample_urdf_torque PROPERTIES PASS_REGULAR_EXPRESSION
         "shoulder_pitch +0.000 deg +토크 +-13.6116 N\\*m.*elbow_pitch +0.000 deg +토크 +-3.6088 N\\*m")
+    # 모든 관절의 하중: fixed(tool_mount)와 mimic(finger_right_slide)도 따로 나오고, 링크별 기여 내역이 붙는다
+    add_test(NAME sample_gripper_loads COMMAND amr_main --info --torque ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm_gripper.urdf)
+    set_tests_properties(sample_gripper_loads PROPERTIES PASS_REGULAR_EXPRESSION
+        "tool_mount +\\(fixed\\).*finger_right_slide +\\(mimic finger_left_slide\\).*<- +finger_right")
     # OBB 로 다시 확인하면 3건 중 2건만 실제 충돌 (shoulder-forearm 은 AABB 만 겹침)
     add_test(NAME sample_urdf_obb_folded COMMAND amr_main --info --obb --joint shoulder_pitch=90 --joint elbow_pitch=-170
              ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)

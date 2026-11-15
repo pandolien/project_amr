@@ -170,26 +170,41 @@ void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr:
     }
 }
 
-// 관절별 중력 토크 (--joint 로 준 자세, --gravity 방향 기준)
+// 관절별 중력 하중 (--joint 로 준 자세, --gravity 방향 기준). 모든 관절을 따로 보여준다.
+//   구동 관절: 모터가 내야 할 토크 (mimic 이 달려 있으면 합산된 값), 링크별 기여 내역
+//   mimic 관절: 자기 몫 (원본 관절에 합산됨), fixed 등: 체결부가 받는 힘/모멘트
 void PrintTorques(const amr::urdf::Robot& robot, const Options& o) {
     const amr::urdf::JointValues q = JointValuesFromOptions(robot, o);
     const amr::dynamics::Gravity g(o.gravity[0], o.gravity[1], o.gravity[2]);
-    const amr::dynamics::JointTorques t = amr::dynamics::GravityTorques(robot, q, g);
-    std::printf("중력 토크: g = (%.4f, %.4f, %.4f) m/s^2 (루트 링크 좌표계)\n", g.x, g.y, g.z);
+    const amr::dynamics::JointTorques motor = amr::dynamics::GravityTorques(robot, q, g);
+    const std::vector<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, g);
+    std::printf("중력 하중: g = (%.4f, %.4f, %.4f) m/s^2 (루트 링크 좌표계)\n", g.x, g.y, g.z);
     double com[3], mass = 0;
     if (amr::dynamics::CenterOfMass(robot, q, com, &mass))
         std::printf("  전체 질량 %.4f kg, 질량중심 (%.4f, %.4f, %.4f) m\n", mass, com[0], com[1], com[2]);
     else
         std::printf("  (<inertial> 질량이 있는 링크가 없습니다)\n");
-    const std::vector<int> act = robot.ActuatedJoints();
-    for (size_t i = 0; i < act.size(); i++) {
-        const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(act[i])];
+    for (size_t i = 0; i < robot.joints.size(); i++) {
+        const amr::urdf::Joint& j = robot.joints[i];
+        const amr::dynamics::JointLoad& l = loads[i];
+        if (!j.IsMovable()) {
+            const double f = std::sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
+            const double m = std::sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
+            std::printf("  %-16s (fixed)  체결 하중: 힘 %.4f N, 모멘트 %.4f N*m\n", j.name.c_str(), f, m);
+            continue;
+        }
         const amr::urdf::JointValues::const_iterator qi = q.find(j.name);
         const double shown = j.ToDisplay(qi == q.end() ? 0.0 : static_cast<double>(qi->second));
-        const double tau = t.find(j.name)->second;
-        std::printf("  %-16s %9.3f %-3s  토크 %10.4f %s", j.name.c_str(), shown, j.DisplayUnit(), tau, j.TorqueUnit());
-        if (j.effort > 0.0f) std::printf("  (한계 %g%s)", static_cast<double>(j.effort), std::fabs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
-        std::printf("\n");
+        if (j.hasMimic) {
+            std::printf("  %-16s (mimic %s)  자기 몫 %.4f %s  (원본 관절에 합산됨)\n", j.name.c_str(), j.mimicJoint.c_str(), l.torque, j.TorqueUnit());
+        } else {
+            const double tau = motor.find(j.name)->second;
+            std::printf("  %-16s %9.3f %-3s  토크 %10.4f %s", j.name.c_str(), shown, j.DisplayUnit(), tau, j.TorqueUnit());
+            if (j.effort > 0.0f) std::printf("  (한계 %g%s)", static_cast<double>(j.effort), std::fabs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
+            std::printf("\n");
+        }
+        const std::vector<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContributions(robot, q, j.name, g);
+        for (size_t k = 0; k < parts.size(); k++) std::printf("      <- %-14s %10.4f %s\n", parts[k].link.c_str(), parts[k].value, j.TorqueUnit());
     }
 }
 
@@ -390,11 +405,39 @@ protected:
     }
 
 private:
-    // 현재 자세와 중력으로 관절별 중력 토크를 다시 계산해서 패널에 보여준다
+    // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
     void updateTorques() {
         if (!viewer_->HasRobot()) return;
-        panel_->SetTorques(amr::dynamics::GravityTorques(viewer_->Robot(), panel_->Values(), gravity_));
+        const amr::urdf::Robot& robot = viewer_->Robot();
+        const amr::urdf::JointValues q = panel_->Values();
+        const amr::dynamics::JointTorques motor = amr::dynamics::GravityTorques(robot, q, gravity_);
+        panel_->SetTorques(motor);
         dock_->setWindowTitle(QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5));
+
+        const std::vector<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, gravity_);
+        std::map<std::string, std::pair<QString, bool> > notes;
+        for (size_t i = 0; i < robot.joints.size(); i++) {
+            const amr::urdf::Joint& j = robot.joints[i];
+            const amr::dynamics::JointLoad& l = loads[i];
+            QString text;
+            bool warn = false;
+            if (!j.IsMovable()) {
+                const double f = std::sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
+                const double m = std::sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
+                text = QString::fromUtf8("체결 하중 힘 %1 N, 모멘트 %2 N·m").arg(f, 0, 'f', 2).arg(m, 0, 'f', 2);
+            } else if (j.hasMimic) {
+                text = QString::fromUtf8("자기 몫 %1 %2 (원본 %3 에 합산)").arg(l.torque, 0, 'f', 3).arg(j.TorqueUnit(), QString::fromStdString(j.mimicJoint));
+            } else {
+                const double tau = motor.find(j.name)->second;
+                text = QString::fromUtf8("모터 %1 %2").arg(tau, 0, 'f', 3).arg(j.TorqueUnit());
+                if (j.effort > 0.0f && std::fabs(tau) > static_cast<double>(j.effort)) {
+                    text += QString::fromUtf8("  (한계 %1 초과)").arg(static_cast<double>(j.effort), 0, 'g', 4);
+                    warn = true;
+                }
+            }
+            notes[j.name] = std::make_pair(text, warn);
+        }
+        tree_->SetJointNotes(notes);
     }
 
     void updateCollisionLabel() {
@@ -426,7 +469,7 @@ private:
             dock_->hide();
         }
         treeDock_->setVisible(tree_->topLevelItemCount() > 0);
-        if (treeDock_->isVisible()) resizeDocks(QList<QDockWidget*>() << treeDock_, QList<int>() << 340, Qt::Horizontal);
+        if (treeDock_->isVisible()) resizeDocks(QList<QDockWidget*>() << treeDock_, QList<int>() << 520, Qt::Horizontal);
         updateCollisionLabel();
         QString msg = path + "  -  " + viewer_->Summary();
         if (!viewer_->Warnings().isEmpty()) msg += QString::fromUtf8("  (경고 %1건: %2)").arg(viewer_->Warnings().size()).arg(viewer_->Warnings()[0]);

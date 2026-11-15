@@ -77,7 +77,7 @@ project_amr/
 - Qt 없이 빌드(`-DAMR_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 5 를 찾거나(`CMAKE_PREFIX_PATH`) vcpkg 로 설치한 뒤 창 모드로 빌드합니다 (`--no-qt` 로 끔). vcpkg 의 Qt 는 5.15 대입니다 (5.12 이상이면 동작).
 - **구조 트리** (왼쪽, `보기 > 구조 트리` / `T`): URDF 는 루트 링크부터 관절을 따라 이어지는 링크 계층(관절 이름, 종류와 limit, visual/collision 개수, 질량)을, 정적 모델은 노드 계층을 보여줍니다. 링크를 클릭하면 뷰어에서 그 링크가 밝게 강조되고, 충돌 중인 링크는 트리에서 빨갛게 표시됩니다.
 - **충돌 박스** (`보기 > OBB 충돌 박스` `O`, `보기 > AABB 충돌 박스` `B`, 또는 `--obb` / `--aabb`): AABB(링크마다, 노랑 / 후보이면 주황)와 OBB(도형마다, 하늘색 / 충돌하면 빨강)를 그립니다. 상태바 오른쪽에 OBB 로 확인된 충돌 쌍과 AABB 후보 수가 나옵니다 (부모-자식으로 직접 이어진 링크는 항상 맞닿으므로 제외). 창 없이 `--info --obb --joint 이름=값` 으로 링크별 AABB 와 충돌 목록을 출력할 수도 있습니다.
-- **중력 토크**: 관절 패널의 슬라이더 아래에 관절별 중력 토크(회전 N·m, 이동 N)가 나오고, URDF `effort` 한계를 넘으면 빨갛게 표시됩니다. `보기 > 중력 방향...` 이나 `--gravity gx,gy,gz` 로 중력 방향을 바꿀 수 있습니다(루트 링크 좌표계, 경사면의 AMR 이면 기울어진 방향). 창 없이 `--info --torque [--joint 이름=도] [--gravity ...]` 로 표로 출력할 수도 있습니다.
+- **중력 하중**: 구조 트리의 "중력 하중" 열에 **모든 관절**이 각자 따로 나옵니다(구동 관절은 모터 토크, mimic 은 자기 몫과 합산되는 원본, fixed 는 체결부 하중). 관절 패널의 슬라이더 아래에도 구동 관절의 토크(회전 N·m, 이동 N)가 나오고, URDF `effort` 한계를 넘으면 빨갛게 표시됩니다. `보기 > 중력 방향...` 이나 `--gravity gx,gy,gz` 로 중력 방향을 바꿀 수 있습니다(루트 링크 좌표계, 경사면의 AMR 이면 기울어진 방향). 창 없이 `--info --torque [--joint 이름=도] [--gravity ...]` 로 모든 관절의 하중과 링크별 기여 내역을 출력할 수도 있습니다. `Data/Object/samples/arm_gripper.urdf` 는 fixed 관절과 mimic 관절이 있는 그리퍼 예제입니다.
 - `--select 링크이름` 으로 시작할 때 링크를 선택하고, `--shot-window 파일.png` 로 패널을 포함한 창 전체를 저장합니다.
 - 마우스 조작과 실제 GPU 환경은 아직 사람 손으로 확인하지 못했습니다 (가상 화면의 소프트웨어 렌더링으로 그림은 확인).
 
@@ -211,10 +211,18 @@ amr::dynamics::Gravity g;                                   // 기본 (0, 0, -9.
 amr::dynamics::JointTorques t = amr::dynamics::GravityTorques(robot, q, g);   // 관절 이름 -> N*m (이동 관절은 N)
 double com[3], mass;
 amr::dynamics::CenterOfMass(robot, q, com, &mass);          // 로봇 전체 질량중심 (AMR 전도 여부 확인 등에 사용)
+
+// 모든 관절(fixed, mimic 포함)이 각자 받는 하중. robot.joints 와 같은 순서
+std::vector<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, g);
+//   loads[i].torque  : 움직이는 관절의 자기 몫 토크/힘 (mimic 도 합치지 않은 자기 몫)
+//   loads[i].force / .moment : 그 관절이 아래쪽 링크 전체를 버티려고 전달하는 힘(N)과 모멘트(N·m), 루트 링크 좌표계
+//                              (fixed 관절이면 체결부가 받는 하중)
+// 한 관절의 토크에 링크마다 얼마씩 기여했는지 (합 = 그 관절의 torque)
+std::vector<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContributions(robot, q, "shoulder_pitch", g);
 ```
 
 - `GravityTorques` 는 정지 상태에서 각 관절이 중력을 버티려고 내야 하는 토크, 즉 운동방정식 `M q'' + C + g(q) = tau` 의 `g(q) = dU/dq` 입니다. 부호는 관절 좌표(axis 방향 회전, 이동)의 + 방향 기준입니다. 수평으로 뻗은 팔이 +y 축 관절에 달려 있으면 처지는 방향이 +y 회전이므로 음수가 나옵니다.
-- 결과에는 구동 관절(움직이면서 mimic 이 아닌 것)만 들어가고, mimic 관절의 토크는 `multiplier` 배로 원본 관절에 합쳐집니다. 질량은 URDF `<inertial>` 의 `mass` 와 `origin`(질량중심)을 씁니다. 중력 토크에는 관성 텐서가 필요 없어서 아직 쓰이지 않습니다 (RNEA 로 확장할 때 쓸 예정).
+- `GravityTorques` 는 **모터가 내야 할 토크**라서 구동 관절(움직이면서 mimic 이 아닌 것)만 들어가고, mimic 관절의 토크는 `multiplier` 배로 원본 관절에 합쳐집니다. 관절마다 따로 보려면 `GravityLoads`(모든 관절, 합산 전 자기 몫)와 `GravityContributions`(링크별 기여)를 씁니다. 질량은 URDF `<inertial>` 의 `mass` 와 `origin`(질량중심)을 씁니다. 중력 토크에는 관성 텐서가 필요 없어서 아직 쓰이지 않습니다 (RNEA 로 확장할 때 쓸 예정).
 - URDF `<dynamics damping friction>` 은 `Joint::damping/friction` 으로 읽어 두었고, 아직 계산에는 쓰이지 않습니다 (마찰 토크는 다음 단계).
 - 검증: 진자/슬라이더 해석해와 비교하고, 가지가 있는 로봇(회전+이동+fixed+mimic+continuous, 회전된 관절/관성 원점)은 float FK 의 위치에너지를 수치 미분한 `dU/dq` 와 대조합니다.
 

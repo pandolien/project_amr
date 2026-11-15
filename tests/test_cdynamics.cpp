@@ -252,6 +252,102 @@ void testCenterOfMass() {
     check(!CenterOfMass(none, urdf::JointValues(), c, &m), "no mass: no center of mass");
 }
 
+
+const JointLoad* findLoad(const std::vector<JointLoad>& v, const char* name) {
+    for (size_t i = 0; i < v.size(); i++)
+        if (v[i].name == name) return &v[i];
+    return NULL;
+}
+
+double sumOf(const std::vector<LinkContribution>& v) {
+    double s = 0;
+    for (size_t i = 0; i < v.size(); i++) s += v[i].value;
+    return s;
+}
+
+void testPerJointLoads() {
+    // 진자: 힘은 위로 m g, 모멘트는 -y 방향으로 m g L, torque 는 그 모멘트의 y 성분
+    const urdf::Robot p = load(kPendulum);
+    std::vector<JointLoad> l = GravityLoads(p, urdf::JointValues());
+    check(l.size() == 1 && l[0].name == "j" && l[0].movable && !l[0].mimic, "pendulum load entry");
+    check(nearly(l[0].force[2], 2 * G) && nearly(l[0].force[0], 0) && nearly(l[0].force[1], 0), "force = -M g (upward)");
+    check(nearly(l[0].moment[1], -2 * G * 0.5) && nearly(l[0].moment[0], 0) && nearly(l[0].moment[2], 0), "moment about the joint");
+    check(nearly(l[0].torque, l[0].moment[1]), "torque == axis . moment");
+
+    // fixed 관절도 하중을 가진다 (체결부가 받는 힘/모멘트)
+    const urdf::Robot f = load(
+        "<robot name='f'><link name='base'/><link name='l'><inertial><origin xyz='0.5 0 0'/><mass value='2'/></inertial></link>"
+        "<joint name='weld' type='fixed'><parent link='base'/><child link='l'/></joint></robot>");
+    l = GravityLoads(f, urdf::JointValues());
+    check(l.size() == 1 && !l[0].movable && l[0].torque == 0.0, "fixed joint: listed, not movable, no joint torque");
+    check(nearly(l[0].force[2], 2 * G) && nearly(l[0].moment[1], -2 * 0.5 * G) && nearly(l[0].moment[0], 0), "fixed joint carries the weld load");
+    check(GravityTorques(f, urdf::JointValues()).empty(), "fixed joints are not in GravityTorques");
+
+    // 가지가 있는 트리: 모든 관절이 나오고, mimic 은 자기 몫이 따로 있으며 원본과 합치면 GravityTorques 와 같다
+    const urdf::Robot t = load(kTree);
+    urdf::JointValues q;
+    q["j1"] = 0.4f;
+    q["j2"] = 0.1f;
+    q["j4"] = -0.8f;
+    q["j5"] = 0.6f;
+    q["j7"] = 1.0f;
+    l = GravityLoads(t, q);
+    check(l.size() == t.joints.size(), "one entry per joint (including fixed and mimic)");
+    const JointLoad* j3 = findLoad(l, "j3");
+    const JointLoad* j6 = findLoad(l, "j6");
+    const JointLoad* j4 = findLoad(l, "j4");
+    check(j3 && !j3->movable && j3->torque == 0.0, "j3 fixed");
+    check(j6 && j6->movable && j6->mimic && std::fabs(j6->torque) > 1e-6, "j6 mimic has its own share");
+    const JointTorques tm = GravityTorques(t, q);
+    check(j4 && nearly(tm.find("j4")->second, j4->torque + (-0.5) * j6->torque, 1e-9), "master torque = own + multiplier * mimic's own");
+    for (size_t i = 0; i < l.size(); i++) {
+        if (!l[i].movable || l[i].mimic) continue;
+        // mimic 이 달리지 않은 구동 관절은 GravityTorques 와 똑같다
+        if (l[i].name != "j4") check(nearly(tm.find(l[i].name)->second, l[i].torque, 1e-9), "non-master actuated joint matches GravityTorques");
+    }
+    // 하중의 힘은 -M g: j1 아래쪽 전체 질량 (l1..l8 = 2+1.5+0.8+1.2+0.5+0.7+0.4 = 7.1 kg)
+    const JointLoad* j1 = findLoad(l, "j1");
+    check(j1 && nearly(std::sqrt(j1->force[0] * j1->force[0] + j1->force[1] * j1->force[1] + j1->force[2] * j1->force[2]), 7.1 * G, 1e-5), "|force| = M g");
+}
+
+void testContributions() {
+    const urdf::Robot two = load(
+        "<robot name='n'><link name='a'/>"
+        "<link name='b'><inertial><origin xyz='0.5 0 0'/><mass value='1'/></inertial></link>"
+        "<link name='c'><inertial><origin xyz='0.5 0 0'/><mass value='1'/></inertial></link>"
+        "<link name='d'/>"
+        "<joint name='s' type='revolute'><parent link='a'/><child link='b'/><axis xyz='0 1 0'/>"
+        "<limit lower='-3' upper='3' effort='1' velocity='1'/></joint>"
+        "<joint name='e' type='revolute'><parent link='b'/><child link='c'/><origin xyz='1 0 0'/><axis xyz='0 1 0'/>"
+        "<limit lower='-3' upper='3' effort='1' velocity='1'/></joint>"
+        "<joint name='w' type='fixed'><parent link='c'/><child link='d'/></joint></robot>");
+    std::vector<LinkContribution> s = GravityContributions(two, urdf::JointValues(), "s");
+    check(s.size() == 2 && s[0].link == "b" && s[1].link == "c", "shoulder: contributions from b and c (d has no mass)");
+    check(s.size() == 2 && nearly(s[0].value, -G * 0.5) && nearly(s[1].value, -G * 1.5), "shoulder: b = -g*0.5, c = -g*1.5");
+    const std::vector<LinkContribution> e = GravityContributions(two, urdf::JointValues(), "e");
+    check(e.size() == 1 && e[0].link == "c" && nearly(e[0].value, -G * 0.5), "elbow: only c");
+    check(GravityContributions(two, urdf::JointValues(), "w").empty(), "fixed joint: no contributions");
+    check(GravityContributions(two, urdf::JointValues(), "nope").empty(), "unknown joint: no contributions");
+
+    // 합은 항상 그 관절의 torque 와 같다 (가지가 있는 트리, 임의 자세와 중력)
+    const urdf::Robot t = load(kTree);
+    Rng rng(11);
+    for (int iter = 0; iter < 30; iter++) {
+        urdf::JointValues q;
+        q["j1"] = static_cast<float>(rng.range(-2, 2));
+        q["j2"] = static_cast<float>(rng.range(-0.15, 0.45));
+        q["j4"] = static_cast<float>(rng.range(-2, 2));
+        q["j5"] = static_cast<float>(rng.range(-2, 2));
+        q["j7"] = static_cast<float>(rng.range(-6, 6));
+        const Gravity g(rng.range(-9, 9), rng.range(-9, 9), rng.range(-9, 9));
+        const std::vector<JointLoad> loads = GravityLoads(t, q, g);
+        for (size_t i = 0; i < loads.size(); i++) {
+            if (!loads[i].movable) continue;
+            check(nearly(sumOf(GravityContributions(t, q, loads[i].name, g)), loads[i].torque, 1e-9), "sum of link contributions == joint torque");
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -260,6 +356,8 @@ int main() {
     testGradientOfPotential();
     testStructure();
     testCenterOfMass();
+    testPerJointLoads();
+    testContributions();
     if (g_fail == 0) std::printf("test_cdynamics: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

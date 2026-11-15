@@ -8,6 +8,7 @@
 namespace {
 
 const int kLinkRole = Qt::UserRole;
+const int kJointRole = Qt::UserRole + 1;  // 열 1 의 항목에 관절 이름을 넣어 둔다
 
 QString Utf8(const char* s) { return QString::fromUtf8(s); }
 
@@ -32,8 +33,8 @@ QString JointKind(const amr::urdf::Joint& j) {
 }  // namespace
 
 StructurePanel::StructurePanel(QWidget* parent) : QTreeWidget(parent) {
-    setColumnCount(3);
-    setHeaderLabels(QStringList() << Utf8("링크 / 노드") << Utf8("관절 / 메시") << Utf8("종류 / 비고"));
+    setColumnCount(4);
+    setHeaderLabels(QStringList() << Utf8("링크 / 노드") << Utf8("관절 / 메시") << Utf8("중력 하중") << Utf8("종류 / 비고"));
     setUniformRowHeights(true);
     setAlternatingRowColors(true);
     setSelectionMode(QAbstractItemView::SingleSelection);
@@ -80,9 +81,10 @@ void StructurePanel::addLink(QTreeWidgetItem* parent, const amr::urdf::Robot& ro
     if (viaJoint >= 0) {
         const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(viaJoint)];
         item->setText(1, QString::fromStdString(j.name));
+        item->setData(1, kJointRole, QString::fromStdString(j.name));
         QString kind = JointKind(j);
         if (j.hasMimic) kind += Utf8("  (mimic ") + QString::fromStdString(j.mimicJoint) + ")";
-        item->setText(2, kind);
+        item->setText(3, kind);
         item->setToolTip(1, QString("%1\n%2 -> %3\naxis (%4, %5, %6)")
                                 .arg(QString::fromStdString(j.name), QString::fromStdString(j.parent), QString::fromStdString(j.child))
                                 .arg(static_cast<double>(j.axis.x)).arg(static_cast<double>(j.axis.y)).arg(static_cast<double>(j.axis.z)));
@@ -94,8 +96,8 @@ void StructurePanel::addLink(QTreeWidgetItem* parent, const amr::urdf::Robot& ro
     if (!l.visuals.empty()) note << QString("visual %1").arg(l.visuals.size());
     if (!l.collisions.empty()) note << QString("collision %1").arg(l.collisions.size());
     if (l.hasInertial) note << QString("%1 kg").arg(static_cast<double>(l.inertial.mass), 0, 'g', 4);
-    if (viaJoint < 0 || item->text(2).isEmpty()) {
-        item->setText(2, note.join(", "));
+    if (viaJoint < 0 || item->text(3).isEmpty()) {
+        item->setText(3, note.join(", "));
     } else if (!note.isEmpty()) {
         item->setToolTip(0, note.join(", "));
     }
@@ -128,7 +130,7 @@ void StructurePanel::addNode(QTreeWidgetItem* parent, const amr::Scene& scene, i
         size_t tris = 0;
         for (size_t p = 0; p < m.primitives.size(); p++) tris += m.primitives[p].TriangleCount();
         item->setText(1, m.name.empty() ? Utf8("메시") : QString::fromStdString(m.name));
-        item->setText(2, QString("primitive %1, 삼각형 %2").arg(m.primitives.size()).arg(tris));
+        item->setText(3, QString("primitive %1, 삼각형 %2").arg(m.primitives.size()).arg(tris));
     }
     for (size_t c = 0; c < n.children.size(); c++) addNode(item, scene, n.children[c]);
 }
@@ -156,4 +158,23 @@ void StructurePanel::SelectLink(int link) {
     else
         setCurrentItem(nullptr);
     blockSignals(false);
+}
+
+void StructurePanel::SetJointNotes(const std::map<std::string, std::pair<QString, bool> >& notes) {
+    for (size_t i = 0; i < linkItems_.size(); i++) {
+        QTreeWidgetItem* it = linkItems_[i];
+        if (!it) continue;
+        const QString jn = it->data(1, kJointRole).toString();
+        if (jn.isEmpty()) continue;
+        std::map<std::string, std::pair<QString, bool> >::const_iterator n = notes.find(jn.toStdString());
+        if (n == notes.end()) {
+            it->setText(2, QString());
+            continue;
+        }
+        it->setText(2, n->second.first);
+        it->setForeground(2, n->second.second ? QBrush(QColor(220, 50, 50)) : QBrush());
+        QFont f = it->font(2);
+        f.setBold(n->second.second);
+        it->setFont(2, f);
+    }
 }
