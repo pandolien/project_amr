@@ -1,10 +1,9 @@
 // URDF 파서, 구조 검증, 순기구학
+#include "CBase/Text.h"
 #include "CURDF/Urdf.h"
 
-#include <cmath>
-#include <locale>
-#include <set>
-#include <sstream>
+#include "CBase/Math.h"
+#include "CBase/Map.h"
 
 #include "3d/dhEuler.h"
 #include "CMesh/Primitives.h"
@@ -28,18 +27,18 @@ void Robot::Clear() {
     warnings.clear();
 }
 
-int Robot::FindLink(const std::string& n) const {
+int Robot::FindLink(const amr::String& n) const {
     for (size_t i = 0; i < links.size(); i++) if (links[i].name == n) return static_cast<int>(i);
     return -1;
 }
 
-int Robot::FindJoint(const std::string& n) const {
+int Robot::FindJoint(const amr::String& n) const {
     for (size_t i = 0; i < joints.size(); i++) if (joints[i].name == n) return static_cast<int>(i);
     return -1;
 }
 
-std::vector<int> Robot::ActuatedJoints() const {
-    std::vector<int> r;
+amr::Array<int> Robot::ActuatedJoints() const {
+    amr::Array<int> r;
     for (size_t i = 0; i < joints.size(); i++) if (joints[i].IsMovable() && !joints[i].hasMimic) r.push_back(static_cast<int>(i));
     return r;
 }
@@ -74,8 +73,8 @@ float Robot::EffectiveJointValue(const JointValues& q, int jointIndex, bool clam
     return ValueRec(*this, q, jointIndex, clampToLimits, 0);
 }
 
-std::vector<dhMat> Robot::LinkTransforms(const JointValues& q, bool clampToLimits) const {
-    std::vector<dhMat> T(links.size());  // 기본 단위행렬
+amr::Array<dhMat> Robot::LinkTransforms(const JointValues& q, bool clampToLimits) const {
+    amr::Array<dhMat> T(links.size());  // 기본 단위행렬
     for (size_t k = 0; k < order.size(); k++) {
         const int ji = order[k];
         const Joint& j = joints[static_cast<size_t>(ji)];
@@ -94,29 +93,31 @@ namespace {
 
 struct Parser {
     Robot* robot;
-    std::string error;
+    amr::String error;
 
-    bool Fail(const std::string& msg) {
+    bool Fail(const amr::String& msg) {
         if (error.empty()) error = msg;
         return false;
     }
 
     // "1 2 3" 형태의 실수 목록. 개수가 정확히 n 이고 유한해야 한다.
     bool ParseFloats(const char* text, size_t n, float* out) {
-        std::istringstream in(text ? text : "");
-        in.imbue(std::locale::classic());
+        const char* p = text ? text : "";
         for (size_t i = 0; i < n; i++) {
-            if (!(in >> out[i]) || !std::isfinite(out[i])) return false;
+            double v;
+            if (!amr::ParseDouble(p, &v, &p) || !amr::IsFinite(v)) return false;
+            out[i] = static_cast<float>(v);
+            if (!amr::IsFinite(out[i])) return false;  // double 로는 유한해도 float 로 넘치는 값
         }
-        std::string rest;
-        return !(in >> rest);
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+        return *p == '\0';  // 남은 것이 있으면 개수가 맞지 않는다
     }
 
     bool Float(XMLElement* e, const char* attr, float def, float* out, const char* ctx) {
         const char* s = e->Attribute(attr);
         *out = def;
         if (!s) return true;
-        if (!ParseFloats(s, 1, out)) return Fail(std::string(ctx) + ": '" + attr + "' 값이 올바른 숫자가 아닙니다 (" + s + ")");
+        if (!ParseFloats(s, 1, out)) return Fail(amr::String(ctx) + ": '" + attr + "' 값이 올바른 숫자가 아닙니다 (" + s + ")");
         return true;
     }
 
@@ -125,8 +126,8 @@ struct Parser {
         XMLElement* o = parent->FirstChildElement("origin");
         if (!o) return true;
         float xyz[3] = {0, 0, 0}, rpy[3] = {0, 0, 0};
-        if (o->Attribute("xyz") && !ParseFloats(o->Attribute("xyz"), 3, xyz)) return Fail(std::string(ctx) + ": origin xyz 가 올바르지 않습니다");
-        if (o->Attribute("rpy") && !ParseFloats(o->Attribute("rpy"), 3, rpy)) return Fail(std::string(ctx) + ": origin rpy 가 올바르지 않습니다");
+        if (o->Attribute("xyz") && !ParseFloats(o->Attribute("xyz"), 3, xyz)) return Fail(amr::String(ctx) + ": origin xyz 가 올바르지 않습니다");
+        if (o->Attribute("rpy") && !ParseFloats(o->Attribute("rpy"), 3, rpy)) return Fail(amr::String(ctx) + ": origin rpy 가 올바르지 않습니다");
         *out = dhEuler(rpy[2], rpy[1], rpy[0]).GetMat();  // Rz(yaw) Ry(pitch) Rx(roll)
         out->v[12] = xyz[0];
         out->v[13] = xyz[1];
@@ -137,7 +138,7 @@ struct Parser {
     bool ParseColor(XMLElement* colorEl, Color* c, const char* ctx) {
         float v[4];
         if (!colorEl->Attribute("rgba") || !ParseFloats(colorEl->Attribute("rgba"), 4, v))
-            return Fail(std::string(ctx) + ": color rgba 는 숫자 4개여야 합니다");
+            return Fail(amr::String(ctx) + ": color rgba 는 숫자 4개여야 합니다");
         *c = Color(v[0], v[1], v[2], v[3]);
         return true;
     }
@@ -154,10 +155,10 @@ struct Parser {
         return true;
     }
 
-    bool ParseGeometry(XMLElement* g, Geometry* out, const std::string& ctx) {
+    bool ParseGeometry(XMLElement* g, Geometry* out, const amr::String& ctx) {
         XMLElement* e = g->FirstChildElement();
         if (!e) return Fail(ctx + ": geometry 가 비어 있습니다");
-        const std::string n = e->Name();
+        const amr::String n = e->Name();
         if (n == "box") {
             out->type = kGeomBox;
             if (!e->Attribute("size") || !ParseFloats(e->Attribute("size"), 3, out->size)) return Fail(ctx + ": box size 는 숫자 3개여야 합니다");
@@ -194,7 +195,7 @@ struct Parser {
         Link l;
         if (!e->Attribute("name") || !*e->Attribute("name")) return Fail("name 이 없는 link 가 있습니다");
         l.name = e->Attribute("name");
-        const std::string ctx = "link '" + l.name + "'";
+        const amr::String ctx = "link '" + l.name + "'";
 
         for (XMLElement* v = e->FirstChildElement("visual"); v; v = v->NextSiblingElement("visual")) {
             Visual vis;
@@ -240,10 +241,10 @@ struct Parser {
         Joint j;
         if (!e->Attribute("name") || !*e->Attribute("name")) return Fail("name 이 없는 joint 가 있습니다");
         j.name = e->Attribute("name");
-        const std::string ctx = "joint '" + j.name + "'";
+        const amr::String ctx = "joint '" + j.name + "'";
         const char* t = e->Attribute("type");
         if (!t) return Fail(ctx + ": type 이 없습니다");
-        const std::string ts = t;
+        const amr::String ts = t;
         if (ts == "revolute") j.type = kJointRevolute;
         else if (ts == "continuous") j.type = kJointContinuous;
         else if (ts == "prismatic") j.type = kJointPrismatic;
@@ -263,7 +264,7 @@ struct Parser {
         if (ax && ax->Attribute("xyz")) {
             float a[3];
             if (!ParseFloats(ax->Attribute("xyz"), 3, a)) return Fail(ctx + ": axis xyz 가 올바르지 않습니다");
-            const float len = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+            const float len = amr::Sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
             if (len < 1e-6f) {
                 if (j.IsMovable()) return Fail(ctx + ": axis 의 길이가 0 입니다");
             } else {
@@ -302,15 +303,15 @@ struct Parser {
     bool Validate() {
         Robot& r = *robot;
         if (r.links.empty()) return Fail("link 가 하나도 없습니다");
-        std::set<std::string> names;
+        amr::Set<amr::String> names;
         for (size_t i = 0; i < r.links.size(); i++)
             if (!names.insert(r.links[i].name).second) return Fail("link 이름이 중복됩니다: " + r.links[i].name);
         names.clear();
         for (size_t i = 0; i < r.joints.size(); i++)
             if (!names.insert(r.joints[i].name).second) return Fail("joint 이름이 중복됩니다: " + r.joints[i].name);
 
-        std::vector<int> parentJoint(r.links.size(), -1);
-        std::vector<std::vector<int> > childJoints(r.links.size());
+        amr::Array<int> parentJoint(r.links.size(), -1);
+        amr::Array<amr::Array<int> > childJoints(r.links.size());
         for (size_t i = 0; i < r.joints.size(); i++) {
             const Joint& j = r.joints[i];
             const int p = r.FindLink(j.parent), c = r.FindLink(j.child);
@@ -322,7 +323,7 @@ struct Parser {
             childJoints[static_cast<size_t>(p)].push_back(static_cast<int>(i));
             if (j.hasMimic && r.FindJoint(j.mimicJoint) < 0) return Fail("joint '" + j.name + "' 이 mimic 하는 joint 가 없습니다: " + j.mimicJoint);
         }
-        std::vector<int> roots;
+        amr::Array<int> roots;
         for (size_t i = 0; i < r.links.size(); i++) if (parentJoint[i] < 0) roots.push_back(static_cast<int>(i));
         if (roots.empty()) return Fail("루트 link 가 없습니다 (순환 구조)");
         if (roots.size() > 1) return Fail("루트 link 가 둘 이상입니다 (연결되지 않은 link: " + r.links[static_cast<size_t>(roots[1])].name + ")");
@@ -330,9 +331,9 @@ struct Parser {
 
         // 루트에서 너비 우선으로 훑어 순서를 정한다. 방문하지 못한 joint 가 있으면 순환이다.
         r.order.clear();
-        std::vector<int> queue(1, r.root);
+        amr::Array<int> queue(1, r.root);
         for (size_t qi = 0; qi < queue.size(); qi++) {
-            const std::vector<int>& cj = childJoints[static_cast<size_t>(queue[qi])];
+            const amr::Array<int>& cj = childJoints[static_cast<size_t>(queue[qi])];
             for (size_t k = 0; k < cj.size(); k++) {
                 r.order.push_back(cj[k]);
                 queue.push_back(r.FindLink(r.joints[static_cast<size_t>(cj[k])].child));
@@ -342,14 +343,14 @@ struct Parser {
         return true;
     }
 
-    bool Parse(const std::string& xml) {
-        if (xml.find("<xacro:") != std::string::npos || xml.find("${") != std::string::npos)
+    bool Parse(const amr::String& xml) {
+        if (xml.find("<xacro:") != amr::String::npos || xml.find("${") != amr::String::npos)
             return Fail("xacro 파일은 지원하지 않습니다. 'xacro robot.urdf.xacro > robot.urdf' 로 URDF 로 변환해 주세요");
         XMLDocument doc;
         if (doc.Parse(xml.c_str(), xml.size()) != tinyxml2::XML_SUCCESS)
-            return Fail(std::string("XML 파싱 실패: ") + (doc.ErrorStr() ? doc.ErrorStr() : ""));
+            return Fail(amr::String("XML 파싱 실패: ") + (doc.ErrorStr() ? doc.ErrorStr() : ""));
         XMLElement* root = doc.RootElement();
-        if (!root || std::string(root->Name()) != "robot") return Fail("URDF 파일이 아닙니다 (루트 요소가 robot 이 아님)");
+        if (!root || amr::String(root->Name()) != "robot") return Fail("URDF 파일이 아닙니다 (루트 요소가 robot 이 아님)");
         robot->name = root->Attribute("name") ? root->Attribute("name") : "";
 
         for (XMLElement* m = root->FirstChildElement("material"); m; m = m->NextSiblingElement("material")) {
@@ -381,7 +382,7 @@ struct Parser {
 
 }  // namespace
 
-bool LoadUrdfFromString(const std::string& xml, Robot* out, std::string* error, const std::string& baseDir) {
+bool LoadUrdfFromString(const amr::String& xml, Robot* out, amr::String* error, const amr::String& baseDir) {
     if (!out) return false;
     out->Clear();
     if (xml.empty()) {
@@ -399,12 +400,12 @@ bool LoadUrdfFromString(const std::string& xml, Robot* out, std::string* error, 
     return true;
 }
 
-bool LoadUrdf(const std::string& path, Robot* out, std::string* error) {
+bool LoadUrdf(const amr::String& path, Robot* out, amr::String* error) {
     if (!out) return false;
     out->Clear();
-    std::vector<char> bytes;
+    amr::Array<char> bytes;
     if (!detail::ReadFileBytes(path, &bytes, error)) return false;
-    return LoadUrdfFromString(std::string(bytes.begin(), bytes.end()), out, error, detail::DirName(path));
+    return LoadUrdfFromString(amr::String(bytes.begin(), bytes.end()), out, error, detail::DirName(path));
 }
 
 }  // namespace urdf

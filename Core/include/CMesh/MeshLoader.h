@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include <string>
+#include "CBase/String.h"
 
 #include "CMesh/Mesh.h"
 
@@ -17,23 +17,23 @@ namespace amr {
 //   - 8/16/32비트 인덱스, 인터리브(byteStride), 정규화(normalized) 속성, sparse 접근자 지원
 //   - 법선이 없으면 계산하고, UV 와 재질(baseColorFactor, metallic, roughness)을 읽는다
 //   - Draco, meshopt 압축 파일은 지원하지 않는다. 스킨/애니메이션은 무시한다.
-bool LoadGlb(const std::string& path, Scene* out, std::string* error);
-bool LoadGlbFromMemory(const void* data, size_t size, Scene* out, std::string* error);
+bool LoadGlb(const amr::String& path, Scene* out, amr::String* error);
+bool LoadGlbFromMemory(const void* data, size_t size, Scene* out, amr::String* error);
 
 // ---- STL (바이너리/ASCII 자동 판별). 면 법선은 파일 값이 아니라 정점에서 다시 계산한다.
-bool LoadStl(const std::string& path, Scene* out, std::string* error);
-bool LoadStlFromMemory(const void* data, size_t size, Scene* out, std::string* error);
+bool LoadStl(const amr::String& path, Scene* out, amr::String* error);
+bool LoadStlFromMemory(const void* data, size_t size, Scene* out, amr::String* error);
 
 // ---- OBJ. LoadObj 는 mtllib 이 가리키는 .mtl 을 같은 폴더에서 읽는다 (없으면 경고).
-bool LoadObj(const std::string& path, Scene* out, std::string* error);
-bool LoadObjFromString(const std::string& text, Scene* out, std::string* error);
+bool LoadObj(const amr::String& path, Scene* out, amr::String* error);
+bool LoadObjFromString(const amr::String& text, Scene* out, amr::String* error);
 
 // ---- COLLADA (.dae). unit 은 미터 기준으로 환산하고, up_axis 는 Z-up 으로 변환한다.
-bool LoadDae(const std::string& path, Scene* out, std::string* error);
-bool LoadDaeFromString(const std::string& xml, Scene* out, std::string* error);
+bool LoadDae(const amr::String& path, Scene* out, amr::String* error);
+bool LoadDaeFromString(const amr::String& xml, Scene* out, amr::String* error);
 
 // 확장자(.glb .gltf .stl .obj .dae, 대소문자 무시)로 형식을 골라 읽는다
-bool LoadMesh(const std::string& path, Scene* out, std::string* error);
+bool LoadMesh(const amr::String& path, Scene* out, amr::String* error);
 
 }  // namespace amr
 

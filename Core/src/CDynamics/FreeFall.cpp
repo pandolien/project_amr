@@ -1,12 +1,12 @@
 #include "CDynamics/FreeFall.h"
 
-#include <cmath>
+#include "CBase/Math.h"
 
 namespace amr {
 namespace dynamics {
 
 bool FallBody::Step(double dt, double gz) {
-    if (!(dt > 0.0) || !(gz < 0.0) || !std::isfinite(height) || !std::isfinite(velocity)) {
+    if (!(dt > 0.0) || !(gz < 0.0) || !amr::IsFinite(height) || !amr::IsFinite(velocity)) {
         velocity = 0.0;
         return false;
     }

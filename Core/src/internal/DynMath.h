@@ -4,7 +4,7 @@
 // CDynamics 가 함께 쓰는 double 수학과 순기구학 (공개하지 않는 내부 헤더)
 #include <math.h>
 
-#include <vector>
+#include "CBase/Array.h"
 
 #include "CURDF/Urdf.h"
 
@@ -73,10 +73,10 @@ inline M3 AxisAngle(const V3& a, double angle) {
 
 // 순기구학 결과 (double): 링크의 월드(루트 기준) 회전/위치, 관절의 월드 축/원점
 struct Kinematics {
-    std::vector<M3> R;      // 링크별
-    std::vector<V3> p;
-    std::vector<V3> axisW;  // 관절별 (움직이는 관절만 의미 있음)
-    std::vector<V3> originW;
+    amr::Array<M3> R;      // 링크별
+    amr::Array<V3> p;
+    amr::Array<V3> axisW;  // 관절별 (움직이는 관절만 의미 있음)
+    amr::Array<V3> originW;
 };
 
 inline Kinematics Forward(const urdf::Robot& robot, const urdf::JointValues& q, bool clamp) {

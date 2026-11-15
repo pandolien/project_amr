@@ -4,9 +4,9 @@
 #include <QLabel>
 #include <QSlider>
 #include <QWidget>
-#include <map>
-#include <string>
-#include <vector>
+#include "CBase/Map.h"
+#include "CBase/String.h"
+#include "CBase/Array.h"
 
 #include "CURDF/Urdf.h"
 
@@ -27,7 +27,7 @@ public:
 
     // 관절별 토크(회전 N·m, 이동 N)를 슬라이더 아래에 표시한다. 관절의 effort 한계를 넘으면 빨갛게 보인다.
     // 이름 -> 값 (amr::dynamics::JointTorques 와 같은 형식). 비어 있으면 표시를 지운다.
-    void SetTorques(const std::map<std::string, double>& torques);
+    void SetTorques(const amr::Map<amr::String, double>& torques);
 
 signals:
     void valuesChanged();
@@ -39,7 +39,7 @@ private slots:
 
 private:
     struct Row {
-        std::string name;
+        amr::String name;
         bool angular;
         double lower, upper;   // rad 또는 m
         QSlider* slider;
@@ -52,7 +52,7 @@ private:
     double valueOf(const Row& r) const;
     void updateLabel(Row& r);
 
-    std::vector<Row> rows_;
+    amr::Array<Row> rows_;
     QWidget* body_;
 };
 

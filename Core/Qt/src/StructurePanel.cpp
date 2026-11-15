@@ -1,9 +1,10 @@
+#include "CoreQt/QtString.h"
 #include "CoreQt/StructurePanel.h"
 
 #include <QBrush>
 #include <QFont>
 #include <QHeaderView>
-#include <cmath>
+#include "CBase/Math.h"
 
 namespace {
 
@@ -59,7 +60,7 @@ void StructurePanel::SetRobot(const amr::urdf::Robot& robot) {
     linkItems_.assign(robot.links.size(), nullptr);
     if (robot.root < 0) return;
 
-    std::vector<std::vector<int> > childJoints(robot.links.size());  // 링크 -> 그 링크가 부모인 관절들
+    amr::Array<amr::Array<int> > childJoints(robot.links.size());  // 링크 -> 그 링크가 부모인 관절들
     for (size_t j = 0; j < robot.joints.size(); j++) {
         const int p = robot.FindLink(robot.joints[j].parent);
         if (p >= 0) childJoints[static_cast<size_t>(p)].push_back(static_cast<int>(j));
@@ -73,20 +74,20 @@ void StructurePanel::SetRobot(const amr::urdf::Robot& robot) {
 }
 
 void StructurePanel::addLink(QTreeWidgetItem* parent, const amr::urdf::Robot& robot, int link, int viaJoint,
-                             const std::vector<std::vector<int> >& childJoints) {
+                             const amr::Array<amr::Array<int> >& childJoints) {
     const amr::urdf::Link& l = robot.links[static_cast<size_t>(link)];
     QTreeWidgetItem* item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(this);
-    item->setText(0, QString::fromStdString(l.name));
+    item->setText(0, amrqt::ToQ(l.name));
     item->setData(0, kLinkRole, link);
     if (viaJoint >= 0) {
         const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(viaJoint)];
-        item->setText(1, QString::fromStdString(j.name));
-        item->setData(1, kJointRole, QString::fromStdString(j.name));
+        item->setText(1, amrqt::ToQ(j.name));
+        item->setData(1, kJointRole, amrqt::ToQ(j.name));
         QString kind = JointKind(j);
-        if (j.hasMimic) kind += Utf8("  (mimic ") + QString::fromStdString(j.mimicJoint) + ")";
+        if (j.hasMimic) kind += Utf8("  (mimic ") + amrqt::ToQ(j.mimicJoint) + ")";
         item->setText(3, kind);
         item->setToolTip(1, QString("%1\n%2 -> %3\naxis (%4, %5, %6)")
-                                .arg(QString::fromStdString(j.name), QString::fromStdString(j.parent), QString::fromStdString(j.child))
+                                .arg(amrqt::ToQ(j.name), amrqt::ToQ(j.parent), amrqt::ToQ(j.child))
                                 .arg(static_cast<double>(j.axis.x)).arg(static_cast<double>(j.axis.y)).arg(static_cast<double>(j.axis.z)));
     } else {
         item->setText(1, Utf8("(루트)"));
@@ -103,7 +104,7 @@ void StructurePanel::addLink(QTreeWidgetItem* parent, const amr::urdf::Robot& ro
     }
     linkItems_[static_cast<size_t>(link)] = item;
 
-    const std::vector<int>& cj = childJoints[static_cast<size_t>(link)];
+    const amr::Array<int>& cj = childJoints[static_cast<size_t>(link)];
     for (size_t k = 0; k < cj.size(); k++) {
         const int child = robot.FindLink(robot.joints[static_cast<size_t>(cj[k])].child);
         if (child >= 0) addLink(item, robot, child, cj[k], childJoints);
@@ -123,20 +124,20 @@ void StructurePanel::addNode(QTreeWidgetItem* parent, const amr::Scene& scene, i
     if (node < 0 || static_cast<size_t>(node) >= scene.nodes.size()) return;
     const amr::SceneNode& n = scene.nodes[static_cast<size_t>(node)];
     QTreeWidgetItem* item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(this);
-    item->setText(0, n.name.empty() ? Utf8("(이름 없음)") : QString::fromStdString(n.name));
+    item->setText(0, n.name.empty() ? Utf8("(이름 없음)") : amrqt::ToQ(n.name));
     item->setData(0, kLinkRole, -1);
     if (n.mesh >= 0 && static_cast<size_t>(n.mesh) < scene.meshes.size()) {
         const amr::Mesh& m = scene.meshes[static_cast<size_t>(n.mesh)];
         size_t tris = 0;
         for (size_t p = 0; p < m.primitives.size(); p++) tris += m.primitives[p].TriangleCount();
-        item->setText(1, m.name.empty() ? Utf8("메시") : QString::fromStdString(m.name));
+        item->setText(1, m.name.empty() ? Utf8("메시") : amrqt::ToQ(m.name));
         item->setText(3, QString("primitive %1, 삼각형 %2").arg(m.primitives.size()).arg(tris));
     }
     for (size_t c = 0; c < n.children.size(); c++) addNode(item, scene, n.children[c]);
 }
 
-void StructurePanel::SetCollidingLinks(const std::vector<int>& links) {
-    std::vector<bool> hit(linkItems_.size(), false);
+void StructurePanel::SetCollidingLinks(const amr::Array<int>& links) {
+    amr::Array<bool> hit(linkItems_.size(), false);
     for (size_t i = 0; i < links.size(); i++)
         if (links[i] >= 0 && static_cast<size_t>(links[i]) < hit.size()) hit[static_cast<size_t>(links[i])] = true;
     for (size_t i = 0; i < linkItems_.size(); i++) {
@@ -160,13 +161,13 @@ void StructurePanel::SelectLink(int link) {
     blockSignals(false);
 }
 
-void StructurePanel::SetJointNotes(const std::map<std::string, std::pair<QString, bool> >& notes) {
+void StructurePanel::SetJointNotes(const amr::Map<amr::String, amr::Pair<QString, bool> >& notes) {
     for (size_t i = 0; i < linkItems_.size(); i++) {
         QTreeWidgetItem* it = linkItems_[i];
         if (!it) continue;
         const QString jn = it->data(1, kJointRole).toString();
         if (jn.isEmpty()) continue;
-        std::map<std::string, std::pair<QString, bool> >::const_iterator n = notes.find(jn.toStdString());
+        amr::Map<amr::String, amr::Pair<QString, bool> >::const_iterator n = notes.find(amrqt::FromQ(jn));
         if (n == notes.end()) {
             it->setText(2, QString());
             continue;

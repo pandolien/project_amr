@@ -1,10 +1,10 @@
 #ifndef CORE_CURDF_URDF_H
 #define CORE_CURDF_URDF_H
 
-#include <map>
-#include <string>
-#include <utility>
-#include <vector>
+#include "CBase/Map.h"
+#include "CBase/String.h"
+#include "CBase/Util.h"
+#include "CBase/Array.h"
 
 #include "3d/dhMat.h"
 #include "3d/Units.h"
@@ -23,7 +23,7 @@ struct Geometry {
     float size[3];         // box 의 전체 변 길이
     float radius;          // cylinder, sphere
     float length;          // cylinder (축 = Z)
-    std::string filename;  // mesh: 원문 그대로 (package://..., file://..., 상대/절대 경로)
+    amr::String filename;  // mesh: 원문 그대로 (package://..., file://..., 상대/절대 경로)
     float scale[3];        // mesh 의 scale (기본 1 1 1)
     Geometry() : type(kGeomNone), radius(0), length(0) {
         size[0] = size[1] = size[2] = 0;
@@ -32,15 +32,15 @@ struct Geometry {
 };
 
 struct MaterialDef {
-    std::string name;
+    amr::String name;
     Color color;
     bool hasColor;
-    std::string texture;  // 원문 경로
+    amr::String texture;  // 원문 경로
     MaterialDef() : hasColor(false) {}
 };
 
 struct Visual {
-    std::string name;
+    amr::String name;
     dhMat origin;  // link 좌표계 -> visual 좌표계
     Geometry geometry;
     MaterialDef material;
@@ -49,7 +49,7 @@ struct Visual {
 };
 
 struct Collision {
-    std::string name;
+    amr::String name;
     dhMat origin;
     Geometry geometry;
 };
@@ -62,9 +62,9 @@ struct Inertial {
 };
 
 struct Link {
-    std::string name;
-    std::vector<Visual> visuals;
-    std::vector<Collision> collisions;
+    amr::String name;
+    amr::Array<Visual> visuals;
+    amr::Array<Collision> collisions;
     Inertial inertial;
     bool hasInertial;
     Link() : hasInertial(false) {}
@@ -73,10 +73,10 @@ struct Link {
 enum JointType { kJointFixed, kJointRevolute, kJointContinuous, kJointPrismatic, kJointFloating, kJointPlanar };
 
 struct Joint {
-    std::string name;
+    amr::String name;
     JointType type;
-    std::string parent;  // 부모 link 이름
-    std::string child;   // 자식 link 이름
+    amr::String parent;  // 부모 link 이름
+    amr::String child;   // 자식 link 이름
     dhMat origin;        // 부모 link -> 관절 좌표계
     dhVector axis;       // 정규화된 회전/이동 축 (관절 좌표계, <axis> 가 없으면 기본 0 0 1 = z축. URDF 규격의 기본값 x 가 아니라 이 프로젝트의 규약)
     float lower, upper, effort, velocity;
@@ -85,7 +85,7 @@ struct Joint {
     float damping, friction;
     bool hasDynamics;
     bool hasMimic;
-    std::string mimicJoint;
+    amr::String mimicJoint;
     float mimicMultiplier, mimicOffset;
     Joint() : type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
               damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
@@ -101,37 +101,37 @@ struct Joint {
     const char* TorqueUnit() const { return IsAngular() ? "N*m" : "N"; }
 };
 
-typedef std::map<std::string, float> JointValues;  // 관절 이름 -> 각도(rad) 또는 변위(m)
+typedef amr::Map<amr::String, float> JointValues;  // 관절 이름 -> 각도(rad) 또는 변위(m)
 
 struct Robot {
-    std::string name;
-    std::vector<Link> links;
-    std::vector<Joint> joints;
-    std::vector<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
+    amr::String name;
+    amr::Array<Link> links;
+    amr::Array<Joint> joints;
+    amr::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
     int root;                            // 루트 link 인덱스
-    std::vector<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
-    std::string baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)
-    std::vector<std::string> warnings;
+    amr::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
+    amr::String baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)
+    amr::Array<amr::String> warnings;
 
     Robot() : root(-1) {}
     void Clear();
-    int FindLink(const std::string& n) const;   // 없으면 -1
-    int FindJoint(const std::string& n) const;  // 없으면 -1
+    int FindLink(const amr::String& n) const;   // 없으면 -1
+    int FindJoint(const amr::String& n) const;  // 없으면 -1
     // 사용자가 직접 움직이는 관절 (movable 이면서 mimic 이 아닌 것)의 joint 인덱스
-    std::vector<int> ActuatedJoints() const;
+    amr::Array<int> ActuatedJoints() const;
     // 관절 값을 limit 으로 제한한 뒤 순기구학을 계산한다. 결과는 links 와 같은 순서의 월드 변환.
     // q 에 없는 관절은 0. mimic 관절은 대상 관절 값으로 자동 결정된다.
     // T[child] = T[parent] * origin * motion(q)
-    std::vector<dhMat> LinkTransforms(const JointValues& q, bool clampToLimits = true) const;
+    amr::Array<dhMat> LinkTransforms(const JointValues& q, bool clampToLimits = true) const;
     // 관절의 최종 값 (mimic, 제한 반영). 관절 이름이 없으면 0.
     float EffectiveJointValue(const JointValues& q, int jointIndex, bool clampToLimits = true) const;
 };
 
 struct LoadOptions {
     // package://<이름>/... 를 찾을 폴더. (이름, 그 패키지의 루트 폴더)
-    std::vector<std::pair<std::string, std::string> > packagePaths;
+    amr::Array<amr::Pair<amr::String, amr::String> > packagePaths;
     // 추가 검색 폴더. 상대 경로와 package:// 경로를 이 폴더 아래에서도 찾는다.
-    std::vector<std::string> searchDirs;
+    amr::Array<amr::String> searchDirs;
     // GLB(Y-up) 메시를 URDF(Z-up)에 맞게 X축 +90도 회전한다.
     bool glbYUpToZUp;
     LoadOptions() : glbYUpToZUp(true) {}
@@ -139,19 +139,19 @@ struct LoadOptions {
 
 // ---- URDF 읽기. 성공하면 links/joints 의 구조가 검증된 상태다
 //   검증: 이름 중복 없음, 존재하지 않는 link 참조 없음, 루트 하나, 순환 없음, 모든 link 가 루트에 연결됨
-bool LoadUrdf(const std::string& path, Robot* out, std::string* error);
-bool LoadUrdfFromString(const std::string& xml, Robot* out, std::string* error, const std::string& baseDir = std::string());
+bool LoadUrdf(const amr::String& path, Robot* out, amr::String* error);
+bool LoadUrdfFromString(const amr::String& xml, Robot* out, amr::String* error, const amr::String& baseDir = amr::String());
 
 // 메시 경로를 실제 파일로 해석한다. 찾으면 true.
 //   package://pkg/a/b : packagePaths -> searchDirs -> URDF 폴더와 그 상위 폴더 순서
 //   file:///abs/path, 절대 경로, 상대 경로(URDF 폴더 -> searchDirs)
-bool ResolveMeshPath(const std::string& filename, const std::string& baseDir, const LoadOptions& opt, std::string* resolved);
+bool ResolveMeshPath(const amr::String& filename, const amr::String& baseDir, const LoadOptions& opt, amr::String* resolved);
 
 // Geometry 하나를 Scene 으로 만든다. box/cylinder/sphere 는 기본 도형을 생성하고, mesh 는 파일을 읽은 뒤
 // URDF 의 scale 과 축 변환(opt.glbYUpToZUp)을 적용한다. cache 를 주면 같은 파일을 다시 읽지 않는다
 // (경로 -> scale 적용 전 Scene). kGeomNone 이면 false 를 돌려주고 error 는 비워 둔다.
-bool LoadGeometryScene(const Geometry& g, const std::string& baseDir, const LoadOptions& opt, Scene* out,
-                       std::string* error, std::map<std::string, Scene>* cache = 0);
+bool LoadGeometryScene(const Geometry& g, const amr::String& baseDir, const LoadOptions& opt, Scene* out,
+                       amr::String* error, amr::Map<amr::String, Scene>* cache = 0);
 
 struct LinkVisual {
     int link;       // Robot::links 인덱스
@@ -164,8 +164,8 @@ struct LinkVisual {
 };
 
 struct RobotMeshes {
-    std::vector<LinkVisual> visuals;
-    std::vector<std::string> warnings;  // 읽지 못한 메시 등
+    amr::Array<LinkVisual> visuals;
+    amr::Array<amr::String> warnings;  // 읽지 못한 메시 등
 };
 
 // 모든 link 의 visual 을 읽는다 (box/cylinder/sphere 는 기본 도형으로 생성, mesh 는 파일 확장자로 판별).

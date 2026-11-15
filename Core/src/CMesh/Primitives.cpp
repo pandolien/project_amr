@@ -1,6 +1,6 @@
 #include "CMesh/Primitives.h"
 
-#include <cmath>
+#include "CBase/Math.h"
 
 namespace amr {
 
@@ -63,7 +63,7 @@ Primitive MakeCylinder(float radius, float length, int segments) {
     // 옆면: 아래/위 고리를 번갈아 배치 (이음매 정점은 uv 때문에 한 번 더 만든다)
     for (size_t i = 0; i <= n; i++) {
         const float t = static_cast<float>(i) / static_cast<float>(n);
-        const float c = std::cos(2.0f * kPi * t), s = std::sin(2.0f * kPi * t);
+        const float c = amr::Cos(2.0f * kPi * t), s = amr::Sin(2.0f * kPi * t);
         AddVertex(&p, radius * c, radius * s, -h, c, s, 0, t, 0);
         AddVertex(&p, radius * c, radius * s, h, c, s, 0, t, 1);
     }
@@ -81,7 +81,7 @@ Primitive MakeCylinder(float radius, float length, int segments) {
         AddVertex(&p, 0, 0, z, 0, 0, nz, 0.5f, 0.5f);
         for (size_t i = 0; i <= n; i++) {
             const float t = static_cast<float>(i) / static_cast<float>(n);
-            const float c = std::cos(2.0f * kPi * t), s = std::sin(2.0f * kPi * t);
+            const float c = amr::Cos(2.0f * kPi * t), s = amr::Sin(2.0f * kPi * t);
             AddVertex(&p, radius * c, radius * s, z, 0, 0, nz, 0.5f + 0.5f * c, 0.5f + 0.5f * s);
         }
         for (size_t i = 0; i < n; i++) {
@@ -103,9 +103,9 @@ Primitive MakeSphere(float radius, int segments, int rings) {
         for (size_t s = 0; s <= ns; s++) {
             const float u = static_cast<float>(s) / static_cast<float>(ns);
             const float theta = 2.0f * kPi * u;
-            const float nx = std::sin(phi) * std::cos(theta);
-            const float ny = std::sin(phi) * std::sin(theta);
-            const float nz = std::cos(phi);
+            const float nx = amr::Sin(phi) * amr::Cos(theta);
+            const float ny = amr::Sin(phi) * amr::Sin(theta);
+            const float nz = amr::Cos(phi);
             AddVertex(&p, radius * nx, radius * ny, radius * nz, nx, ny, nz, u, v);
         }
     }
@@ -119,7 +119,7 @@ Primitive MakeSphere(float radius, int segments, int rings) {
     return p;
 }
 
-Scene SceneFromPrimitive(const Primitive& p, const std::string& name) {
+Scene SceneFromPrimitive(const Primitive& p, const amr::String& name) {
     Scene scene;
     scene.name = name;
     Mesh mesh;

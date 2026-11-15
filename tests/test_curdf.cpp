@@ -1,8 +1,8 @@
 // CURDF 테스트: 파싱, 검증, 순기구학(rpy 규약, 제한, mimic), 메시 경로 해석과 로딩
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
+#include "CBase/File.h"
+#include "CBase/Math.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "CURDF/Urdf.h"
 #include "TestGlb.h"
@@ -17,12 +17,12 @@ int g_fail = 0;
 
 void check(bool ok, const char* what) {
     if (!ok) {
-        std::printf("FAIL: %s\n", what);
+        printf("FAIL: %s\n", what);
         ++g_fail;
     }
 }
 
-bool nearly(double a, double b, double eps = 1e-4) { return std::fabs(a - b) <= eps; }
+bool nearly(double a, double b, double eps = 1e-4) { return amr::Abs(a - b) <= eps; }
 
 bool posIs(const dhMat& m, double x, double y, double z) {
     return nearly(m.v[12], x) && nearly(m.v[13], y) && nearly(m.v[14], z);
@@ -55,7 +55,7 @@ const char* kArm =
 
 void testParse() {
     Robot r;
-    std::string err;
+    amr::String err;
     check(LoadUrdfFromString(kArm, &r, &err), "arm loads");
     check(r.name == "arm" && r.links.size() == 6 && r.joints.size() == 5, "counts");
     check(r.root >= 0 && r.links[static_cast<size_t>(r.root)].name == "base", "root is base");
@@ -63,13 +63,13 @@ void testParse() {
     check(r.links[0].hasInertial && nearly(r.links[0].inertial.mass, 2.5) && nearly(r.links[0].inertial.izz, 3), "inertial");
     check(r.links[0].visuals.size() == 1 && r.links[0].visuals[0].geometry.type == kGeomBox, "box visual");
     check(r.links[0].visuals[0].material.hasColor && nearly(r.links[0].visuals[0].material.color.b, 1), "named material color resolved");
-    const Joint& j2 = r.joints[static_cast<size_t>(r.FindJoint("j2"))];
+    const Joint j2 = r.joints[static_cast<size_t>(r.FindJoint("j2"))];
     check(nearly(j2.axis.y, 1) && nearly(j2.axis.x, 0), "axis normalized");
     check(r.FindLink("nope") == -1 && r.FindJoint("nope") == -1, "find missing");
-    const std::vector<int> act = r.ActuatedJoints();
+    const amr::Array<int> act = r.ActuatedJoints();
     check(act.size() == 3, "actuated = j1 j2 j3 (not fixed, not mimic)");
     // order: 부모 joint 가 자식 joint 보다 먼저 와야 한다
-    std::vector<bool> seen(r.links.size(), false);
+    amr::Array<bool> seen(r.links.size(), false);
     seen[static_cast<size_t>(r.root)] = true;
     bool ordered = true;
     for (size_t k = 0; k < r.order.size(); k++) {
@@ -82,11 +82,11 @@ void testParse() {
 
 void testKinematics() {
     Robot r;
-    std::string err;
+    amr::String err;
     check(LoadUrdfFromString(kArm, &r, &err), "arm loads (fk)");
     const int l1 = r.FindLink("l1"), l2 = r.FindLink("l2"), l3 = r.FindLink("l3"), tool = r.FindLink("tool"), fin = r.FindLink("finger");
 
-    std::vector<dhMat> T = r.LinkTransforms(JointValues());
+    amr::Array<dhMat> T = r.LinkTransforms(JointValues());
     check(posIs(T[static_cast<size_t>(l1)], 0, 0, 0.5), "zero pose l1");
     check(posIs(T[static_cast<size_t>(l3)], 2, 0, 0.5), "zero pose l3");
     check(posIs(T[static_cast<size_t>(tool)], 2, 0, 0.6), "zero pose tool");
@@ -129,14 +129,14 @@ void testKinematics() {
 
 void testRpyConvention() {
     // rpy=(r=90, p=0, y=180): R = Rz(180) Rx(90). z 축 -> +Y, y 축 -> +Z, x 축 -> -X (roll/yaw 를 바꾸면 결과가 달라진다)
-    const std::string u =
+    const amr::String u =
         "<robot name=\"r\"><link name=\"a\"/><link name=\"b\"/>"
         "<joint name=\"j\" type=\"fixed\"><parent link=\"a\"/><child link=\"b\"/>"
         "<origin xyz=\"1 2 3\" rpy=\"1.5707963 0 3.1415926\"/></joint></robot>";
     Robot r;
-    std::string err;
+    amr::String err;
     check(LoadUrdfFromString(u, &r, &err), "rpy robot");
-    const std::vector<dhMat> T = r.LinkTransforms(JointValues());
+    const amr::Array<dhMat> T = r.LinkTransforms(JointValues());
     double o[3];
     apply(T[1], 0, 0, 1, o);
     check(nearly(o[0], 1) && nearly(o[1], 3) && nearly(o[2], 3), "z axis -> +Y (plus translation)");
@@ -146,14 +146,14 @@ void testRpyConvention() {
     check(nearly(o[0], 0) && nearly(o[1], 2) && nearly(o[2], 3), "x axis -> -X");
 }
 
-std::string Wrap(const std::string& body) { return "<robot name=\"t\">" + body + "</robot>"; }
+amr::String Wrap(const amr::String& body) { return "<robot name=\"t\">" + body + "</robot>"; }
 
-void expectFail(const std::string& xml, const char* what) {
+void expectFail(const amr::String& xml, const char* what) {
     Robot r;
-    std::string err;
+    amr::String err;
     const bool ok = LoadUrdfFromString(xml, &r, &err);
     if (ok || err.empty() || !r.links.empty()) {
-        std::printf("FAIL: %s (ok=%d err='%s')\n", what, ok ? 1 : 0, err.c_str());
+        printf("FAIL: %s (ok=%d err='%s')\n", what, ok ? 1 : 0, err.c_str());
         ++g_fail;
     }
 }
@@ -199,14 +199,14 @@ void testErrors() {
 
     // 경고만 나는 경우: revolute 에 limit 이 없음
     Robot r;
-    std::string err;
+    amr::String err;
     check(LoadUrdfFromString(Wrap("<link name=\"a\"/><link name=\"b\"/><joint name=\"j\" type=\"revolute\"><parent link=\"a\"/><child link=\"b\"/></joint>"), &r, &err),
           "missing limit is lenient");
     check(!r.warnings.empty(), "missing limit warns");
     // 기본값: axis = Z (프로젝트 규약. URDF 규격은 X 이므로 경고를 남긴다)
     check(nearly(r.joints[0].axis.z, 1) && nearly(r.joints[0].axis.x, 0), "default axis is Z");
     bool axisWarn = false;
-    for (size_t i = 0; i < r.warnings.size(); i++) axisWarn = axisWarn || r.warnings[i].find("axis") != std::string::npos;
+    for (size_t i = 0; i < r.warnings.size(); i++) axisWarn = axisWarn || r.warnings[i].find("axis") != amr::String::npos;
     check(axisWarn, "missing axis on a movable joint warns");
     check(LoadUrdfFromString(Wrap("<link name=\"a\"/><link name=\"b\"/><joint name=\"j\" type=\"fixed\"><parent link=\"a\"/><child link=\"b\"/></joint>"), &r, &err) && r.warnings.empty(),
           "fixed joint without axis does not warn");
@@ -218,29 +218,28 @@ void testErrors() {
     check(!LoadUrdf(tu::Tmp("amr_no_such.urdf"), &r, &err) && !err.empty(), "missing file");
 
     // 모든 접두 길이로 잘라도 죽지 않고, 성공하면 구조가 일관된다
-    const std::string good = kArm;
+    const amr::String good = kArm;
     for (size_t n = 0; n < good.size(); n += 2) {
         Robot t;
         if (LoadUrdfFromString(good.substr(0, n), &t, &err) && t.order.size() != t.joints.size()) check(false, "prefix produced inconsistent robot");
     }
     for (size_t i = 0; i < good.size(); i += 3) {
-        std::string c = good;
+        amr::String c = good;
         c[i] = static_cast<char>(c[i] ^ 0x21);
         Robot t;
         if (LoadUrdfFromString(c, &t, &err) && t.order.size() != t.joints.size()) check(false, "corruption produced inconsistent robot");
     }
 }
 
-std::vector<std::string> g_files;  // 만든 파일 (마지막에 지운다)
+amr::Array<amr::String> g_files;  // 만든 파일 (마지막에 지운다)
 
-void writeFile(const std::string& path, const std::string& s) {
+void writeFile(const amr::String& path, const amr::String& s) {
     g_files.push_back(path);
-    std::ofstream f(path.c_str(), std::ios::binary);
-    f.write(s.data(), static_cast<std::streamsize>(s.size()));
+    amr::WriteFileBytes(path, s.data(), s.size());
 }
 
 void testMeshes() {
-    const std::string root = tu::Tmp("amr_urdf_test");
+    const amr::String root = tu::Tmp("amr_urdf_test");
     tu::MkDir(root);
     tu::MkDir(root + "/mypkg");
     tu::MkDir(root + "/mypkg/urdf");
@@ -250,16 +249,16 @@ void testMeshes() {
     writeFile(root + "/mypkg/meshes/tri.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
     // GLB: 삼각형 (0,0,0),(1,0,0),(0,1,0) -> Y-up 변환 후 y 가 z 로
     {
-        std::vector<char> b;
+        amr::Array<char> b;
         const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
         for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);
-        const std::string js =
+        const amr::String js =
             "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
             "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],"
             "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}],"
             "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}";
-        const std::vector<char> glb = testglb::MakeGlb(js, b);
-        writeFile(root + "/mypkg/meshes/tri.glb", std::string(glb.begin(), glb.end()));
+        const amr::Array<char> glb = testglb::MakeGlb(js, b);
+        writeFile(root + "/mypkg/meshes/tri.glb", amr::String(glb.begin(), glb.end()));
     }
     writeFile(root + "/mypkg/urdf/robot.urdf",
         "<robot name=\"m\"><link name=\"base\">"
@@ -272,7 +271,7 @@ void testMeshes() {
         "</link></robot>");
 
     Robot r;
-    std::string err;
+    amr::String err;
     check(LoadUrdf(root + "/mypkg/urdf/robot.urdf", &r, &err), "file urdf loads");
     check(r.baseDir == root + "/mypkg/urdf", "baseDir recorded");
 
@@ -298,11 +297,11 @@ void testMeshes() {
         check(rm2.visuals[1].scene.ComputeBounds(&mn, &mx) && nearly(mx.y, 1) && nearly(mx.z, 0), "glb untouched when conversion off");
 
     // 경로 해석
-    std::string path;
+    amr::String path;
     check(ResolveMeshPath("package://mypkg/meshes/tri.obj", tu::Tmp("zzz_no_such_dir/a/b"), opt, &path) == false, "not found from unrelated dir");
     check(ResolveMeshPath("package://mypkg/meshes/tri.obj", root + "/other", opt, &path), "found via ancestor/pkg/sub");
     LoadOptions withPkg;
-    withPkg.packagePaths.push_back(std::make_pair("mypkg", root + "/mypkg"));
+    withPkg.packagePaths.push_back(amr::MakePair(amr::String("mypkg"), root + "/mypkg"));
     check(ResolveMeshPath("package://mypkg/meshes/tri.obj", root + "/other", withPkg, &path) && path == root + "/mypkg/meshes/tri.obj",
           "packagePaths mapping");
     LoadOptions withDir;
@@ -326,7 +325,7 @@ void testMeshes() {
     check(!LoadRobotMeshes(r, opt, &rm3), "missing/unsupported mesh -> false");
     check(rm3.visuals.size() == 1 && rm3.warnings.size() == 2, "good mesh kept, 2 warnings");
 
-    for (size_t i = 0; i < g_files.size(); i++) std::remove(g_files[i].c_str());
+    for (size_t i = 0; i < g_files.size(); i++) remove(g_files[i].c_str());
     tu::RmDir(root + "/other");
     tu::RmDir(root + "/mypkg/urdf");
     tu::RmDir(root + "/mypkg/meshes");
@@ -338,7 +337,7 @@ void testMeshes() {
 
 void testDynamicsAndUnits() {
     Robot r;
-    std::string err;
+    amr::String err;
     check(LoadUrdfFromString(
               "<robot name='d'><link name='a'/><link name='b'/><link name='c'/>"
               "<joint name='j1' type='revolute'><parent link='a'/><child link='b'/><axis xyz='0 0 1'/>"
@@ -347,8 +346,8 @@ void testDynamicsAndUnits() {
               "<limit lower='0' upper='1' effort='5' velocity='1'/></joint></robot>",
               &r, &err),
           "dynamics urdf loads");
-    const Joint& j1 = r.joints[static_cast<size_t>(r.FindJoint("j1"))];
-    const Joint& j2 = r.joints[static_cast<size_t>(r.FindJoint("j2"))];
+    const Joint j1 = r.joints[static_cast<size_t>(r.FindJoint("j1"))];  // 복사 (아래에서 r 을 다시 쓴다)
+    const Joint j2 = r.joints[static_cast<size_t>(r.FindJoint("j2"))];
     check(j1.hasDynamics && nearly(j1.damping, 0.25) && nearly(j1.friction, 0.5), "dynamics damping/friction parsed");
     check(!j2.hasDynamics && j2.damping == 0 && j2.friction == 0, "no <dynamics>: zero");
     check(!LoadUrdfFromString(
@@ -361,8 +360,8 @@ void testDynamicsAndUnits() {
     check(j1.IsAngular() && !j2.IsAngular(), "IsAngular");
     check(nearly(j1.ToDisplay(3.14159265358979 / 2), 90.0, 1e-9) && nearly(j1.FromDisplay(180.0), 3.14159265358979, 1e-9), "angular joint: rad <-> deg");
     check(nearly(j2.ToDisplay(0.25), 0.25) && nearly(j2.FromDisplay(0.25), 0.25), "prismatic joint: m unchanged");
-    check(std::string(j1.DisplayUnit()) == "deg" && std::string(j2.DisplayUnit()) == "m", "display units");
-    check(std::string(j1.TorqueUnit()) == "N*m" && std::string(j2.TorqueUnit()) == "N", "torque units");
+    check(amr::String(j1.DisplayUnit()) == "deg" && amr::String(j2.DisplayUnit()) == "m", "display units");
+    check(amr::String(j1.TorqueUnit()) == "N*m" && amr::String(j2.TorqueUnit()) == "N", "torque units");
 }
 
 int main() {
@@ -372,6 +371,6 @@ int main() {
     testRpyConvention();
     testErrors();
     testMeshes();
-    if (g_fail == 0) std::printf("test_curdf: all passed\n");
+    if (g_fail == 0) printf("test_curdf: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

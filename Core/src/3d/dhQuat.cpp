@@ -1,6 +1,6 @@
 #include "3d/dhQuat.h"
 
-#include <cmath>
+#include "CBase/Math.h"
 
 #include "3d/dhEuler.h"
 #include "3d/dhMat.h"
@@ -23,19 +23,19 @@ dhEuler dhQuat::GetEuler() const {
 
 dhQuat dhQuat::FromAxisAngle(float angle, const dhVector& axis) {
     const float n = axis.Norm();
-    if (!(n > 0.0f) || !std::isfinite(n)) return dhQuat();
+    if (!(n > 0.0f) || !amr::IsFinite(n)) return dhQuat();
     const float h = angle * 0.5f;
-    const float s = std::sin(h) / n;
-    return dhQuat(axis.x * s, axis.y * s, axis.z * s, std::cos(h));
+    const float s = amr::Sin(h) / n;
+    return dhQuat(axis.x * s, axis.y * s, axis.z * s, amr::Cos(h));
 }
 
-float dhQuat::Norm() const { return std::sqrt(w * w + x * x + y * y + z * z); }
+float dhQuat::Norm() const { return amr::Sqrt(w * w + x * x + y * y + z * z); }
 
 float dhQuat::Dot(const dhQuat& o) const { return w * o.w + x * o.x + y * o.y + z * o.z; }
 
 dhQuat dhQuat::Normalized() const {
     const float n = Norm();
-    if (!(n > 0.0f) || !std::isfinite(n)) return dhQuat();
+    if (!(n > 0.0f) || !amr::IsFinite(n)) return dhQuat();
     return dhQuat(x / n, y / n, z / n, w / n);
 }
 

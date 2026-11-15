@@ -2,9 +2,8 @@
 
 #include <math.h>
 
-#include <algorithm>
-#include <map>
-#include <set>
+#include "CBase/Util.h"
+#include "CBase/Map.h"
 
 namespace amr {
 
@@ -24,7 +23,7 @@ Aabb AabbOfPrimitive(const Primitive& p, const dhMat& t) {
 
 Aabb AabbOfScene(const Scene& scene, const dhMat& t) {
     Aabb box;
-    const std::vector<dhMat> world = scene.WorldTransforms();
+    const amr::Array<dhMat> world = scene.WorldTransforms();
     for (size_t i = 0; i < scene.nodes.size(); i++) {
         const int mi = scene.nodes[i].mesh;
         if (mi < 0 || static_cast<size_t>(mi) >= scene.meshes.size()) continue;
@@ -91,21 +90,21 @@ bool BuildCollisionModel(const urdf::Robot& robot, const CollisionModelOptions& 
     out->shapes.clear();
     out->warnings.clear();
     bool allOk = true;
-    std::map<std::string, Scene> cache;
+    amr::Map<amr::String, Scene> cache;
 
     for (size_t li = 0; li < robot.links.size(); li++) {
         const urdf::Link& link = robot.links[li];
         // 이 링크에 쓸 (origin, geometry) 목록
-        std::vector<std::pair<dhMat, urdf::Geometry> > geoms;
+        amr::Array<amr::Pair<dhMat, urdf::Geometry> > geoms;
         bool fromVisual = false;
         for (size_t ci = 0; ci < link.collisions.size(); ci++)
             if (link.collisions[ci].geometry.type != urdf::kGeomNone)
-                geoms.push_back(std::make_pair(link.collisions[ci].origin, link.collisions[ci].geometry));
+                geoms.push_back(amr::MakePair(link.collisions[ci].origin, link.collisions[ci].geometry));
         if (link.collisions.empty() && opt.fallbackToVisual) {
             fromVisual = true;
             for (size_t vi = 0; vi < link.visuals.size(); vi++)
                 if (link.visuals[vi].geometry.type != urdf::kGeomNone)
-                    geoms.push_back(std::make_pair(link.visuals[vi].origin, link.visuals[vi].geometry));
+                    geoms.push_back(amr::MakePair(link.visuals[vi].origin, link.visuals[vi].geometry));
         }
 
         for (size_t gi = 0; gi < geoms.size(); gi++) {
@@ -116,15 +115,15 @@ bool BuildCollisionModel(const urdf::Robot& robot, const CollisionModelOptions& 
             sh.fromVisual = fromVisual;
             if (sh.geometry.type == urdf::kGeomMesh) {
                 Scene sc;
-                std::string err;
+                amr::String err;
                 if (!urdf::LoadGeometryScene(sh.geometry, robot.baseDir, opt.load, &sc, &err, &cache)) {
-                    out->warnings.push_back("link '" + link.name + "' collision " + std::to_string(gi) + ": " + err);
+                    out->warnings.push_back("link '" + link.name + "' collision " + amr::ToString(gi) + ": " + err);
                     allOk = false;
                     continue;
                 }
                 sh.meshBounds = AabbOfScene(sc, dhMat());
                 if (sh.meshBounds.IsEmpty()) {
-                    out->warnings.push_back("link '" + link.name + "' collision " + std::to_string(gi) + ": 메시에 정점이 없습니다");
+                    out->warnings.push_back("link '" + link.name + "' collision " + amr::ToString(gi) + ": 메시에 정점이 없습니다");
                     allOk = false;
                     continue;
                 }
@@ -135,10 +134,10 @@ bool BuildCollisionModel(const urdf::Robot& robot, const CollisionModelOptions& 
     return allOk;
 }
 
-std::vector<Aabb> ComputeLinkAabbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
+amr::Array<Aabb> ComputeLinkAabbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
                                    bool clampToLimits) {
-    std::vector<Aabb> boxes(robot.links.size());
-    const std::vector<dhMat> T = robot.LinkTransforms(q, clampToLimits);
+    amr::Array<Aabb> boxes(robot.links.size());
+    const amr::Array<dhMat> T = robot.LinkTransforms(q, clampToLimits);
     for (size_t i = 0; i < model.shapes.size(); i++) {
         const CollisionShape& s = model.shapes[i];
         if (s.link < 0 || static_cast<size_t>(s.link) >= boxes.size() || static_cast<size_t>(s.link) >= T.size()) continue;
@@ -148,10 +147,10 @@ std::vector<Aabb> ComputeLinkAabbs(const urdf::Robot& robot, const RobotCollisio
     return boxes;
 }
 
-std::vector<Obb> ComputeShapeObbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
+amr::Array<Obb> ComputeShapeObbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
                                   bool clampToLimits) {
-    std::vector<Obb> out(model.shapes.size());
-    const std::vector<dhMat> T = robot.LinkTransforms(q, clampToLimits);
+    amr::Array<Obb> out(model.shapes.size());
+    const amr::Array<dhMat> T = robot.LinkTransforms(q, clampToLimits);
     for (size_t i = 0; i < model.shapes.size(); i++) {
         const CollisionShape& s = model.shapes[i];
         if (s.link < 0 || static_cast<size_t>(s.link) >= T.size()) continue;
@@ -160,31 +159,31 @@ std::vector<Obb> ComputeShapeObbs(const urdf::Robot& robot, const RobotCollision
     return out;
 }
 
-std::vector<CollisionPair> FindSelfCollisions(const urdf::Robot& robot, const std::vector<Aabb>& linkAabbs,
+amr::Array<CollisionPair> FindSelfCollisions(const urdf::Robot& robot, const amr::Array<Aabb>& linkAabbs,
                                               const SelfCollisionOptions& opt) {
     // margin 만큼 가까운 쌍도 찾도록 상자마다 margin/2 씩 넓힌다
-    std::vector<Aabb> boxes(linkAabbs);
+    amr::Array<Aabb> boxes(linkAabbs);
     if (opt.margin > 0.0f)
         for (size_t i = 0; i < boxes.size(); i++) boxes[i] = boxes[i].Inflated(opt.margin * 0.5f);
 
-    std::set<std::pair<int, int> > skip;
+    amr::Set<amr::Pair<int, int> > skip;
     if (opt.ignoreAdjacent) {
         for (size_t ji = 0; ji < robot.joints.size(); ji++) {
             const int p = robot.FindLink(robot.joints[ji].parent);
             const int c = robot.FindLink(robot.joints[ji].child);
-            if (p >= 0 && c >= 0) skip.insert(std::make_pair(std::min(p, c), std::max(p, c)));
+            if (p >= 0 && c >= 0) skip.insert(amr::MakePair(amr::Min(p, c), amr::Max(p, c)));
         }
     }
     for (size_t i = 0; i < opt.ignoredPairs.size(); i++) {
         const int a = robot.FindLink(opt.ignoredPairs[i].first);
         const int b = robot.FindLink(opt.ignoredPairs[i].second);
-        if (a >= 0 && b >= 0) skip.insert(std::make_pair(std::min(a, b), std::max(a, b)));
+        if (a >= 0 && b >= 0) skip.insert(amr::MakePair(amr::Min(a, b), amr::Max(a, b)));
     }
 
-    std::vector<CollisionPair> pairs = FindOverlappingPairs(boxes);
-    std::vector<CollisionPair> out;
+    amr::Array<CollisionPair> pairs = FindOverlappingPairs(boxes);
+    amr::Array<CollisionPair> out;
     for (size_t i = 0; i < pairs.size(); i++)
-        if (skip.find(std::make_pair(pairs[i].a, pairs[i].b)) == skip.end()) out.push_back(pairs[i]);
+        if (skip.find(amr::MakePair(pairs[i].a, pairs[i].b)) == skip.end()) out.push_back(pairs[i]);
     return out;
 }
 
@@ -195,7 +194,7 @@ SelfCollisionReport CheckSelfCollisions(const urdf::Robot& robot, const RobotCol
     rep.shapeObbs = ComputeShapeObbs(robot, model, q, clampToLimits);
     rep.aabbCandidates = FindSelfCollisions(robot, rep.linkAabbs, opt);
 
-    std::vector<std::vector<int> > shapesOfLink(robot.links.size());
+    amr::Array<amr::Array<int> > shapesOfLink(robot.links.size());
     for (size_t i = 0; i < model.shapes.size(); i++) {
         const int l = model.shapes[i].link;
         if (l >= 0 && static_cast<size_t>(l) < shapesOfLink.size()) shapesOfLink[static_cast<size_t>(l)].push_back(static_cast<int>(i));
@@ -204,8 +203,8 @@ SelfCollisionReport CheckSelfCollisions(const urdf::Robot& robot, const RobotCol
     for (size_t c = 0; c < rep.aabbCandidates.size(); c++) {
         const CollisionPair& cp = rep.aabbCandidates[c];
         bool hit = false;
-        const std::vector<int>& sa = shapesOfLink[static_cast<size_t>(cp.a)];
-        const std::vector<int>& sb = shapesOfLink[static_cast<size_t>(cp.b)];
+        const amr::Array<int>& sa = shapesOfLink[static_cast<size_t>(cp.a)];
+        const amr::Array<int>& sb = shapesOfLink[static_cast<size_t>(cp.b)];
         for (size_t i = 0; i < sa.size(); i++) {
             const Obb oa = rep.shapeObbs[static_cast<size_t>(sa[i])].Inflated(half);
             for (size_t j = 0; j < sb.size(); j++) {

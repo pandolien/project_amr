@@ -2,7 +2,7 @@
 
 #include <math.h>
 
-#include <algorithm>
+#include "CBase/Util.h"
 
 #include "DynMath.h"
 
@@ -18,9 +18,9 @@ namespace {
 struct Common {
     Kinematics k;
     V3 g;
-    std::vector<double> sm;
-    std::vector<V3> smp;
-    std::vector<double> own;  // 관절별 (mimic 합산 전)
+    amr::Array<double> sm;
+    amr::Array<V3> smp;
+    amr::Array<double> own;  // 관절별 (mimic 합산 전)
 };
 
 Common Prepare(const urdf::Robot& robot, const urdf::JointValues& q, const Gravity& grav, bool clamp) {
@@ -70,7 +70,7 @@ JointTorques GravityTorques(const urdf::Robot& robot, const urdf::JointValues& q
 
     // 구동 관절의 결과. mimic 관절은 원본(마스터) 관절에 multiplier 배로 합친다 (q_mimic = mult * q_master + offset).
     // 한계에 걸려 값이 고정된 mimic 관절은 따로 처리하지 않는다.
-    std::vector<double> total(robot.joints.size(), 0.0);
+    amr::Array<double> total(robot.joints.size(), 0.0);
     for (size_t ji = 0; ji < robot.joints.size(); ji++) {
         if (!robot.joints[ji].IsMovable()) continue;
         size_t cur = ji;
@@ -83,14 +83,14 @@ JointTorques GravityTorques(const urdf::Robot& robot, const urdf::JointValues& q
         }
         total[cur] += factor * c.own[ji];
     }
-    const std::vector<int> act = robot.ActuatedJoints();
+    const amr::Array<int> act = robot.ActuatedJoints();
     for (size_t i = 0; i < act.size(); i++) out[robot.joints[static_cast<size_t>(act[i])].name] = total[static_cast<size_t>(act[i])];
     return out;
 }
 
-std::vector<JointLoad> GravityLoads(const urdf::Robot& robot, const urdf::JointValues& q, const Gravity& g, bool clampToLimits) {
+amr::Array<JointLoad> GravityLoads(const urdf::Robot& robot, const urdf::JointValues& q, const Gravity& g, bool clampToLimits) {
     const Common c = Prepare(robot, q, g, clampToLimits);
-    std::vector<JointLoad> out(robot.joints.size());
+    amr::Array<JointLoad> out(robot.joints.size());
     for (size_t ji = 0; ji < robot.joints.size(); ji++) {
         const urdf::Joint& j = robot.joints[ji];
         JointLoad& l = out[ji];
@@ -114,9 +114,9 @@ std::vector<JointLoad> GravityLoads(const urdf::Robot& robot, const urdf::JointV
     return out;
 }
 
-std::vector<LinkContribution> GravityContributions(const urdf::Robot& robot, const urdf::JointValues& q,
-                                                   const std::string& jointName, const Gravity& g, bool clampToLimits) {
-    std::vector<LinkContribution> out;
+amr::Array<LinkContribution> GravityContributions(const urdf::Robot& robot, const urdf::JointValues& q,
+                                                   const amr::String& jointName, const Gravity& g, bool clampToLimits) {
+    amr::Array<LinkContribution> out;
     const int ji = robot.FindJoint(jointName);
     if (ji < 0) return out;
     const urdf::Joint& j = robot.joints[static_cast<size_t>(ji)];
@@ -126,7 +126,7 @@ std::vector<LinkContribution> GravityContributions(const urdf::Robot& robot, con
     const Common c = Prepare(robot, q, g, clampToLimits);
 
     // 이 관절의 자식 링크에서 시작해 아래쪽 링크를 모두 모은다 (깊이 우선)
-    std::vector<int> stack(1, root), subtree;
+    amr::Array<int> stack(1, root), subtree;
     while (!stack.empty()) {
         const int l = stack.back();
         stack.pop_back();
@@ -137,7 +137,7 @@ std::vector<LinkContribution> GravityContributions(const urdf::Robot& robot, con
                 if (ch >= 0) stack.push_back(ch);
             }
     }
-    std::sort(subtree.begin(), subtree.end());
+    amr::Sort(subtree.begin(), subtree.end());
     const V3 o = c.k.originW[static_cast<size_t>(ji)];
     const V3 a = c.k.axisW[static_cast<size_t>(ji)];
     for (size_t i = 0; i < subtree.size(); i++) {

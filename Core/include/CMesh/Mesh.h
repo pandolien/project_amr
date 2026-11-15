@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#include <string>
-#include <vector>
+#include "CBase/String.h"
+#include "CBase/Array.h"
 
 #include "3d/dhMat.h"
 #include "3d/dhVector.h"
@@ -21,21 +21,21 @@ struct Color {
 };
 
 struct Material {
-    std::string name;
+    amr::String name;
     Color baseColor;
     float metallic;
     float roughness;
-    std::string baseColorTexture;  // 외부 이미지 경로. 없거나 임베디드이면 빈 문자열
+    amr::String baseColorTexture;  // 외부 이미지 경로. 없거나 임베디드이면 빈 문자열
     bool doubleSided;
     Material() : metallic(0.0f), roughness(1.0f), doubleSided(false) {}
 };
 
 // 삼각형 메시 하나 (glTF 의 primitive 에 해당)
 struct Primitive {
-    std::vector<float> positions;   // xyz * 정점 수
-    std::vector<float> normals;     // xyz * 정점 수. 비어 있으면 ComputeNormals() 로 만든다
-    std::vector<float> uvs;         // uv * 정점 수. 없으면 비어 있음
-    std::vector<uint32_t> indices;  // 삼각형 인덱스 (3개씩)
+    amr::Array<float> positions;   // xyz * 정점 수
+    amr::Array<float> normals;     // xyz * 정점 수. 비어 있으면 ComputeNormals() 로 만든다
+    amr::Array<float> uvs;         // uv * 정점 수. 없으면 비어 있음
+    amr::Array<uint32_t> indices;  // 삼각형 인덱스 (3개씩)
     int material;                   // Scene::materials 인덱스, 없으면 -1
 
     Primitive() : material(-1) {}
@@ -49,30 +49,30 @@ struct Primitive {
 };
 
 struct Mesh {
-    std::string name;
-    std::vector<Primitive> primitives;
+    amr::String name;
+    amr::Array<Primitive> primitives;
 };
 
 struct SceneNode {
-    std::string name;
+    amr::String name;
     dhMat local;                 // 부모 기준 변환
     int mesh;                    // Scene::meshes 인덱스, 없으면 -1
     int parent;                  // 루트이면 -1
-    std::vector<int> children;
+    amr::Array<int> children;
     SceneNode() : mesh(-1), parent(-1) {}
 };
 
 struct Scene {
-    std::string name;
-    std::vector<Material> materials;
-    std::vector<Mesh> meshes;
-    std::vector<SceneNode> nodes;
-    std::vector<int> roots;
-    std::vector<std::string> warnings;  // 지원하지 않아 무시한 항목 등
+    amr::String name;
+    amr::Array<Material> materials;
+    amr::Array<Mesh> meshes;
+    amr::Array<SceneNode> nodes;
+    amr::Array<int> roots;
+    amr::Array<amr::String> warnings;  // 지원하지 않아 무시한 항목 등
 
     void Clear();
     // 각 노드의 월드 변환 (nodes 와 같은 순서)
-    std::vector<dhMat> WorldTransforms() const;
+    amr::Array<dhMat> WorldTransforms() const;
     // 모든 루트 노드의 변환 앞에 t 를 곱한다 (좌표축 변환, 단위 변환 등)
     void ApplyRootTransform(const dhMat& t);
     // 월드 좌표 기준 경계 상자. 정점이 하나도 없으면 false

@@ -1,8 +1,7 @@
 // STL 로더 (바이너리/ASCII). 정점은 용접하지 않고, 법선은 정점에서 다시 계산한다.
+#include "CBase/Text.h"
 #include <string.h>
 
-#include <locale>
-#include <sstream>
 
 #include "CMesh/MeshLoader.h"
 #include "CMesh/Primitives.h"
@@ -20,7 +19,7 @@ bool LooksBinary(const unsigned char* d, size_t size) {
     return static_cast<uint64_t>(84) + static_cast<uint64_t>(count) * 50 == size;
 }
 
-bool ParseBinary(const unsigned char* d, size_t size, Primitive* p, std::string* error) {
+bool ParseBinary(const unsigned char* d, size_t size, Primitive* p, amr::String* error) {
     uint32_t count = 0;
     memcpy(&count, d + 80, 4);
     if (count == 0) {
@@ -45,15 +44,14 @@ bool ParseBinary(const unsigned char* d, size_t size, Primitive* p, std::string*
     return true;
 }
 
-bool ParseAscii(const std::string& text, Primitive* p, std::string* error) {
-    std::istringstream in(text);
-    in.imbue(std::locale::classic());
-    std::string word;
+bool ParseAscii(const amr::String& text, Primitive* p, amr::String* error) {
+    Tokens in(text);
+    amr::String word;
     size_t pending = 0;
-    while (in >> word) {
+    while (in.Next(&word)) {
         if (word != "vertex") continue;
         float x, y, z;
-        if (!(in >> x >> y >> z) || !(x == x) || !(y == y) || !(z == z)) {
+        if (!(in.NextFloat(&x) && in.NextFloat(&y) && in.NextFloat(&z)) || !(x == x) || !(y == y) || !(z == z)) {
             detail::SetError(error, "ASCII STL 의 vertex 줄이 올바르지 않습니다");
             return false;
         }
@@ -73,7 +71,7 @@ bool ParseAscii(const std::string& text, Primitive* p, std::string* error) {
 
 }  // namespace
 
-bool LoadStlFromMemory(const void* data, size_t size, Scene* out, std::string* error) {
+bool LoadStlFromMemory(const void* data, size_t size, Scene* out, amr::String* error) {
     if (!out) return false;
     out->Clear();
     if (!data || size == 0) {
@@ -93,7 +91,7 @@ bool LoadStlFromMemory(const void* data, size_t size, Scene* out, std::string* e
             detail::SetError(error, "STL 형식이 아닙니다 (바이너리 크기 불일치, ASCII 헤더 없음)");
             return false;
         }
-        ok = ParseAscii(std::string(reinterpret_cast<const char*>(d), size), &prim, error);
+        ok = ParseAscii(amr::String(reinterpret_cast<const char*>(d), size), &prim, error);
     }
     if (!ok) return false;
     prim.ComputeNormals();
@@ -101,10 +99,10 @@ bool LoadStlFromMemory(const void* data, size_t size, Scene* out, std::string* e
     return true;
 }
 
-bool LoadStl(const std::string& path, Scene* out, std::string* error) {
+bool LoadStl(const amr::String& path, Scene* out, amr::String* error) {
     if (!out) return false;
     out->Clear();
-    std::vector<char> bytes;
+    amr::Array<char> bytes;
     if (!detail::ReadFileBytes(path, &bytes, error)) return false;
     if (bytes.empty()) {
         detail::SetError(error, "빈 파일입니다: " + path);

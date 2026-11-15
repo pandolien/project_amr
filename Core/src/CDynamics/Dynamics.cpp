@@ -2,9 +2,9 @@
 
 #include <math.h>
 
-#include <algorithm>
-#include <cmath>
-#include <map>
+#include "CBase/Util.h"
+#include "CBase/Math.h"
+#include "CBase/Map.h"
 
 #include "DynMath.h"
 
@@ -52,12 +52,12 @@ M3 WorldInertia(const urdf::Link& l, const M3& Rlink) {
 struct Rnea {
     const urdf::Robot& robot;
     Kinematics k;
-    std::vector<int> act;           // 구동 관절 (robot.joints 인덱스)
-    std::vector<MasterOf> master;   // 관절마다 (robot.joints 인덱스 기준)
-    std::vector<int> actPos;        // 관절 -> act 안의 위치 (구동 관절이 아니면 -1)
-    std::vector<double> mass;       // 링크별 질량
-    std::vector<V3> comOff;         // 링크 좌표 -> 월드 방향으로 돌린 질량중심 오프셋 (링크 원점 기준)
-    std::vector<M3> inertiaW;
+    amr::Array<int> act;           // 구동 관절 (robot.joints 인덱스)
+    amr::Array<MasterOf> master;   // 관절마다 (robot.joints 인덱스 기준)
+    amr::Array<int> actPos;        // 관절 -> act 안의 위치 (구동 관절이 아니면 -1)
+    amr::Array<double> mass;       // 링크별 질량
+    amr::Array<V3> comOff;         // 링크 좌표 -> 월드 방향으로 돌린 질량중심 오프셋 (링크 원점 기준)
+    amr::Array<M3> inertiaW;
 
     Rnea(const urdf::Robot& r, const urdf::JointValues& q, bool clamp) : robot(r), k(Forward(r, q, clamp)) {
         act = r.ActuatedJoints();
@@ -79,9 +79,9 @@ struct Rnea {
 
     // qd, qdd: 구동 관절 순서의 값. gravity: 떨어지는 방향의 가속도 벡터 (0 벡터면 중력 없음).
     // 반환: 구동 관절별 토크/힘 (mimic 관절의 몫은 마스터에 배율을 곱해 합친다)
-    std::vector<double> Run(const std::vector<double>& qd, const std::vector<double>& qdd, const V3& gravity) const {
+    amr::Array<double> Run(const amr::Array<double>& qd, const amr::Array<double>& qdd, const V3& gravity) const {
         const size_t nl = robot.links.size(), nj = robot.joints.size();
-        std::vector<V3> w(nl), al(nl), ac(nl);
+        amr::Array<V3> w(nl), al(nl), ac(nl);
         // 루트: 정지. 중력은 루트가 위로 -g 만큼 가속한다고 놓는 방법으로 넣는다.
         for (size_t i = 0; i < nl; i++) ac[i] = V3(-gravity.x, -gravity.y, -gravity.z);
         // 앞으로: 속도와 가속도 전파
@@ -118,7 +118,7 @@ struct Rnea {
             }
         }
         // 링크 하나가 자기 질량 때문에 필요로 하는 힘 F 와 (질량중심 기준) 모멘트 N, 그리고 링크 원점 기준 모멘트
-        std::vector<V3> f(nl), n(nl);
+        amr::Array<V3> f(nl), n(nl);
         for (size_t i = 0; i < nl; i++) {
             if (!(mass[i] > 0.0)) continue;
             const V3 rc = comOff[i];
@@ -129,7 +129,7 @@ struct Rnea {
             n[i] = N + Cross(rc, F);
         }
         // 뒤로: 자식의 합계를 부모에 더하면서 관절 토크를 읽는다
-        std::vector<double> tauJoint(nj, 0.0);
+        amr::Array<double> tauJoint(nj, 0.0);
         for (size_t o = robot.order.size(); o-- > 0;) {
             const size_t ji = static_cast<size_t>(robot.order[o]);
             const urdf::Joint& j = robot.joints[ji];
@@ -140,7 +140,7 @@ struct Rnea {
             f[p] = f[p] + f[c];
             n[p] = n[p] + n[c] + Cross(k.p[c] - k.p[p], f[c]);
         }
-        std::vector<double> out(act.size(), 0.0);
+        amr::Array<double> out(act.size(), 0.0);
         for (size_t ji = 0; ji < nj; ji++) {
             if (!robot.joints[ji].IsMovable()) continue;
             const MasterOf& m = master[ji];
@@ -151,8 +151,8 @@ struct Rnea {
     }
 };
 
-std::vector<double> ToVec(const urdf::Robot& robot, const std::vector<int>& act, const JointTorques& m) {
-    std::vector<double> v(act.size(), 0.0);
+amr::Array<double> ToVec(const urdf::Robot& robot, const amr::Array<int>& act, const JointTorques& m) {
+    amr::Array<double> v(act.size(), 0.0);
     for (size_t i = 0; i < act.size(); i++) {
         const JointTorques::const_iterator it = m.find(robot.joints[static_cast<size_t>(act[i])].name);
         if (it != m.end()) v[i] = it->second;
@@ -160,7 +160,7 @@ std::vector<double> ToVec(const urdf::Robot& robot, const std::vector<int>& act,
     return v;
 }
 
-JointTorques ToMap(const urdf::Robot& robot, const std::vector<int>& act, const std::vector<double>& v) {
+JointTorques ToMap(const urdf::Robot& robot, const amr::Array<int>& act, const amr::Array<double>& v) {
     JointTorques m;
     for (size_t i = 0; i < act.size(); i++) m[robot.joints[static_cast<size_t>(act[i])].name] = v[i];
     return m;
@@ -169,8 +169,8 @@ JointTorques ToMap(const urdf::Robot& robot, const std::vector<int>& act, const 
 V3 GVec(const Gravity& g) { return V3(g.x, g.y, g.z); }
 
 // n x n 선형 방정식 A x = b (가우스 소거, 부분 피벗). 대각이 거의 0 인(관성이 없는) 자유도는 x = 0 으로 둔다.
-std::vector<double> Solve(std::vector<double> A, std::vector<double> b, size_t n) {
-    std::vector<bool> frozen(n, false);
+amr::Array<double> Solve(amr::Array<double> A, amr::Array<double> b, size_t n) {
+    amr::Array<bool> frozen(n, false);
     for (size_t i = 0; i < n; i++) {
         if (!(A[i * n + i] > 1e-9)) {
             frozen[i] = true;
@@ -188,8 +188,8 @@ std::vector<double> Solve(std::vector<double> A, std::vector<double> b, size_t n
             if (fabs(A[r * n + c]) > fabs(A[piv * n + c])) piv = r;
         if (fabs(A[piv * n + c]) < 1e-14) continue;
         if (piv != c) {
-            for (size_t j = 0; j < n; j++) std::swap(A[c * n + j], A[piv * n + j]);
-            std::swap(b[c], b[piv]);
+            for (size_t j = 0; j < n; j++) amr::Swap(A[c * n + j], A[piv * n + j]);
+            amr::Swap(b[c], b[piv]);
         }
         for (size_t r = c + 1; r < n; r++) {
             const double f = A[r * n + c] / A[c * n + c];
@@ -198,7 +198,7 @@ std::vector<double> Solve(std::vector<double> A, std::vector<double> b, size_t n
             b[r] -= f * b[c];
         }
     }
-    std::vector<double> x(n, 0.0);
+    amr::Array<double> x(n, 0.0);
     for (size_t r = n; r-- > 0;) {
         double s = b[r];
         for (size_t j = r + 1; j < n; j++) s -= A[r * n + j] * x[j];
@@ -208,8 +208,8 @@ std::vector<double> Solve(std::vector<double> A, std::vector<double> b, size_t n
 }
 
 // 마찰 토크 (관절마다 -(d qd + f tanh(qd/eps)) 를 마스터에 배율을 곱해 합친다)
-std::vector<double> PassiveTorques(const urdf::Robot& robot, const Rnea& dyn, const std::vector<double>& qd, const DynamicsOptions& opt) {
-    std::vector<double> out(dyn.act.size(), 0.0);
+amr::Array<double> PassiveTorques(const urdf::Robot& robot, const Rnea& dyn, const amr::Array<double>& qd, const DynamicsOptions& opt) {
+    amr::Array<double> out(dyn.act.size(), 0.0);
     const double eps = opt.frictionSmoothing > 0.0 ? opt.frictionSmoothing : 1e-6;
     for (size_t ji = 0; ji < robot.joints.size(); ji++) {
         const urdf::Joint& j = robot.joints[ji];
@@ -230,34 +230,34 @@ MassMatrix BuildMass(const urdf::Robot& robot, const Rnea& dyn) {
     const size_t n = dyn.act.size();
     for (size_t i = 0; i < n; i++) mm.joints.push_back(robot.joints[static_cast<size_t>(dyn.act[i])].name);
     mm.m.assign(n * n, 0.0);
-    const std::vector<double> zero(n, 0.0);
+    const amr::Array<double> zero(n, 0.0);
     for (size_t c = 0; c < n; c++) {
-        std::vector<double> e(n, 0.0);
+        amr::Array<double> e(n, 0.0);
         e[c] = 1.0;
-        const std::vector<double> col = dyn.Run(zero, e, V3());
+        const amr::Array<double> col = dyn.Run(zero, e, V3());
         for (size_t r = 0; r < n; r++) mm.m[r * n + c] = col[r];
     }
     return mm;
 }
 
-std::vector<double> Accel(const urdf::Robot& robot, const Rnea& dyn, const std::vector<double>& qd, const std::vector<double>& tau, const V3& g,
+amr::Array<double> Accel(const urdf::Robot& robot, const Rnea& dyn, const amr::Array<double>& qd, const amr::Array<double>& tau, const V3& g,
                           const DynamicsOptions& opt) {
     const size_t n = dyn.act.size();
-    if (n == 0) return std::vector<double>();
+    if (n == 0) return amr::Array<double>();
     const MassMatrix mm = BuildMass(robot, dyn);
-    const std::vector<double> zero(n, 0.0);
-    const std::vector<double> bias = dyn.Run(qd, zero, g);  // C qd + g
-    const std::vector<double> pas = PassiveTorques(robot, dyn, qd, opt);
-    std::vector<double> rhs(n);
+    const amr::Array<double> zero(n, 0.0);
+    const amr::Array<double> bias = dyn.Run(qd, zero, g);  // C qd + g
+    const amr::Array<double> pas = PassiveTorques(robot, dyn, qd, opt);
+    amr::Array<double> rhs(n);
     for (size_t i = 0; i < n; i++) rhs[i] = tau[i] - bias[i] - pas[i];
     return Solve(mm.m, rhs, n);
 }
 
 }  // namespace
 
-std::vector<std::string> ActuatedJointNames(const urdf::Robot& robot) {
-    std::vector<std::string> names;
-    const std::vector<int> act = robot.ActuatedJoints();
+amr::Array<amr::String> ActuatedJointNames(const urdf::Robot& robot) {
+    amr::Array<amr::String> names;
+    const amr::Array<int> act = robot.ActuatedJoints();
     for (size_t i = 0; i < act.size(); i++) names.push_back(robot.joints[static_cast<size_t>(act[i])].name);
     return names;
 }
@@ -296,17 +296,17 @@ void Simulator::Reset(const urdf::Robot& robot, const urdf::JointValues& q) {
     ready_ = !act_.empty();
 }
 
-void Simulator::SetValue(const std::string& joint, double value) {
+void Simulator::SetValue(const amr::String& joint, double value) {
     for (size_t i = 0; i < act_.size(); i++) {
         const urdf::Joint& j = robot_.joints[static_cast<size_t>(act_[i])];
         if (j.name != joint) continue;
-        if (j.type != urdf::kJointContinuous && j.hasLimit) value = std::max(static_cast<double>(j.lower), std::min(static_cast<double>(j.upper), value));
+        if (j.type != urdf::kJointContinuous && j.hasLimit) value = amr::Max(static_cast<double>(j.lower), amr::Min(static_cast<double>(j.upper), value));
         q_[i] = value;
         qd_[i] = 0.0;
     }
 }
 
-urdf::JointValues Simulator::toValues(const std::vector<double>& q) const {
+urdf::JointValues Simulator::toValues(const amr::Array<double>& q) const {
     urdf::JointValues v;
     for (size_t i = 0; i < act_.size(); i++) v[robot_.joints[static_cast<size_t>(act_[i])].name] = static_cast<float>(q[i]);
     return v;
@@ -316,7 +316,7 @@ urdf::JointValues Simulator::Values() const { return toValues(q_); }
 
 JointTorques Simulator::Velocities() const { return ToMap(robot_, act_, qd_); }
 
-void Simulator::derivative(const std::vector<double>& q, const std::vector<double>& qd, std::vector<double>* dq, std::vector<double>* dqd) const {
+void Simulator::derivative(const amr::Array<double>& q, const amr::Array<double>& qd, amr::Array<double>* dq, amr::Array<double>* dqd) const {
     const Rnea dyn(robot_, toValues(q), false);
     *dq = qd;
     *dqd = Accel(robot_, dyn, qd, ToVec(robot_, act_, tau_), GVec(gravity_), options_);
@@ -324,11 +324,11 @@ void Simulator::derivative(const std::vector<double>& q, const std::vector<doubl
 
 void Simulator::Step(double dt) {
     if (!ready_ || !(dt > 0.0)) return;
-    const int sub = std::max(1, static_cast<int>(ceil(dt * 500.0)));
+    const int sub = amr::Max(1, static_cast<int>(ceil(dt * 500.0)));
     const double h = dt / sub;
     const size_t n = q_.size();
     for (int s = 0; s < sub; s++) {
-        std::vector<double> k1q, k1v, k2q, k2v, k3q, k3v, k4q, k4v, q2(n), v2(n);
+        amr::Array<double> k1q, k1v, k2q, k2v, k3q, k3v, k4q, k4v, q2(n), v2(n);
         derivative(q_, qd_, &k1q, &k1v);
         for (size_t i = 0; i < n; i++) { q2[i] = q_[i] + 0.5 * h * k1q[i]; v2[i] = qd_[i] + 0.5 * h * k1v[i]; }
         derivative(q2, v2, &k2q, &k2v);
@@ -339,7 +339,7 @@ void Simulator::Step(double dt) {
         for (size_t i = 0; i < n; i++) {
             q_[i] += h / 6.0 * (k1q[i] + 2 * k2q[i] + 2 * k3q[i] + k4q[i]);
             qd_[i] += h / 6.0 * (k1v[i] + 2 * k2v[i] + 2 * k3v[i] + k4v[i]);
-            if (!std::isfinite(q_[i]) || !std::isfinite(qd_[i])) {  // 수치가 터지면 그 관절을 멈춘다
+            if (!amr::IsFinite(q_[i]) || !amr::IsFinite(qd_[i])) {  // 수치가 터지면 그 관절을 멈춘다
                 q_[i] = 0.0;
                 qd_[i] = 0.0;
             }

@@ -1,6 +1,6 @@
 #include "3d/dhVector.h"
 
-#include <cmath>
+#include "CBase/Math.h"
 
 dhVector::dhVector() : x(0), y(0), z(0) {}
 
@@ -26,7 +26,7 @@ dhVector dhVector::operator*(float s) const { return dhVector(x * s, y * s, z * 
 
 dhVector dhVector::operator/(float s) const { return dhVector(x / s, y / s, z / s); }
 
-float dhVector::Norm() const { return std::sqrt(x * x + y * y + z * z); }
+float dhVector::Norm() const { return amr::Sqrt(x * x + y * y + z * z); }
 
 dhVector dhVector::Unit() const {
     float n = Norm();
@@ -37,7 +37,7 @@ float dhVector::Norm(const dhVector& o) const {
     float dx = x - o.x;
     float dy = y - o.y;
     float dz = z - o.z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
+    return amr::Sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 dhVector dhVector::Unit(const dhVector& o) const {

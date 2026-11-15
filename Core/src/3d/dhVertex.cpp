@@ -1,6 +1,6 @@
 #include "3d/dhVertex.h"
 
-#include <cmath>
+#include "CBase/Math.h"
 
 dhVertex::dhVertex() { Initialization(); }
 
@@ -54,7 +54,7 @@ float dhVertex::distance(const dhVertex* vt) const {
     float xx = x - vt->x;
     float yy = y - vt->y;
     float zz = z - vt->z;
-    return std::sqrt(xx * xx + yy * yy + zz * zz);
+    return amr::Sqrt(xx * xx + yy * yy + zz * zz);
 }
 
 float dhVertex::at(int i) const {

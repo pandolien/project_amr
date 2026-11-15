@@ -1,6 +1,11 @@
 # 별도 프레임워크 없이 동작하는 단순 테스트 (실패 시 종료 코드 1)
 # 실행: cmake -S . -B build -DAMR_BUILD_TESTS=ON -DAMR_BUILD_QT=OFF
 #       cmake --build build --target test_3d test_cmat && (cd build && ctest)
+add_executable(test_cbase test_cbase.cpp)
+target_link_libraries(test_cbase PRIVATE Core)
+amr_set_warnings(test_cbase)
+add_test(NAME test_cbase COMMAND test_cbase)
+
 add_executable(test_3d test_3d.cpp)
 target_link_libraries(test_3d PRIVATE Core)
 amr_set_warnings(test_3d)
@@ -59,3 +64,6 @@ if(TARGET amr_main)
              ${CMAKE_SOURCE_DIR}/Data/Object/samples/arm.urdf)
     set_tests_properties(sample_urdf_obb_folded PROPERTIES PASS_REGULAR_EXPRESSION "OBB 충돌 2건: base_link <-> upper_arm, base_link <-> forearm")
 endif()
+
+# 프로젝트 소스에 C++ 표준 라이브러리(std::, 표준 헤더)가 없어야 한다
+add_test(NAME no_std COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckNoStd.cmake)

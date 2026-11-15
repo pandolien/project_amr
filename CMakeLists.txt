@@ -20,6 +20,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 소스 파일은 UTF-8(한글 주석 포함). MSVC 는 지정하지 않으면 시스템 코드 페이지로 읽는다.
 if(MSVC)
     add_compile_options(/utf-8)
+    # fopen, sscanf, snprintf 같은 C 함수에 대한 "안전하지 않음" 경고(C4996)를 끈다 (표준 C 함수를 그대로 쓴다)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
 
 # 산출물은 모두 build/ 아래로 (소스 트리에 lib을 두지 않음)

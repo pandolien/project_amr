@@ -1,8 +1,8 @@
 #ifndef CORE_CDYNAMICS_DYNAMICS_H
 #define CORE_CDYNAMICS_DYNAMICS_H
 
-#include <string>
-#include <vector>
+#include "CBase/String.h"
+#include "CBase/Array.h"
 
 #include "CDynamics/Gravity.h"
 #include "CURDF/Urdf.h"
@@ -16,7 +16,7 @@ namespace amr {
 namespace dynamics {
 
 // 구동 관절의 이름 (Robot::ActuatedJoints 순서)
-std::vector<std::string> ActuatedJointNames(const urdf::Robot& robot);
+amr::Array<amr::String> ActuatedJointNames(const urdf::Robot& robot);
 
 // 역동역학 (재귀 뉴턴-오일러, RNEA): 주어진 관절 값 q, 속도 qd, 가속도 qdd 를 만들려면 각 구동 관절이 내야 하는 토크/힘
 //   = M(q) qdd + C(q, qd) qd + g(q).  qd, qdd 에 없는 관절은 0. 감쇠와 마찰은 포함하지 않는다.
@@ -26,8 +26,8 @@ JointTorques InverseDynamics(const urdf::Robot& robot, const urdf::JointValues& 
 
 // 질량 행렬 M(q) (구동 관절 기준, 대칭 양의 정부호). m 은 n x n 행 우선.
 struct MassMatrix {
-    std::vector<std::string> joints;
-    std::vector<double> m;
+    amr::Array<amr::String> joints;
+    amr::Array<double> m;
     size_t n() const { return joints.size(); }
     double At(size_t i, size_t j) const { return m[i * joints.size() + j]; }
 };
@@ -57,7 +57,7 @@ public:
     void SetOptions(const DynamicsOptions& o) { options_ = o; }
     void SetTorques(const JointTorques& tau) { tau_ = tau; }
     // 사용자가 관절 값을 직접 바꿨다: 그 관절의 속도는 0 으로 한다 (limit 안으로 제한)
-    void SetValue(const std::string& joint, double value);
+    void SetValue(const amr::String& joint, double value);
     void Step(double dt);  // dt 초만큼 진행. 내부에서 1/500 초 이하로 나눈다
     urdf::JointValues Values() const;     // 구동 관절 값 (mimic 은 포함하지 않음. Robot 이 계산한다)
     JointTorques Velocities() const;
@@ -66,11 +66,11 @@ public:
     double TotalEnergy() const { return KineticEnergy() + PotentialEnergy(); }
 
 private:
-    void derivative(const std::vector<double>& q, const std::vector<double>& qd, std::vector<double>* dq, std::vector<double>* dqd) const;
-    urdf::JointValues toValues(const std::vector<double>& q) const;
+    void derivative(const amr::Array<double>& q, const amr::Array<double>& qd, amr::Array<double>* dq, amr::Array<double>* dqd) const;
+    urdf::JointValues toValues(const amr::Array<double>& q) const;
     urdf::Robot robot_;
-    std::vector<int> act_;
-    std::vector<double> q_, qd_;
+    amr::Array<int> act_;
+    amr::Array<double> q_, qd_;
     Gravity gravity_;
     DynamicsOptions options_;
     JointTorques tau_;

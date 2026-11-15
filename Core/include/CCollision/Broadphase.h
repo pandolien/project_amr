@@ -1,7 +1,7 @@
 #ifndef CORE_CCOLLISION_BROADPHASE_H
 #define CORE_CCOLLISION_BROADPHASE_H
 
-#include <vector>
+#include "CBase/Array.h"
 
 #include "CCollision/Aabb.h"
 
@@ -20,13 +20,13 @@ struct CollisionPair {
 };
 
 // 한 집합 안에서 겹치는 쌍. 항상 a < b 이다.
-std::vector<CollisionPair> FindOverlappingPairs(const std::vector<Aabb>& boxes);
+amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& boxes);
 
 // 두 집합 사이에서 겹치는 쌍. a 는 setA 의 인덱스, b 는 setB 의 인덱스다. (같은 집합 안의 쌍은 찾지 않는다)
-std::vector<CollisionPair> FindOverlappingPairs(const std::vector<Aabb>& setA, const std::vector<Aabb>& setB);
+amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& setA, const amr::Array<Aabb>& setB);
 
 // 비교용 O(n^2) 구현. 테스트에서 위 함수의 결과를 검증하는 데 쓴다.
-std::vector<CollisionPair> FindOverlappingPairsBruteForce(const std::vector<Aabb>& boxes);
+amr::Array<CollisionPair> FindOverlappingPairsBruteForce(const amr::Array<Aabb>& boxes);
 
 }  // namespace amr
 

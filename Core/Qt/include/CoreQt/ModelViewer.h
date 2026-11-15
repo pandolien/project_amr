@@ -12,8 +12,8 @@
 #include <QTimer>
 #include <QVector3D>
 #include <QVector4D>
-#include <memory>
-#include <vector>
+#include "CBase/Util.h"
+#include "CBase/Array.h"
 
 #include <QStringList>
 
@@ -53,9 +53,9 @@ public:
     bool ShowCollisionBoxes() const { return showBoxes_; }
     void SetShowObbs(bool show);            // 도형별 OBB (하늘색, 충돌하면 빨강)
     bool ShowObbs() const { return showObbs_; }
-    const std::vector<amr::CollisionPair>& SelfCollisions() const { return report_.collisions; }     // OBB 까지 겹친 링크 쌍
-    const std::vector<amr::CollisionPair>& AabbCandidates() const { return report_.aabbCandidates; }  // AABB 만 겹친 후보
-    std::vector<int> CollidingLinks() const;    // 충돌한 링크 인덱스 (중복 없음, 오름차순)
+    const amr::Array<amr::CollisionPair>& SelfCollisions() const { return report_.collisions; }     // OBB 까지 겹친 링크 쌍
+    const amr::Array<amr::CollisionPair>& AabbCandidates() const { return report_.aabbCandidates; }  // AABB 만 겹친 후보
+    amr::Array<int> CollidingLinks() const;    // 충돌한 링크 인덱스 (중복 없음, 오름차순)
     QStringList CollisionDescriptions() const;  // "링크A <-> 링크B"
 
     // 링크 강조: 선택한 링크의 모양을 밝게 칠한다. -1 이면 해제.
@@ -119,8 +119,8 @@ protected:
 
 private:
     struct Item {                       // primitive 하나
-        std::vector<float> data;        // 위치(3) + 법선(3) 교차 배열
-        std::vector<uint32_t> indices;
+        amr::Array<float> data;        // 위치(3) + 법선(3) 교차 배열
+        amr::Array<uint32_t> indices;
         dhMat base;                     // 링크(또는 월드)에서 이 primitive 까지의 변환
         int link;                       // 로봇 링크 인덱스, 정적 모델이면 -1
         float color[4];
@@ -132,7 +132,7 @@ private:
         }
     };
 
-    typedef std::vector<std::unique_ptr<Item> > ItemList;
+    typedef amr::Array<amr::UniquePtr<Item> > ItemList;
     void addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst = nullptr);
     void updateBounds();
     void rebuildGrid();
@@ -151,12 +151,12 @@ private:
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
     QMatrix4x4 viewMatrix() const;
 
-    std::vector<std::unique_ptr<Item> > items_;
+    amr::Array<amr::UniquePtr<Item> > items_;
     bool buffersDirty_;
     bool hasRobot_;
     amr::urdf::Robot robot_;
     amr::urdf::LoadOptions options_;
-    std::vector<dhMat> linkT_;
+    amr::Array<dhMat> linkT_;
     amr::urdf::JointValues q_;
     amr::RobotCollisionModel colModel_;
     amr::SelfCollisionReport report_;
@@ -192,11 +192,11 @@ private:
     bool showBoxes_;
     bool showObbs_;
     bool showGrid_;
-    std::vector<float> gridData_;   // 격자 선분의 위치(3) 배열
+    amr::Array<float> gridData_;   // 격자 선분의 위치(3) 배열
     float extent_[3];               // 경계 상자의 크기 (x, y, z)
     float gridCell_;                // 격자 한 칸의 길이
 
-    std::unique_ptr<QOpenGLShaderProgram> prog_;
+    amr::UniquePtr<QOpenGLShaderProgram> prog_;
 };
 
 #endif  // CORECQT_MODELVIEWER_H

@@ -19,7 +19,7 @@ project_amr/
 ├── CMakeLists.txt        # 전체 빌드
 ├── main.cpp              # 메인 시스템
 ├── Data/Object/          # 오브젝트 관련 자료
-├── Core/                 # 라이브러리화되는 핵심 코드 (순수 C++11, Qt 금지)
+├── Core/                 # 라이브러리화되는 핵심 코드 (순수 C++11, 표준 라이브러리·Qt 금지)
 │   ├── CMakeLists.txt
 │   ├── include/          # CMat, 3d, CMesh, CURDF, CCollision, CDynamics, CSimul, CSock
 │   ├── src/              # 위 모듈의 구현
@@ -34,6 +34,7 @@ project_amr/
 
 | 모듈 | 역할 | 의존 |
 |---|---|---|
+| CBase | C++ 표준 라이브러리 대체: `Array`(vector), `String`, `Map`/`Set`(정렬 배열), `HashMap`, `Pair`, `UniquePtr`, `Sort`, 수학 `Abs`/`Sqrt`/`Sin`…, 숫자 파싱·`Tokens`·`Lines`, 파일 읽기/쓰기 | C 런타임 |
 | CMat | 행렬 연산 (SVD, 의사역행렬: LAPACK `dgesvd`, double 정밀도로 계산) | LAPACK |
 | 3d | 3차원 공간 (dhVector/dhMat/dhQuat/dhEuler/dhVertex), 자세 `dhPose`(위치 m + 쿼터니언), 단위 변환 `Units.h` | - |
 | CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
@@ -42,6 +43,13 @@ project_amr/
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
 | CSock | 외부 통신 | - |
+
+**표준 라이브러리를 쓰지 않습니다.** 프로젝트 코드(Core, Core/Qt, main.cpp, tests)에는 `std::` 와 C++ 표준 헤더(`<vector>`, `<string>`, `<cmath>` …)가 없고, 대신 `Core/include/CBase` 를 씁니다. C 런타임 함수(`printf`, `fopen`, `sqrt`, `memcpy`, `<stdint.h>`, `<math.h>` 등), Qt, tinyxml2, cgltf, LAPACK 은 그대로 씁니다. 예외도 쓰지 않습니다. 이 규칙은 CTest `no_std`(`cmake/CheckNoStd.cmake`)가 검사합니다.
+CBase 사용상 주의:
+- `Map`/`Set` 은 정렬된 배열이라 넣거나 지우면 이전에 얻은 반복자가 무효가 되고 넣기는 O(n) 입니다. 항목이 많으면(예: 메시 정점 합치기) `HashMap`(키에 `==` 와 `size_t Hash() const` 필요)을 씁니다.
+- `Array::clear()` 는 원소를 `T()` 로 되돌립니다. 비운 뒤 이전 원소에 대한 참조를 쓰면 안 됩니다.
+- 숫자 파싱(`ParseDouble` 등)은 로케일과 무관하게 항상 `.` 을 소수점으로 읽습니다.
+- Qt 와의 변환은 `CoreQt/QtString.h` 의 `amrqt::ToQ` / `FromQ` 를 씁니다 (UTF-8).
 
 헤더는 `#include "CMat/CMat.h"` 형태로 사용합니다.
 `Core/src` 아래에 `.cpp`를 추가하면 CMake가 자동으로 인식합니다.

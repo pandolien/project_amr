@@ -1,7 +1,7 @@
 #ifndef CORE_CMESH_PRIMITIVES_H
 #define CORE_CMESH_PRIMITIVES_H
 
-#include <string>
+#include "CBase/String.h"
 
 #include "CMesh/Mesh.h"
 
@@ -13,7 +13,7 @@ Primitive MakeCylinder(float radius, float length, int segments = 32);   // 축�
 Primitive MakeSphere(float radius, int segments = 32, int rings = 16);   // 극이 ±Z
 
 // Primitive 하나를 노드 하나짜리 Scene 으로 감싼다
-Scene SceneFromPrimitive(const Primitive& p, const std::string& name);
+Scene SceneFromPrimitive(const Primitive& p, const amr::String& name);
 
 }  // namespace amr
 

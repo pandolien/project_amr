@@ -1,6 +1,6 @@
 #include "CCollision/Broadphase.h"
 
-#include <algorithm>
+#include "CBase/Util.h"
 
 namespace amr {
 
@@ -24,9 +24,9 @@ bool OverlapsYZ(const Aabb& p, const Aabb& q) {
 }
 
 // items 를 lo.x 순으로 훑으며 겹치는 쌍을 모은다. crossOnly 이면 서로 다른 집합끼리만 쌍으로 인정한다.
-std::vector<CollisionPair> Sweep(std::vector<Item>* items, bool crossOnly) {
-    std::vector<CollisionPair> out;
-    std::sort(items->begin(), items->end(), ItemLess);
+amr::Array<CollisionPair> Sweep(amr::Array<Item>* items, bool crossOnly) {
+    amr::Array<CollisionPair> out;
+    amr::Sort(items->begin(), items->end(), ItemLess);
     const size_t n = items->size();
     for (size_t i = 0; i < n; i++) {
         const Item& p = (*items)[i];
@@ -43,14 +43,14 @@ std::vector<CollisionPair> Sweep(std::vector<Item>* items, bool crossOnly) {
             }
         }
     }
-    std::sort(out.begin(), out.end());
+    amr::Sort(out.begin(), out.end());
     return out;
 }
 
 }  // namespace
 
-std::vector<CollisionPair> FindOverlappingPairs(const std::vector<Aabb>& boxes) {
-    std::vector<Item> items;
+amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& boxes) {
+    amr::Array<Item> items;
     items.reserve(boxes.size());
     for (size_t i = 0; i < boxes.size(); i++) {
         if (boxes[i].IsEmpty()) continue;
@@ -60,8 +60,8 @@ std::vector<CollisionPair> FindOverlappingPairs(const std::vector<Aabb>& boxes) 
     return Sweep(&items, false);
 }
 
-std::vector<CollisionPair> FindOverlappingPairs(const std::vector<Aabb>& setA, const std::vector<Aabb>& setB) {
-    std::vector<Item> items;
+amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& setA, const amr::Array<Aabb>& setB) {
+    amr::Array<Item> items;
     items.reserve(setA.size() + setB.size());
     for (size_t i = 0; i < setA.size(); i++) {
         if (setA[i].IsEmpty()) continue;
@@ -76,8 +76,8 @@ std::vector<CollisionPair> FindOverlappingPairs(const std::vector<Aabb>& setA, c
     return Sweep(&items, true);
 }
 
-std::vector<CollisionPair> FindOverlappingPairsBruteForce(const std::vector<Aabb>& boxes) {
-    std::vector<CollisionPair> out;
+amr::Array<CollisionPair> FindOverlappingPairsBruteForce(const amr::Array<Aabb>& boxes) {
+    amr::Array<CollisionPair> out;
     for (size_t i = 0; i < boxes.size(); i++)
         for (size_t j = i + 1; j < boxes.size(); j++)
             if (boxes[i].Overlaps(boxes[j])) out.push_back(CollisionPair(static_cast<int>(i), static_cast<int>(j)));

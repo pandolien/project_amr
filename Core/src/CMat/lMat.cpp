@@ -1,6 +1,6 @@
 #include "CMat/lMat.h"
 
-#include <vector>
+#include "CBase/Array.h"
 extern "C" {
 	// LAPACK(Fortran 인터페이스) 의 dgesvd 를 직접 선언해 쓴다. 헤더 없이 라이브러리만 링크하면 된다.
 	//   Linux: liblapack, Windows: vcpkg clapack (둘 다 이 심볼을 제공)
@@ -16,7 +16,7 @@ namespace {
 //   full = true : U (r x r), Vt (c x c)      full = false : U (r x p), Vt (p x c), p = min(r, c)
 // 결과는 모두 열 우선 double 배열이다. 실패(수렴 실패, 크기 0 등)하면 false.
 bool SvdDouble(const float* a, int r, int c, bool full,
-	std::vector<double>* U, std::vector<double>* s, std::vector<double>* Vt)
+	amr::Array<double>* U, amr::Array<double>* s, amr::Array<double>* Vt)
 {
 	if (a == NULL || r <= 0 || c <= 0) return false;
 	const int p = r < c ? r : c;
@@ -24,7 +24,7 @@ bool SvdDouble(const float* a, int r, int c, bool full,
 	const int vrows = full ? c : p;
 	const char job = full ? 'A' : 'S';
 	const size_t n = (size_t)r * (size_t)c;
-	std::vector<double> A(n);
+	amr::Array<double> A(n);
 	for (size_t i = 0; i < n; i++) A[i] = (double)a[i];
 	s->assign((size_t)p, 0.0);
 	U->assign((size_t)r * (size_t)ucols, 0.0);
@@ -37,7 +37,7 @@ bool SvdDouble(const float* a, int r, int c, bool full,
 	if (info != 0) return false;
 	lwork = (int)query;
 	if (lwork < 1) lwork = 1;
-	std::vector<double> work((size_t)lwork);
+	amr::Array<double> work((size_t)lwork);
 	dgesvd_(&job, &job, &r, &c, &A[0], &r, &(*s)[0], &(*U)[0], &r, &(*Vt)[0], &vrows, &work[0], &lwork, &info, 1, 1);
 	return info == 0;
 }
@@ -190,7 +190,7 @@ lMat lMat::T()
 // 특이값 분해 A = U * S * Vt. 내부 계산은 double(dgesvd)로 하고 결과를 float 로 돌려준다.
 // 입력 A(this)는 바뀌지 않는다. U: r x r, S: p x p 대각, Vt: c x c (p = min(r, c)).
 void lMat::SVD(lMat& U, lMat& S, lMat& Vt) {
-	std::vector<double> Ud, sd, Vtd;
+	amr::Array<double> Ud, sd, Vtd;
 	const int p = r < c ? r : c;
 	if (!SvdDouble(v, r, c, true, &Ud, &sd, &Vtd)) {
 		U.Delete();
@@ -203,7 +203,7 @@ void lMat::SVD(lMat& U, lMat& S, lMat& Vt) {
 	Vt.Init(c, c);
 	for (size_t i = 0; i < Ud.size(); i++) U.v[i] = (float)Ud[i];
 	for (size_t i = 0; i < Vtd.size(); i++) Vt.v[i] = (float)Vtd[i];
-	std::vector<float> sf((size_t)p);
+	amr::Array<float> sf((size_t)p);
 	for (int i = 0; i < p; i++) sf[(size_t)i] = (float)sd[(size_t)i];
 	S.diag(&sf[0], p);
 	NoTemp();
@@ -218,7 +218,7 @@ lMat lMat::Inv()
 {
 	lMat out;
 	const int r0 = r, c0 = c;
-	std::vector<double> U, s, Vt;
+	amr::Array<double> U, s, Vt;
 	if (!SvdDouble(v, r0, c0, false, &U, &s, &Vt)) { NoTemp(); return out; }	// SVD 실패
 	const int p = r0 < c0 ? r0 : c0;
 	double smax = 0.0;

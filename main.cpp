@@ -1,12 +1,13 @@
 // AMR + 로봇 팔 시스템 진입점.
 //   amr_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <string>
-#include <vector>
+#include "CoreQt/QtString.h"
+#include "CBase/Math.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "CBase/String.h"
+#include "CBase/Array.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -29,15 +30,15 @@ void InitConsole() {
 }
 
 struct Options {
-    std::string file;
+    amr::String file;
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
     bool obb;                  // OBB 충돌 박스를 처음부터 표시
     bool torque;               // 관절별 중력 토크를 출력 (--info 와 같이)
     double gravity[3];         // 중력 가속도 (m/s^2, 루트 링크 좌표계)
-    std::string shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
-    std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
-    std::string select;        // 시작할 때 선택(강조)할 링크 이름
+    amr::String shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
+    amr::String shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
+    amr::String select;        // 시작할 때 선택(강조)할 링크 이름
     int dragX0, dragY0, dragX1, dragY1;  // --drag: 눌렀다가 끌고 떼는 마우스 동작 (-1 이면 안 함)
     bool motorsOff;            // --motors-off: 처음부터 모터를 끈다 (관절이 중력에 처짐)
     double simulate;           // --simulate 초: 모터를 끄고 그 시간만큼 시뮬레이션한 뒤 관절 값을 출력 (확인용, 실시간이 아님)
@@ -46,8 +47,8 @@ struct Options {
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
-    std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
-    std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
+    amr::Array<amr::Pair<amr::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
+    amr::Array<amr::Pair<amr::String, amr::String> > packages;    // --package 이름=폴더
     int width, height;
     Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         gravity[0] = 0;
@@ -57,7 +58,7 @@ struct Options {
 };
 
 void PrintUsage(const char* exe) {
-    std::printf(
+    printf(
         "사용법: %s [옵션] [파일]\n"
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
@@ -81,9 +82,9 @@ void PrintUsage(const char* exe) {
         exe);
 }
 
-bool SplitPair(const std::string& s, std::string* a, std::string* b) {
+bool SplitPair(const amr::String& s, amr::String* a, amr::String* b) {
     const size_t eq = s.find('=');
-    if (eq == std::string::npos || eq == 0) return false;
+    if (eq == amr::String::npos || eq == 0) return false;
     *a = s.substr(0, eq);
     *b = s.substr(eq + 1);
     return true;
@@ -92,15 +93,15 @@ bool SplitPair(const std::string& s, std::string* a, std::string* b) {
 // 0: 계속, 1: 정상 종료(도움말), 2: 인자 오류
 int ParseArgs(int argc, char** argv, Options* o) {
     for (int i = 1; i < argc; i++) {
-        const std::string a = argv[i];
+        const amr::String a = argv[i];
         if (a == "-h" || a == "--help") { PrintUsage(argv[0]); return 1; }
         if (a == "--info") { o->info = true; continue; }
         if (a == "--aabb") { o->aabb = true; continue; }
         if (a == "--obb") { o->obb = true; continue; }
         if (a == "--torque") { o->torque = true; continue; }
         if (a == "--gravity" && i + 1 < argc) {
-            if (std::sscanf(argv[++i], "%lf,%lf,%lf", &o->gravity[0], &o->gravity[1], &o->gravity[2]) != 3) {
-                std::fprintf(stderr, "--gravity 는 gx,gy,gz 형식입니다 (예: 0,0,-9.80665)\n");
+            if (sscanf(argv[++i], "%lf,%lf,%lf", &o->gravity[0], &o->gravity[1], &o->gravity[2]) != 3) {
+                fprintf(stderr, "--gravity 는 gx,gy,gz 형식입니다 (예: 0,0,-9.80665)\n");
                 return 2;
             }
             continue;
@@ -110,51 +111,51 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
         if (a == "--select" && hasNext) { o->select = argv[++i]; continue; }
         if (a == "--drag" && hasNext) {
-            if (std::sscanf(argv[++i], "%d,%d,%d,%d", &o->dragX0, &o->dragY0, &o->dragX1, &o->dragY1) != 4) { std::fprintf(stderr, "--drag 는 x0,y0,x1,y1 형식입니다\n"); return false; }
+            if (sscanf(argv[++i], "%d,%d,%d,%d", &o->dragX0, &o->dragY0, &o->dragX1, &o->dragY1) != 4) { fprintf(stderr, "--drag 는 x0,y0,x1,y1 형식입니다\n"); return false; }
             continue;
         }
         if (a == "--motors-off") { o->motorsOff = true; continue; }
-        if (a == "--simulate" && hasNext) { o->simulate = std::atof(argv[++i]); o->motorsOff = true; continue; }
+        if (a == "--simulate" && hasNext) { o->simulate = atof(argv[++i]); o->motorsOff = true; continue; }
         if (a == "--no-fall") { o->noFall = true; continue; }
         if (a == "--settle") { o->settle = true; continue; }
         if (a == "--move" && hasNext) {
-            if (std::sscanf(argv[++i], "%f,%f,%f", &o->move[0], &o->move[1], &o->move[2]) != 3) { std::fprintf(stderr, "--move 는 x,y,z 형식입니다\n"); return false; }
+            if (sscanf(argv[++i], "%f,%f,%f", &o->move[0], &o->move[1], &o->move[2]) != 3) { fprintf(stderr, "--move 는 x,y,z 형식입니다\n"); return false; }
             o->hasMove = true;
             continue;
         }
         if (a == "--click" && hasNext) {
-            if (std::sscanf(argv[++i], "%d,%d", &o->clickX, &o->clickY) != 2) { std::fprintf(stderr, "--click 은 x,y 형식입니다\n"); return false; }
+            if (sscanf(argv[++i], "%d,%d", &o->clickX, &o->clickY) != 2) { fprintf(stderr, "--click 은 x,y 형식입니다\n"); return false; }
             continue;
         }
         if (a == "--joint" && hasNext) {
-            std::string n, v;
-            if (!SplitPair(argv[++i], &n, &v)) { std::fprintf(stderr, "--joint 은 이름=값 형식입니다\n"); return 2; }
-            o->joints.push_back(std::make_pair(n, std::atof(v.c_str())));
+            amr::String n, v;
+            if (!SplitPair(argv[++i], &n, &v)) { fprintf(stderr, "--joint 은 이름=값 형식입니다\n"); return 2; }
+            o->joints.push_back(amr::MakePair(n, atof(v.c_str())));
             continue;
         }
         if (a == "--package" && hasNext) {
-            std::string n, v;
-            if (!SplitPair(argv[++i], &n, &v)) { std::fprintf(stderr, "--package 는 이름=폴더 형식입니다\n"); return 2; }
-            o->packages.push_back(std::make_pair(n, v));
+            amr::String n, v;
+            if (!SplitPair(argv[++i], &n, &v)) { fprintf(stderr, "--package 는 이름=폴더 형식입니다\n"); return 2; }
+            o->packages.push_back(amr::MakePair(n, v));
             continue;
         }
         if (a == "--size" && hasNext) {
-            if (std::sscanf(argv[++i], "%dx%d", &o->width, &o->height) != 2 || o->width < 100 || o->height < 100) {
-                std::fprintf(stderr, "--size 는 가로x세로 형식입니다 (예: 1280x800)\n");
+            if (sscanf(argv[++i], "%dx%d", &o->width, &o->height) != 2 || o->width < 100 || o->height < 100) {
+                fprintf(stderr, "--size 는 가로x세로 형식입니다 (예: 1280x800)\n");
                 return 2;
             }
             continue;
         }
-        if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "알 수 없는 옵션: %s (--help)\n", a.c_str()); return 2; }
+        if (!a.empty() && a[0] == '-') { fprintf(stderr, "알 수 없는 옵션: %s (--help)\n", a.c_str()); return 2; }
         o->file = a;
     }
     return 0;
 }
 
-std::string LowerExt(const std::string& p) {
+amr::String LowerExt(const amr::String& p) {
     const size_t dot = p.find_last_of('.');
-    if (dot == std::string::npos) return std::string();
-    std::string e = p.substr(dot + 1);
+    if (dot == amr::String::npos) return amr::String();
+    amr::String e = p.substr(dot + 1);
     for (size_t i = 0; i < e.size(); i++) if (e[i] >= 'A' && e[i] <= 'Z') e[i] = static_cast<char>(e[i] - 'A' + 'a');
     return e;
 }
@@ -164,7 +165,7 @@ amr::urdf::JointValues JointValuesFromOptions(const amr::urdf::Robot& robot, con
     amr::urdf::JointValues q;
     for (size_t i = 0; i < o.joints.size(); i++) {
         const int ji = robot.FindJoint(o.joints[i].first);
-        if (ji < 0) { std::fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
+        if (ji < 0) { fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
         q[o.joints[i].first] = static_cast<float>(robot.joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
     }
     return q;
@@ -178,27 +179,27 @@ void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr:
     copt.fallbackToVisual = true;
     amr::RobotCollisionModel model;
     amr::BuildCollisionModel(robot, copt, &model);
-    for (size_t i = 0; i < model.warnings.size(); i++) std::printf("경고: %s\n", model.warnings[i].c_str());
+    for (size_t i = 0; i < model.warnings.size(); i++) printf("경고: %s\n", model.warnings[i].c_str());
     size_t fromVisual = 0;
     for (size_t i = 0; i < model.shapes.size(); i++) if (model.shapes[i].fromVisual) fromVisual++;
-    std::printf("AABB 충돌 검사: 도형 %zu개 (visual 로 대체한 것 %zu개)\n", model.shapes.size(), fromVisual);
+    printf("AABB 충돌 검사: 도형 %zu개 (visual 로 대체한 것 %zu개)\n", model.shapes.size(), fromVisual);
     const amr::SelfCollisionReport rep = amr::CheckSelfCollisions(robot, model, q);
     for (size_t i = 0; i < rep.linkAabbs.size(); i++) {
         if (rep.linkAabbs[i].IsEmpty()) continue;
         const amr::Aabb& b = rep.linkAabbs[i];
-        std::printf("  link '%s': (%.3f, %.3f, %.3f) ~ (%.3f, %.3f, %.3f)\n", robot.links[i].name.c_str(), static_cast<double>(b.lo.x),
+        printf("  link '%s': (%.3f, %.3f, %.3f) ~ (%.3f, %.3f, %.3f)\n", robot.links[i].name.c_str(), static_cast<double>(b.lo.x),
                     static_cast<double>(b.lo.y), static_cast<double>(b.lo.z), static_cast<double>(b.hi.x), static_cast<double>(b.hi.y),
                     static_cast<double>(b.hi.z));
     }
-    const struct { const char* label; const std::vector<amr::CollisionPair>* pairs; } lists[2] = {
+    const struct { const char* label; const amr::Array<amr::CollisionPair>* pairs; } lists[2] = {
         {"AABB 겹침 후보", &rep.aabbCandidates}, {"OBB 충돌", &rep.collisions}};
     for (int k = 0; k < 2; k++) {
-        const std::vector<amr::CollisionPair>& pairs = *lists[k].pairs;
-        std::printf("%s %zu건", lists[k].label, pairs.size());
+        const amr::Array<amr::CollisionPair>& pairs = *lists[k].pairs;
+        printf("%s %zu건", lists[k].label, pairs.size());
         for (size_t i = 0; i < pairs.size(); i++)
-            std::printf("%s %s <-> %s", i == 0 ? ":" : ",", robot.links[static_cast<size_t>(pairs[i].a)].name.c_str(),
+            printf("%s %s <-> %s", i == 0 ? ":" : ",", robot.links[static_cast<size_t>(pairs[i].a)].name.c_str(),
                         robot.links[static_cast<size_t>(pairs[i].b)].name.c_str());
-        std::printf("%s\n", k == 0 ? " (직접 연결된 링크는 제외)" : "");
+        printf("%s\n", k == 0 ? " (직접 연결된 링크는 제외)" : "");
     }
 }
 
@@ -209,45 +210,45 @@ void PrintTorques(const amr::urdf::Robot& robot, const Options& o) {
     const amr::urdf::JointValues q = JointValuesFromOptions(robot, o);
     const amr::dynamics::Gravity g(o.gravity[0], o.gravity[1], o.gravity[2]);
     const amr::dynamics::JointTorques motor = amr::dynamics::GravityTorques(robot, q, g);
-    const std::vector<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, g);
-    std::printf("중력 하중: g = (%.4f, %.4f, %.4f) m/s^2 (루트 링크 좌표계)\n", g.x, g.y, g.z);
+    const amr::Array<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, g);
+    printf("중력 하중: g = (%.4f, %.4f, %.4f) m/s^2 (루트 링크 좌표계)\n", g.x, g.y, g.z);
     double com[3], mass = 0;
     if (amr::dynamics::CenterOfMass(robot, q, com, &mass))
-        std::printf("  전체 질량 %.4f kg, 질량중심 (%.4f, %.4f, %.4f) m\n", mass, com[0], com[1], com[2]);
+        printf("  전체 질량 %.4f kg, 질량중심 (%.4f, %.4f, %.4f) m\n", mass, com[0], com[1], com[2]);
     else
-        std::printf("  (<inertial> 질량이 있는 링크가 없습니다)\n");
+        printf("  (<inertial> 질량이 있는 링크가 없습니다)\n");
     for (size_t i = 0; i < robot.joints.size(); i++) {
         const amr::urdf::Joint& j = robot.joints[i];
         const amr::dynamics::JointLoad& l = loads[i];
         if (!j.IsMovable()) {
-            const double f = std::sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
-            const double m = std::sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
-            std::printf("  %-16s (fixed)  체결 하중: 힘 %.4f N, 모멘트 %.4f N*m\n", j.name.c_str(), f, m);
+            const double f = amr::Sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
+            const double m = amr::Sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
+            printf("  %-16s (fixed)  체결 하중: 힘 %.4f N, 모멘트 %.4f N*m\n", j.name.c_str(), f, m);
             continue;
         }
         const amr::urdf::JointValues::const_iterator qi = q.find(j.name);
         const double shown = j.ToDisplay(qi == q.end() ? 0.0 : static_cast<double>(qi->second));
         if (j.hasMimic) {
-            std::printf("  %-16s (mimic %s)  자기 몫 %.4f %s  (원본 관절에 합산됨)\n", j.name.c_str(), j.mimicJoint.c_str(), l.torque, j.TorqueUnit());
+            printf("  %-16s (mimic %s)  자기 몫 %.4f %s  (원본 관절에 합산됨)\n", j.name.c_str(), j.mimicJoint.c_str(), l.torque, j.TorqueUnit());
         } else {
             const double tau = motor.find(j.name)->second;
-            std::printf("  %-16s %9.3f %-3s  토크 %10.4f %s", j.name.c_str(), shown, j.DisplayUnit(), tau, j.TorqueUnit());
-            if (j.effort > 0.0f) std::printf("  (한계 %g%s)", static_cast<double>(j.effort), std::fabs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
-            std::printf("\n");
+            printf("  %-16s %9.3f %-3s  토크 %10.4f %s", j.name.c_str(), shown, j.DisplayUnit(), tau, j.TorqueUnit());
+            if (j.effort > 0.0f) printf("  (한계 %g%s)", static_cast<double>(j.effort), amr::Abs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
+            printf("\n");
         }
-        const std::vector<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContributions(robot, q, j.name, g);
-        for (size_t k = 0; k < parts.size(); k++) std::printf("      <- %-14s %10.4f %s\n", parts[k].link.c_str(), parts[k].value, j.TorqueUnit());
+        const amr::Array<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContributions(robot, q, j.name, g);
+        for (size_t k = 0; k < parts.size(); k++) printf("      <- %-14s %10.4f %s\n", parts[k].link.c_str(), parts[k].value, j.TorqueUnit());
     }
 }
 
 // 창 없이 파일 정보를 출력한다. 성공하면 0.
 int PrintInfo(const Options& o) {
     if (o.file.empty()) { PrintUsage("amr_main"); return 2; }
-    std::string err;
+    amr::String err;
     if (LowerExt(o.file) == "urdf") {
         amr::urdf::Robot robot;
-        if (!amr::urdf::LoadUrdf(o.file, &robot, &err)) { std::fprintf(stderr, "URDF 읽기 실패: %s\n", err.c_str()); return 1; }
-        std::printf("로봇 '%s': link %zu개, joint %zu개 (구동 %zu개), 루트 link '%s'\n", robot.name.c_str(), robot.links.size(),
+        if (!amr::urdf::LoadUrdf(o.file, &robot, &err)) { fprintf(stderr, "URDF 읽기 실패: %s\n", err.c_str()); return 1; }
+        printf("로봇 '%s': link %zu개, joint %zu개 (구동 %zu개), 루트 link '%s'\n", robot.name.c_str(), robot.links.size(),
                     robot.joints.size(), robot.ActuatedJoints().size(), robot.links[static_cast<size_t>(robot.root)].name.c_str());
         amr::urdf::LoadOptions opt;
         for (size_t i = 0; i < o.packages.size(); i++) opt.packagePaths.push_back(o.packages[i]);
@@ -255,22 +256,22 @@ int PrintInfo(const Options& o) {
         const bool ok = amr::urdf::LoadRobotMeshes(robot, opt, &meshes);
         size_t tris = 0;
         for (size_t i = 0; i < meshes.visuals.size(); i++) tris += meshes.visuals[i].scene.TriangleCount();
-        std::printf("visual %zu개 읽음, 삼각형 %zu개\n", meshes.visuals.size(), tris);
-        for (size_t i = 0; i < robot.warnings.size(); i++) std::printf("경고: %s\n", robot.warnings[i].c_str());
-        for (size_t i = 0; i < meshes.warnings.size(); i++) std::printf("경고: %s\n", meshes.warnings[i].c_str());
+        printf("visual %zu개 읽음, 삼각형 %zu개\n", meshes.visuals.size(), tris);
+        for (size_t i = 0; i < robot.warnings.size(); i++) printf("경고: %s\n", robot.warnings[i].c_str());
+        for (size_t i = 0; i < meshes.warnings.size(); i++) printf("경고: %s\n", meshes.warnings[i].c_str());
         if (o.aabb || o.obb) PrintCollisions(robot, o, opt);
         if (o.torque) PrintTorques(robot, o);
         return ok ? 0 : 1;
     }
     amr::Scene scene;
-    if (!amr::LoadMesh(o.file, &scene, &err)) { std::fprintf(stderr, "읽기 실패: %s\n", err.c_str()); return 1; }
+    if (!amr::LoadMesh(o.file, &scene, &err)) { fprintf(stderr, "읽기 실패: %s\n", err.c_str()); return 1; }
     dhVector mn, mx;
     scene.ComputeBounds(&mn, &mx);
-    std::printf("메시 %zu개, 노드 %zu개, 삼각형 %zu개, 재질 %zu개\n", scene.meshes.size(), scene.nodes.size(), scene.TriangleCount(),
+    printf("메시 %zu개, 노드 %zu개, 삼각형 %zu개, 재질 %zu개\n", scene.meshes.size(), scene.nodes.size(), scene.TriangleCount(),
                 scene.materials.size());
-    std::printf("경계 상자: (%g, %g, %g) ~ (%g, %g, %g)\n", static_cast<double>(mn.x), static_cast<double>(mn.y), static_cast<double>(mn.z),
+    printf("경계 상자: (%g, %g, %g) ~ (%g, %g, %g)\n", static_cast<double>(mn.x), static_cast<double>(mn.y), static_cast<double>(mn.z),
                 static_cast<double>(mx.x), static_cast<double>(mx.y), static_cast<double>(mx.z));
-    for (size_t i = 0; i < scene.warnings.size(); i++) std::printf("경고: %s\n", scene.warnings[i].c_str());
+    for (size_t i = 0; i < scene.warnings.size(); i++) printf("경고: %s\n", scene.warnings[i].c_str());
     return 0;
 }
 
@@ -318,7 +319,7 @@ public:
 
         viewer_ = new ModelViewer(this);
         for (size_t i = 0; i < o.packages.size(); i++)
-            viewer_->LoadOptions().packagePaths.push_back(std::make_pair(o.packages[i].first, o.packages[i].second));
+            viewer_->LoadOptions().packagePaths.push_back(amr::MakePair(o.packages[i].first, o.packages[i].second));
         setCentralWidget(viewer_);
 
         tree_ = new StructurePanel;
@@ -344,7 +345,7 @@ public:
         addDockWidget(Qt::RightDockWidgetArea, dock_);
         dock_->hide();
         QObject::connect(panel_, &JointPanel::valueEdited, this, [this](const QString& name, double value) {
-            if (motorsOff_) sim_.SetValue(name.toStdString(), value);  // 손으로 옮긴 관절은 속도를 0 으로 다시 시작
+            if (motorsOff_) sim_.SetValue(amrqt::FromQ(name), value);  // 손으로 옮긴 관절은 속도를 0 으로 다시 시작
         });
         QObject::connect(panel_, &JointPanel::valuesChanged, this, [this]() {
             viewer_->SetJointValues(panel_->Values());
@@ -464,8 +465,8 @@ public:
     void applyJoints(const Options& o) {
         for (size_t i = 0; i < o.joints.size(); i++) {
             const int ji = viewer_->Robot().FindJoint(o.joints[i].first);
-            if (ji < 0) { std::fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
-            panel_->SetValue(QString::fromStdString(o.joints[i].first), viewer_->Robot().joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
+            if (ji < 0) { fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
+            panel_->SetValue(amrqt::ToQ(o.joints[i].first), viewer_->Robot().joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
         }
     }
 
@@ -473,7 +474,7 @@ public:
     void applySelect(const Options& o) {
         if (o.select.empty() || !viewer_->HasRobot()) return;
         const int li = viewer_->Robot().FindLink(o.select);
-        if (li < 0) { std::fprintf(stderr, "경고: 링크 '%s' 이 없습니다\n", o.select.c_str()); return; }
+        if (li < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다\n", o.select.c_str()); return; }
         tree_->SelectLink(li);
         viewer_->SetSelectedLink(li);
         updateSelectionLabel();
@@ -489,15 +490,15 @@ public:
         for (double t = 0; t < seconds - 1e-9; t += 1.0 / 60.0) stepSimulation(1.0 / 60.0);
         const amr::urdf::JointValues q = sim_.Values();
         const amr::urdf::Robot& robot = viewer_->Robot();
-        std::printf("시뮬레이션 %.2f 초 후 (모터 꺼짐, 중력 %.3f, %.3f, %.3f):\n", seconds, gravity_.x, gravity_.y, gravity_.z);
-        const std::vector<int> act = robot.ActuatedJoints();
+        printf("시뮬레이션 %.2f 초 후 (모터 꺼짐, 중력 %.3f, %.3f, %.3f):\n", seconds, gravity_.x, gravity_.y, gravity_.z);
+        const amr::Array<int> act = robot.ActuatedJoints();
         for (size_t i = 0; i < act.size(); i++) {
             const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(act[i])];
             const amr::urdf::JointValues::const_iterator it = q.find(j.name);
             if (it == q.end()) continue;
-            std::printf("  %-18s %9.3f %s\n", j.name.c_str(), j.ToDisplay(static_cast<double>(it->second)), j.DisplayUnit());
+            printf("  %-18s %9.3f %s\n", j.name.c_str(), j.ToDisplay(static_cast<double>(it->second)), j.DisplayUnit());
         }
-        std::printf("  총 에너지 %.4f J (운동 %.4f)\n", sim_.TotalEnergy(), sim_.KineticEnergy());
+        printf("  총 에너지 %.4f J (운동 %.4f)\n", sim_.TotalEnergy(), sim_.KineticEnergy());
     }
 
     ModelViewer* viewer() { return viewer_; }
@@ -557,9 +558,9 @@ private:
             if (!QFileInfo(path).isFile()) continue;
             QString err;
             if (viewer_->LoadGizmo(path, &err)) return;
-            std::fprintf(stderr, "경고: 좌표계 OBJ 를 읽을 수 없습니다 (%s): %s\n", path.toUtf8().constData(), err.toUtf8().constData());
+            fprintf(stderr, "경고: 좌표계 OBJ 를 읽을 수 없습니다 (%s): %s\n", path.toUtf8().constData(), err.toUtf8().constData());
         }
-        std::fprintf(stderr, "경고: Data/Object/gizmo/axes.obj 를 찾을 수 없어 선으로 대신 그립니다\n");
+        fprintf(stderr, "경고: Data/Object/gizmo/axes.obj 를 찾을 수 없어 선으로 대신 그립니다\n");
     }
 
     // 선택한 것의 이름과 자세 (루트 링크 기준, 위치 m, 사람에게는 RPY degree, 데이터는 쿼터니언)
@@ -571,7 +572,7 @@ private:
         }
         QString name = QString::fromUtf8("모델");
         if (viewer_->SelectedLink() >= 0 && static_cast<size_t>(viewer_->SelectedLink()) < viewer_->Robot().links.size())
-            name = QString::fromStdString(viewer_->Robot().links[static_cast<size_t>(viewer_->SelectedLink())].name);
+            name = amrqt::ToQ(viewer_->Robot().links[static_cast<size_t>(viewer_->SelectedLink())].name);
         const dhPose pose = dhPose::FromMat(f).Normalized();
         const amr::units::RpyDeg r = amr::units::RpyDegFromQuat(pose.orientation);
         statusBar()->showMessage(QString::fromUtf8("선택 %1 | 위치 %2, %3, %4 m | RPY %5°, %6°, %7° | 쿼터니언 %8, %9, %10, %11  | %12")
@@ -592,28 +593,28 @@ private:
         panel_->SetTorques(motor);
         dock_->setWindowTitle(QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5));
 
-        const std::vector<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, gravity_);
-        std::map<std::string, std::pair<QString, bool> > notes;
+        const amr::Array<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, gravity_);
+        amr::Map<amr::String, amr::Pair<QString, bool> > notes;
         for (size_t i = 0; i < robot.joints.size(); i++) {
             const amr::urdf::Joint& j = robot.joints[i];
             const amr::dynamics::JointLoad& l = loads[i];
             QString text;
             bool warn = false;
             if (!j.IsMovable()) {
-                const double f = std::sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
-                const double m = std::sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
+                const double f = amr::Sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
+                const double m = amr::Sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
                 text = QString::fromUtf8("체결 하중 힘 %1 N, 모멘트 %2 N·m").arg(f, 0, 'f', 2).arg(m, 0, 'f', 2);
             } else if (j.hasMimic) {
-                text = QString::fromUtf8("자기 몫 %1 %2 (원본 %3 에 합산)").arg(l.torque, 0, 'f', 3).arg(j.TorqueUnit(), QString::fromStdString(j.mimicJoint));
+                text = QString::fromUtf8("자기 몫 %1 %2 (원본 %3 에 합산)").arg(l.torque, 0, 'f', 3).arg(j.TorqueUnit(), amrqt::ToQ(j.mimicJoint));
             } else {
                 const double tau = motor.find(j.name)->second;
                 text = QString::fromUtf8("모터 %1 %2").arg(tau, 0, 'f', 3).arg(j.TorqueUnit());
-                if (j.effort > 0.0f && std::fabs(tau) > static_cast<double>(j.effort)) {
+                if (j.effort > 0.0f && amr::Abs(tau) > static_cast<double>(j.effort)) {
                     text += QString::fromUtf8("  (한계 %1 초과)").arg(static_cast<double>(j.effort), 0, 'g', 4);
                     warn = true;
                 }
             }
-            notes[j.name] = std::make_pair(text, warn);
+            notes[j.name] = amr::MakePair(text, warn);
         }
         tree_->SetJointNotes(notes);
     }
@@ -701,7 +702,7 @@ int main(int argc, char** argv) {
         }
     }
     if (!o.shot.empty() || !o.shotWindow.empty()) {
-        const std::string shot = o.shot, shotWindow = o.shotWindow;
+        const amr::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
         MainWindow* win = &w;
         const int cx = o.clickX, cy = o.clickY;
@@ -728,7 +729,7 @@ int main(int argc, char** argv) {
                 QMouseEvent release(QEvent::MouseButtonRelease, p1, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
                 QApplication::sendEvent(v, &release);
                 const dhVector pos = v->ObjectPosition();
-                std::printf("드래그 (%d,%d)->(%d,%d) -> 오브젝트 위치 %.4f, %.4f, %.4f m\n", d0x, d0y, d1x, d1y, static_cast<double>(pos.x), static_cast<double>(pos.y), static_cast<double>(pos.z));
+                printf("드래그 (%d,%d)->(%d,%d) -> 오브젝트 위치 %.4f, %.4f, %.4f m\n", d0x, d0y, d1x, d1y, static_cast<double>(pos.x), static_cast<double>(pos.y), static_cast<double>(pos.z));
                 v->repaint();
             }
             if (cx >= 0 && cy >= 0) {  // 실제 마우스 이벤트를 보내서 클릭 선택까지 한꺼번에 확인한다
@@ -737,25 +738,25 @@ int main(int argc, char** argv) {
                 QMouseEvent release(QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
                 QApplication::sendEvent(v, &press);
                 QApplication::sendEvent(v, &release);
-                std::printf("클릭 (%d,%d) -> 선택 링크 %d%s\n", cx, cy, v->SelectedLink(), v->ModelSelected() ? " (모델)" : "");
+                printf("클릭 (%d,%d) -> 선택 링크 %d%s\n", cx, cy, v->SelectedLink(), v->ModelSelected() ? " (모델)" : "");
                 v->repaint();
             }
             if (simSeconds > 0) win->runSimulation(simSeconds);
             if (settle) {  // 낙하가 끝날 때까지 시간을 진행시킨다
                 const double z0 = static_cast<double>(v->ObjectPosition().z);
                 const double t = v->SimulateFall(10.0);
-                std::printf("낙하: 높이 %.4f m -> %.4f m, %.2f 초 걸림 (바닥 높이 %.4f m)\n", z0, static_cast<double>(v->ObjectPosition().z), t, static_cast<double>(v->ObjectBottom()));
+                printf("낙하: 높이 %.4f m -> %.4f m, %.2f 초 걸림 (바닥 높이 %.4f m)\n", z0, static_cast<double>(v->ObjectPosition().z), t, static_cast<double>(v->ObjectBottom()));
                 v->repaint();
             }
             if (!shot.empty()) {
                 const QImage img = v->grabFramebuffer();
                 ok = !img.isNull() && img.save(QString::fromLocal8Bit(shot.c_str()));
-                if (!ok) std::fprintf(stderr, "화면 저장 실패: %s\n", shot.c_str());
+                if (!ok) fprintf(stderr, "화면 저장 실패: %s\n", shot.c_str());
             }
             if (!shotWindow.empty()) {
                 const QImage img = win->grab().toImage();
                 const bool ok2 = !img.isNull() && img.save(QString::fromLocal8Bit(shotWindow.c_str()));
-                if (!ok2) std::fprintf(stderr, "화면 저장 실패: %s\n", shotWindow.c_str());
+                if (!ok2) fprintf(stderr, "화면 저장 실패: %s\n", shotWindow.c_str());
                 ok = ok && ok2;
             }
             app.exit(ok ? 0 : 1);
@@ -774,7 +775,7 @@ int main(int argc, char** argv) {
     if (pr == 2) return 2;
     if (o.file.empty()) {
         PrintUsage(argv[0]);
-        std::printf("\n(이 빌드는 Qt 없이 만들어져 3D 창이 없습니다. -DAMR_BUILD_QT=ON 으로 다시 빌드하세요.)\n");
+        printf("\n(이 빌드는 Qt 없이 만들어져 3D 창이 없습니다. -DAMR_BUILD_QT=ON 으로 다시 빌드하세요.)\n");
         return 0;
     }
     return PrintInfo(o);

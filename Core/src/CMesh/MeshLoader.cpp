@@ -4,8 +4,8 @@
 
 namespace amr {
 
-bool LoadMesh(const std::string& path, Scene* out, std::string* error) {
-    const std::string ext = detail::LowerExtension(path);
+bool LoadMesh(const amr::String& path, Scene* out, amr::String* error) {
+    const amr::String ext = detail::LowerExtension(path);
     if (ext == "glb" || ext == "gltf") return LoadGlb(path, out, error);
     if (ext == "stl") return LoadStl(path, out, error);
     if (ext == "obj") return LoadObj(path, out, error);

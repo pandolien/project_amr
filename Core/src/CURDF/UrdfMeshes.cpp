@@ -1,6 +1,6 @@
 // URDF 의 메시 경로 해석과 visual 로딩
-#include <fstream>
-#include <map>
+#include <stdio.h>
+#include "CBase/Map.h"
 
 #include "3d/dhMat.h"
 #include "CMesh/MeshLoader.h"
@@ -13,20 +13,22 @@ namespace urdf {
 
 namespace {
 
-bool FileExists(const std::string& p) {
-    std::ifstream f(p.c_str(), std::ios::in | std::ios::binary);
-    return f.good();
+bool FileExists(const amr::String& p) {
+    FILE* f = fopen(p.c_str(), "rb");
+    if (!f) return false;
+    fclose(f);
+    return true;
 }
 
-std::string ParentDir(const std::string& dir) {
+amr::String ParentDir(const amr::String& dir) {
     if (dir.empty()) return "..";
-    const std::string d = detail::DirName(dir);
+    const amr::String d = detail::DirName(dir);
     if (!d.empty() && d != dir) return d;
     // 마지막 요소가 ".." 이거나 단일 요소이면 ".." 를 덧붙인다
     return detail::JoinPath(dir, "..");
 }
 
-bool TryCandidates(const std::vector<std::string>& cands, std::string* resolved) {
+bool TryCandidates(const amr::Array<amr::String>& cands, amr::String* resolved) {
     for (size_t i = 0; i < cands.size(); i++) {
         if (FileExists(cands[i])) {
             *resolved = cands[i];
@@ -38,19 +40,19 @@ bool TryCandidates(const std::vector<std::string>& cands, std::string* resolved)
 
 }  // namespace
 
-bool ResolveMeshPath(const std::string& filename, const std::string& baseDir, const LoadOptions& opt, std::string* resolved) {
+bool ResolveMeshPath(const amr::String& filename, const amr::String& baseDir, const LoadOptions& opt, amr::String* resolved) {
     if (!resolved) return false;
     resolved->clear();
     if (filename.empty()) return false;
-    std::vector<std::string> cands;
+    amr::Array<amr::String> cands;
 
-    const std::string pkgPrefix = "package://";
-    const std::string filePrefix = "file://";
+    const amr::String pkgPrefix = "package://";
+    const amr::String filePrefix = "file://";
     if (filename.compare(0, pkgPrefix.size(), pkgPrefix) == 0) {
-        const std::string rest = filename.substr(pkgPrefix.size());
+        const amr::String rest = filename.substr(pkgPrefix.size());
         const size_t slash = rest.find('/');
-        const std::string pkg = slash == std::string::npos ? rest : rest.substr(0, slash);
-        const std::string sub = slash == std::string::npos ? std::string() : rest.substr(slash + 1);
+        const amr::String pkg = slash == amr::String::npos ? rest : rest.substr(0, slash);
+        const amr::String sub = slash == amr::String::npos ? amr::String() : rest.substr(slash + 1);
         for (size_t i = 0; i < opt.packagePaths.size(); i++)
             if (opt.packagePaths[i].first == pkg) cands.push_back(detail::JoinPath(opt.packagePaths[i].second, sub));
         for (size_t i = 0; i < opt.searchDirs.size(); i++) {
@@ -58,7 +60,7 @@ bool ResolveMeshPath(const std::string& filename, const std::string& baseDir, co
             cands.push_back(detail::JoinPath(opt.searchDirs[i], sub));
         }
         // URDF 폴더에서 위로 올라가며 찾는다 (pkg/urdf/robot.urdf -> pkg/meshes/..)
-        std::string dir = baseDir.empty() ? std::string(".") : baseDir;
+        amr::String dir = baseDir.empty() ? amr::String(".") : baseDir;
         for (int up = 0; up < 6; up++) {
             cands.push_back(detail::JoinPath(dir, sub));
             cands.push_back(detail::JoinPath(detail::JoinPath(dir, pkg), sub));
@@ -75,8 +77,8 @@ bool ResolveMeshPath(const std::string& filename, const std::string& baseDir, co
     return TryCandidates(cands, resolved);
 }
 
-bool LoadGeometryScene(const Geometry& g, const std::string& baseDir, const LoadOptions& opt, Scene* out,
-                       std::string* error, std::map<std::string, Scene>* cache) {
+bool LoadGeometryScene(const Geometry& g, const amr::String& baseDir, const LoadOptions& opt, Scene* out,
+                       amr::String* error, amr::Map<amr::String, Scene>* cache) {
     if (error) error->clear();
     if (!out) return false;
     if (g.type == kGeomBox) {
@@ -93,27 +95,27 @@ bool LoadGeometryScene(const Geometry& g, const std::string& baseDir, const Load
     }
     if (g.type != kGeomMesh) return false;  // geometry 없음
 
-    std::string path;
+    amr::String path;
     if (!ResolveMeshPath(g.filename, baseDir, opt, &path)) {
         detail::SetError(error, "메시 파일을 찾을 수 없습니다 (" + g.filename + ")");
         return false;
     }
     Scene sc;
-    std::map<std::string, Scene>::iterator it;
+    amr::Map<amr::String, Scene>::iterator it;
     if (cache && (it = cache->find(path)) != cache->end()) {
         sc = it->second;
     } else {
-        std::string err;
+        amr::String err;
         if (!LoadMesh(path, &sc, &err)) {
             detail::SetError(error, err);
             return false;
         }
-        if (cache) cache->insert(std::make_pair(path, sc));
+        if (cache) cache->insert(amr::MakePair(path, sc));
     }
     // URDF 의 scale 은 파일 좌표축 기준이므로 축 변환보다 먼저 적용한다
     if (g.scale[0] != 1.0f || g.scale[1] != 1.0f || g.scale[2] != 1.0f)
         sc.ApplyRootTransform(dhMat::Scale(g.scale[0], g.scale[1], g.scale[2]));
-    const std::string ext = detail::LowerExtension(path);
+    const amr::String ext = detail::LowerExtension(path);
     if (opt.glbYUpToZUp && (ext == "glb" || ext == "gltf")) sc.ApplyRootTransform(dhMat::RotX(static_cast<float>(dhRad(90.0))));
     *out = sc;
     return true;
@@ -124,7 +126,7 @@ bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* ou
     out->visuals.clear();
     out->warnings.clear();
     bool allOk = true;
-    std::map<std::string, Scene> cache;  // 해석된 경로 -> 읽은 메시 (scale 적용 전)
+    amr::Map<amr::String, Scene> cache;  // 해석된 경로 -> 읽은 메시 (scale 적용 전)
 
     for (size_t li = 0; li < robot.links.size(); li++) {
         const Link& link = robot.links[li];
@@ -139,9 +141,9 @@ bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* ou
                 lv.hasColor = true;
                 lv.color = v.material.color;
             }
-            std::string err;
+            amr::String err;
             if (!LoadGeometryScene(v.geometry, robot.baseDir, opt, &lv.scene, &err, &cache)) {
-                out->warnings.push_back("link '" + link.name + "' visual " + std::to_string(vi) + ": " + err);
+                out->warnings.push_back("link '" + link.name + "' visual " + amr::ToString(vi) + ": " + err);
                 allOk = false;
                 continue;
             }
