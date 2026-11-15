@@ -83,7 +83,7 @@ run.bat --test        :: 같은 옵션: --test --no-qt --no-install --clean --de
 - 이미 모두 설치되어 있으면 설치 단계는 건너뛰고 바로 빌드/실행합니다. 설치는 첫 실행에서만 시간이 걸립니다.
 - 빌드가 끝나면 `amr_main`(3D 뷰어)을 실행합니다. 인자를 넘기려면 `./run.sh -- 파일.urdf`.
 - `run.bat` 은 Visual Studio Build Tools 가 없으면 설치 여부를 물어보고(수 GB), 설치 후에는 새 터미널에서 다시 실행해야 합니다.
-  vcpkg 는 `VCPKG_ROOT` 가 있으면 그것을, 없으면 프로젝트 안 `.vcpkg/` 에 받아 사용합니다. Qt 는 기본으로 켜져 있고, 직접 설치한 Qt 5 가 있으면 `CMAKE_PREFIX_PATH`(또는 `QT_DIR`)에 그 폴더를 지정하세요. 없으면 vcpkg 로 설치할지 물어봅니다 (30~60분 이상, 수 GB). 창 없이 콘솔 모드만 쓰려면 `--no-qt`.
+  vcpkg 는 `VCPKG_ROOT` 가 있으면 그것을, 없으면 프로젝트 안 `.vcpkg/` 에 받아 사용합니다. Qt 는 기본으로 켜져 있고, 직접 설치한 Qt 5 가 있으면 `CMAKE_PREFIX_PATH`(또는 `QT_DIR`)에 그 폴더를 지정하세요. 없으면 vcpkg 로 설치할지 물어봅니다 (Release 전용 + OpenSSL 제외로 20~40분, 수 GB). 창 없이 콘솔 모드만 쓰려면 `--no-qt`.
 - `run.bat` 은 아직 실제 Windows 에서 실행해 보지 못했습니다 (아래 Windows 빌드 절은 MinGW 로만 검증).
 
 ## 빌드

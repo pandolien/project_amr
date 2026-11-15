@@ -7,7 +7,7 @@ rem    --test        run the tests (ctest) instead of the program
 rem    --no-qt       do not build the 3D window (console mode only, no Qt needed)
 rem    --no-install  never install anything; only report what is missing
 rem    --clean       wipe build\ and configure from scratch
-rem    --debug       build Debug (default Release)
+rem    --debug       build Debug (default Release; needs a much longer first vcpkg build)
 rem    -h, --help    show this help
 rem
 rem  Messages are in English on purpose: cmd.exe mangles UTF-8 text unless the
@@ -101,7 +101,9 @@ if not exist "%VCPKG_DIR%\vcpkg.exe" (
     call "%VCPKG_DIR%\bootstrap-vcpkg.bat" -disableMetrics
     if errorlevel 1 (echo [run.bat] vcpkg bootstrap failed & exit /b 1)
 )
-set "TRIPLET=x64-windows"
+rem Release-only triplet: skips the Debug builds, which roughly halves the vcpkg build time.
+rem --debug needs the normal triplet (and a much longer first build).
+if /i "%BUILD_TYPE%"=="Debug" (set "TRIPLET=x64-windows") else (set "TRIPLET=x64-windows-release")
 "%VCPKG_DIR%\vcpkg.exe" list clapack | findstr /i /c:"clapack:%TRIPLET%" >nul
 if errorlevel 1 (
     if "%DO_INSTALL%"=="0" (
@@ -185,7 +187,7 @@ if "%DO_INSTALL%"=="0" (
     exit /b 0
 )
 echo [run.bat] Qt 5 is needed to show the 3D window.
-echo [run.bat] vcpkg can build it for you: it takes a long time ^(30-60+ minutes^) and several GB.
+echo [run.bat] vcpkg can build it for you ^(Release only, no OpenSSL^): still 20-40 minutes and a few GB.
 echo [run.bat] Or answer N and set CMAKE_PREFIX_PATH to your own Qt 5 folder, then run again.
 choice /c YN /m "Install Qt 5 with vcpkg now"
 if errorlevel 2 (
@@ -193,6 +195,6 @@ if errorlevel 2 (
     set "USE_QT=OFF"
     exit /b 0
 )
-"%VCPKG_DIR%\vcpkg.exe" install qt5-base:%TRIPLET%
+"%VCPKG_DIR%\vcpkg.exe" install "qt5-base[core]:%TRIPLET%"
 if errorlevel 1 (echo [run.bat] Qt install failed & exit /b 1)
 exit /b 0
