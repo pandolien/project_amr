@@ -39,13 +39,15 @@ struct Options {
     std::string shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
     std::string select;        // 시작할 때 선택(강조)할 링크 이름
     int dragX0, dragY0, dragX1, dragY1;  // --drag: 눌렀다가 끌고 떼는 마우스 동작 (-1 이면 안 함)
+    bool noFall;               // --no-fall: 중력 낙하를 끈다
+    bool settle;               // --settle: 낙하가 끝날 때까지 진행한 뒤 위치를 출력 (확인용)
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
     std::vector<std::pair<std::string, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     std::vector<std::pair<std::string, std::string> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -amr::dynamics::kStandardGravity;
@@ -66,6 +68,8 @@ void PrintUsage(const char* exe) {
         "  --shot-window 파일.png  창 전체(구조 트리, 관절 패널 포함)를 저장하고 종료\n"
         "  --select 링크이름  시작할 때 그 링크를 선택해서 강조\n"
         "  --drag x0,y0,x1,y1 3D 화면에서 마우스를 (x0,y0) 에서 누르고 (x1,y1) 까지 끈 것처럼 처리 (좌표계 화살표 이동 확인용)\n"
+        "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
+        "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
@@ -105,6 +109,8 @@ int ParseArgs(int argc, char** argv, Options* o) {
             if (std::sscanf(argv[++i], "%d,%d,%d,%d", &o->dragX0, &o->dragY0, &o->dragX1, &o->dragY1) != 4) { std::fprintf(stderr, "--drag 는 x0,y0,x1,y1 형식입니다\n"); return false; }
             continue;
         }
+        if (a == "--no-fall") { o->noFall = true; continue; }
+        if (a == "--settle") { o->settle = true; continue; }
         if (a == "--move" && hasNext) {
             if (std::sscanf(argv[++i], "%f,%f,%f", &o->move[0], &o->move[1], &o->move[2]) != 3) { std::fprintf(stderr, "--move 는 x,y,z 형식입니다\n"); return false; }
             o->hasMove = true;
@@ -375,6 +381,7 @@ public:
             }
             if (a && b && c) {
                 gravity_ = amr::dynamics::Gravity(gx, gy, gz);
+                viewer_->SetGravity(gx, gy, gz);
                 updateTorques();
             } else {
                 QMessageBox::warning(this, QString::fromUtf8("중력 가속도"), QString::fromUtf8("숫자 세 개(gx, gy, gz)를 넣어 주세요."));
@@ -389,6 +396,12 @@ public:
         frame->setCheckable(true);
         frame->setChecked(true);
         QObject::connect(frame, &QAction::toggled, viewer_, &ModelViewer::SetShowSelectionFrame);
+        QAction* fall = view->addAction(QString::fromUtf8("중력 낙하 (물체를 놓으면 떨어짐)"));
+        fall->setCheckable(true);
+        fall->setChecked(!o.noFall);
+        viewer_->SetFallEnabled(!o.noFall);
+        viewer_->SetGravity(gravity_.x, gravity_.y, gravity_.z);
+        QObject::connect(fall, &QAction::toggled, viewer_, &ModelViewer::SetFallEnabled);
         QAction* resetPos = view->addAction(QString::fromUtf8("오브젝트 위치 초기화"));
         QObject::connect(resetPos, &QAction::triggered, viewer_, [this]() { viewer_->ResetObjectPosition(); });
         QAction* obbs = view->addAction(QString::fromUtf8("OBB 충돌 박스"));
@@ -610,8 +623,9 @@ int main(int argc, char** argv) {
         ModelViewer* v = w.viewer();
         MainWindow* win = &w;
         const int cx = o.clickX, cy = o.clickY;
+        const bool settle = o.settle;
         const int d0x = o.dragX0, d0y = o.dragY0, d1x = o.dragX1, d1y = o.dragY1;
-        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y]() {
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle]() {
             bool ok = true;
             if (d0x >= 0 && d0y >= 0 && d1x >= 0 && d1y >= 0) {
                 const QPoint p0(d0x, d0y), p1(d1x, d1y);
@@ -641,6 +655,12 @@ int main(int argc, char** argv) {
                 QApplication::sendEvent(v, &press);
                 QApplication::sendEvent(v, &release);
                 std::printf("클릭 (%d,%d) -> 선택 링크 %d%s\n", cx, cy, v->SelectedLink(), v->ModelSelected() ? " (모델)" : "");
+                v->repaint();
+            }
+            if (settle) {  // 낙하가 끝날 때까지 시간을 진행시킨다
+                const double z0 = static_cast<double>(v->ObjectPosition().z);
+                const double t = v->SimulateFall(10.0);
+                std::printf("낙하: 높이 %.4f m -> %.4f m, %.2f 초 걸림 (바닥 높이 %.4f m)\n", z0, static_cast<double>(v->ObjectPosition().z), t, static_cast<double>(v->ObjectBottom()));
                 v->repaint();
             }
             if (!shot.empty()) {

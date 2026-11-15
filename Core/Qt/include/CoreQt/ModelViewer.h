@@ -7,7 +7,9 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLWidget>
 #include <QPoint>
+#include <QElapsedTimer>
 #include <QString>
+#include <QTimer>
 #include <QVector3D>
 #include <QVector4D>
 #include <memory>
@@ -82,6 +84,16 @@ public:
     dhVector ObjectPosition() const;
     void ResetObjectPosition() { SetObjectPosition(0, 0, 0); }
 
+    // 낙하: 켜져 있으면(기본) 물체(정적 모델 전체 또는 로봇 전체)가 바닥(z = 0 인 격자 평면)보다 높이 있을 때 중력으로 떨어진다.
+    // 이동으로 들어 올린 물체를 놓으면 떨어지고, 바닥에 닿으면 조금 튕기다 멈춘다. 가장 낮은 점은 보이는 모양(visual)의 꼭짓점으로 잡는다.
+    // 중력은 수직(z) 성분만 쓰고(위로 향하거나 0 이면 떨어지지 않는다), 회전과 수평 이동은 없다. 이미 바닥 아래에 있는 물체는 건드리지 않는다.
+    void SetFallEnabled(bool enabled);
+    bool FallEnabled() const { return fallEnabled_; }
+    void SetGravity(double gx, double gy, double gz);  // 월드 기준 중력 가속도 (m/s^2). 낙하에는 gz 만 쓴다
+    bool StepFall(double dt);                          // dt 초만큼 낙하를 진행한다. 아직 움직이는 중이면 true (타이머가 부르고, 확인용으로 직접 불러도 된다)
+    double SimulateFall(double maxSeconds);            // 멈출 때까지 (또는 maxSeconds 까지) 1/240 초씩 진행하고 걸린 시간(초)을 돌려준다
+    float ObjectBottom() const;                        // 오브젝트의 가장 낮은 점의 월드 높이 (m)
+
     // 정적 모델(.glb 등)을 열었으면 그 장면
     bool HasScene() const { return hasScene_; }
     const amr::Scene& StaticScene() const { return scene_; }
@@ -133,6 +145,7 @@ private:
     bool selectionGizmo(QVector3D* origin, QVector3D axis[3], float* scale) const;  // 좌표계의 월드 원점, 축 방향(단위), 화면상 크기
     int hitGizmoAxis(const QPoint& pos, float* u) const;  // 마우스 아래의 화살표 (0 x, 1 y, 2 z, 없으면 -1) 와 그 축 위의 위치
     dhMat itemWorld(const Item& it) const;
+    float objectMinZ() const;  // 이동량을 뺀 오브젝트 좌표계에서 가장 낮은 점의 높이 (캐시)
     void drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view);
     void recomputeCollisions();
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
@@ -158,6 +171,13 @@ private:
     int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2
     float dragU0_;
     dhVector dragStart_;
+    QTimer* fallTimer_;
+    QElapsedTimer fallClock_;
+    bool fallEnabled_;
+    double gravityZ_;
+    double fallVel_;      // 위쪽이 + (m/s)
+    mutable float minZ_;
+    mutable bool minZValid_;
     amr::Scene scene_;
     bool hasScene_;
     QStringList warnings_;

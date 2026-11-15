@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "CCollision/MeshRaycast.h"
+#include "CDynamics/FreeFall.h"
 #include "CMesh/MeshLoader.h"
 
 namespace {
@@ -62,6 +63,19 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragged_ = false;
     dragAxis_ = -1;
     dragU0_ = 0;
+    fallEnabled_ = true;
+    gravityZ_ = -9.80665;
+    fallVel_ = 0;
+    minZ_ = 0;
+    minZValid_ = false;
+    fallTimer_ = new QTimer(this);
+    fallTimer_->setInterval(16);
+    fallClock_.start();
+    QObject::connect(fallTimer_, &QTimer::timeout, this, [this]() {
+        const double dt = static_cast<double>(fallClock_.restart()) / 1000.0;
+        StepFall(dt);
+    });
+    fallTimer_->start();
     hasScene_ = false;
     extent_[0] = extent_[1] = extent_[2] = 0.0f;
     setMinimumSize(320, 240);
@@ -103,6 +117,8 @@ void ModelViewer::Clear() {
     selectedLink_ = -1;
     selectedModel_ = false;
     objectPos_ = dhVector(0, 0, 0);
+    fallVel_ = 0;
+    minZValid_ = false;
     scene_ = amr::Scene();
     hasScene_ = false;
     warnings_.clear();
@@ -190,6 +206,7 @@ void ModelViewer::SetJointValues(const amr::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;
     linkT_ = robot_.LinkTransforms(q);
+    minZValid_ = false;
     recomputeCollisions();
     update();
 }
@@ -254,11 +271,69 @@ bool ModelViewer::CanMoveSelection() const {
 
 void ModelViewer::SetObjectPosition(float x, float y, float z) {
     objectPos_ = dhVector(x, y, z);
+    fallVel_ = 0;
     update();
     emit objectMoved();
 }
 
 dhVector ModelViewer::ObjectPosition() const { return objectPos_; }
+
+float ModelViewer::objectMinZ() const {
+    if (minZValid_) return minZ_;
+    float lo = std::numeric_limits<float>::max();
+    for (size_t i = 0; i < items_.size(); i++) {
+        const Item& it = *items_[i];
+        dhMat m = it.base;  // 이동량은 빼고 계산한다
+        if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+        for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
+            float p[3];
+            Transform(m, &it.data[v], p);
+            lo = std::min(lo, p[2]);
+        }
+    }
+    minZ_ = lo == std::numeric_limits<float>::max() ? 0.0f : lo;
+    minZValid_ = true;
+    return minZ_;
+}
+
+float ModelViewer::ObjectBottom() const { return objectMinZ() + objectPos_.z; }
+
+void ModelViewer::SetFallEnabled(bool enabled) {
+    fallEnabled_ = enabled;
+    fallVel_ = 0;
+}
+
+void ModelViewer::SetGravity(double, double, double gz) { gravityZ_ = gz; }
+
+bool ModelViewer::StepFall(double dt) {
+    if (!fallEnabled_ || items_.empty() || dragAxis_ >= 0) {  // 끄는 동안에는 손이 붙잡고 있다
+        fallVel_ = 0;
+        return false;
+    }
+    amr::dynamics::FallBody b;
+    b.height = static_cast<double>(ObjectBottom());
+    b.velocity = fallVel_;
+    if (b.height >= 0.0 && b.height < 1e-5 && b.velocity <= 0.0) {  // 바닥에 놓여 있다 (부동소수점 오차 안쪽)
+        fallVel_ = 0;
+        return false;
+    }
+    const double before = b.height;
+    const bool moving = b.Step(dt, gravityZ_);
+    fallVel_ = b.velocity;
+    if (b.height != before) {
+        objectPos_.z += static_cast<float>(b.height - before);
+        update();
+        emit objectMoved();
+    }
+    return moving;
+}
+
+double ModelViewer::SimulateFall(double maxSeconds) {
+    double t = 0.0;
+    const double dt = 1.0 / 240.0;
+    while (t < maxSeconds && StepFall(dt)) t += dt;
+    return t;
+}
 
 bool ModelViewer::LoadGizmo(const QString& objPath, QString* error) {
     amr::Scene scene;

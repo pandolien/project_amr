@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "CDynamics/FreeFall.h"
 #include "CDynamics/Gravity.h"
 #include "CURDF/Urdf.h"
 
@@ -348,9 +349,76 @@ void testContributions() {
     }
 }
 
+
+// ---- 바닥 위 자유낙하
+void testFreeFall() {
+    using amr::dynamics::FallBody;
+    const double g = -9.80665;
+    // 1 m 높이에서 튕김 없이 떨어뜨린다: 낙하 시간은 sqrt(2h/|g|)
+    FallBody b;
+    b.height = 1.0;
+    b.restitution = 0.0;
+    const double dt = 1.0 / 1000.0;
+    double t = 0;
+    int steps = 0;
+    while (b.Step(dt, g) && steps < 100000) {
+        t += dt;
+        steps++;
+    }
+    t += dt;  // 마지막 스텝(닿는 스텝)
+    check(steps < 100000 && std::fabs(t - std::sqrt(2.0 * 1.0 / 9.80665)) < 3 * dt, "fall time matches sqrt(2h/g)");
+    check(b.height == 0.0 && b.velocity == 0.0 && b.AtRest(), "comes to rest on the floor");
+    // 도중의 높이도 h0 - g t^2 / 2 와 같다 (등가속도 식은 정확하다)
+    FallBody c;
+    c.height = 2.0;
+    for (int i = 0; i < 200; i++) c.Step(0.002, g);  // 0.4 s
+    check(std::fabs(c.height - (2.0 + 0.5 * g * 0.4 * 0.4)) < 1e-9 && std::fabs(c.velocity - g * 0.4) < 1e-9, "mid-air state is exact");
+    // 튕김: 되튀는 속도는 e 배, 올라가는 높이는 e^2 배
+    FallBody d;
+    d.height = 1.0;
+    d.restitution = 0.5;
+    double peak = 0, prev = d.height;
+    bool hit = false;
+    for (int i = 0; i < 20000 && !(hit && d.velocity <= 0); i++) {
+        d.Step(1.0 / 20000.0, g);
+        if (d.velocity > 0) {
+            hit = true;
+            peak = std::max(peak, d.height);
+        }
+        prev = d.height;
+    }
+    (void)prev;
+    check(hit && std::fabs(peak - 0.25) < 0.01, "bounce peak is e^2 * h0");
+    // 계속 튕기다가 결국 멈춘다
+    FallBody e;
+    e.height = 3.0;
+    int n = 0;
+    while (e.Step(1.0 / 240.0, g) && n < 240 * 60) n++;
+    check(n < 240 * 60 && e.AtRest(), "bouncing eventually stops");
+    // 안전: 바닥 아래, 중력 0 이상, NaN, dt <= 0
+    FallBody u;
+    u.height = -0.5;
+    check(!u.Step(0.01, g) && u.height == -0.5, "below the floor is left alone");
+    FallBody z;
+    z.height = 1.0;
+    check(!z.Step(0.01, 0.0) && z.height == 1.0, "no gravity, no fall");
+    check(!z.Step(0.01, 9.8) && z.height == 1.0, "upward gravity does not pull it down");
+    check(!z.Step(0.0, g) && !z.Step(-1.0, g), "dt <= 0 does nothing");
+    FallBody nn;
+    nn.height = NAN;
+    check(!nn.Step(0.01, g), "NaN height does not move");
+    FallBody big;
+    big.height = 100.0;
+    big.Step(50.0, g);  // 너무 긴 dt 는 0.1 s 로 잘린다
+    check(std::fabs(big.height - (100.0 + 0.5 * g * 0.01)) < 1e-9, "huge dt is clamped to 0.1 s");
+    FallBody flat;  // 바닥에 놓인 물체
+    check(!flat.Step(0.01, g) && flat.height == 0.0, "an object on the floor stays");
+}
+
 }  // namespace
 
 int main() {
+    testFreeFall();
     testPendulum();
     testPrismatic();
     testGradientOfPotential();
