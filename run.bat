@@ -4,7 +4,7 @@ rem  Install missing tools, build, and run (Windows 10/11, Visual Studio + vcpkg
 rem
 rem  Usage: run.bat [options] [-- arguments for amr_main]
 rem    --test        run the tests (ctest) instead of the program
-rem    --qt          build CoreQt too (needs Qt 5.12 and QT_DIR or CMAKE_PREFIX_PATH set)
+rem    --no-qt       do not build the 3D window (console mode only, no Qt needed)
 rem    --no-install  never install anything; only report what is missing
 rem    --clean       wipe build\ and configure from scratch
 rem    --debug       build Debug (default Release)
@@ -17,7 +17,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 set "BUILD_TYPE=Release"
-set "USE_QT=OFF"
+set "USE_QT=ON"
 set "DO_TEST=0"
 set "DO_CLEAN=0"
 set "DO_INSTALL=1"
@@ -27,6 +27,7 @@ set "APP_ARGS="
 if "%~1"=="" goto parsed
 if /i "%~1"=="--test"       (set "DO_TEST=1"    & shift & goto parse)
 if /i "%~1"=="--qt"         (set "USE_QT=ON"    & shift & goto parse)
+if /i "%~1"=="--no-qt"      (set "USE_QT=OFF"   & shift & goto parse)
 if /i "%~1"=="--no-install" (set "DO_INSTALL=0" & shift & goto parse)
 if /i "%~1"=="--clean"      (set "DO_CLEAN=1"   & shift & goto parse)
 if /i "%~1"=="--debug"      (set "BUILD_TYPE=Debug" & shift & goto parse)
@@ -45,7 +46,7 @@ goto collect
 :usage
 echo Usage: run.bat [options] [-- arguments for amr_main]
 echo   --test        run the tests (ctest) instead of the program
-echo   --qt          build CoreQt too (needs Qt 5.12 and QT_DIR or CMAKE_PREFIX_PATH set)
+echo   --no-qt       do not build the 3D window ^(console mode only, no Qt needed^)
 echo   --no-install  never install anything; only report what is missing
 echo   --clean       wipe build\ and configure from scratch
 echo   --debug       build Debug (default Release)
@@ -116,12 +117,8 @@ if errorlevel 1 (
 rem DLLs of installed packages, so the programs can start even outside the build folder
 set "PATH=%VCPKG_DIR%\installed\%TRIPLET%\bin;%PATH%"
 
-if "%USE_QT%"=="ON" (
-    if not defined QT_DIR if not defined CMAKE_PREFIX_PATH (
-        echo [run.bat] --qt needs QT_DIR or CMAKE_PREFIX_PATH ^(your Qt 5.12 folder, e.g. C:\Qt\5.12.12\msvc2017_64^).
-        exit /b 1
-    )
-)
+rem ---- Qt (needed for the 3D window) ----------------------------------------------
+if "%USE_QT%"=="ON" (call :ensure_qt & if errorlevel 1 exit /b 1)
 
 rem ---- 4. Configure + build -----------------------------------------------------
 if "%DO_CLEAN%"=="1" (
@@ -171,4 +168,31 @@ winget install -e --id %2 --silent --accept-package-agreements --accept-source-a
 set "PATH=%~3;%PATH%"
 where %1 >nul 2>nul
 if errorlevel 1 (echo [run.bat] %1 was installed but is not on PATH yet. Open a new terminal and run again. & exit /b 1)
+exit /b 0
+
+rem ---- helper: find or install Qt 5 (for the 3D window) ---------------------------------
+:ensure_qt
+rem 1) a Qt you installed yourself: set CMAKE_PREFIX_PATH (or QT_DIR) to e.g. C:\Qt\5.15.2\msvc2019_64
+if defined CMAKE_PREFIX_PATH exit /b 0
+if defined QT_DIR (set "CMAKE_PREFIX_PATH=!QT_DIR!" & exit /b 0)
+rem 2) Qt installed through vcpkg
+"%VCPKG_DIR%\vcpkg.exe" list qt5-base | findstr /i /c:"qt5-base:%TRIPLET%" >nul
+if not errorlevel 1 exit /b 0
+rem 3) not found: offer to install it with vcpkg
+if "%DO_INSTALL%"=="0" (
+    echo [run.bat] Qt 5 was not found, so the 3D window will not be built ^(console mode only^).
+    set "USE_QT=OFF"
+    exit /b 0
+)
+echo [run.bat] Qt 5 is needed to show the 3D window.
+echo [run.bat] vcpkg can build it for you: it takes a long time ^(30-60+ minutes^) and several GB.
+echo [run.bat] Or answer N and set CMAKE_PREFIX_PATH to your own Qt 5 folder, then run again.
+choice /c YN /m "Install Qt 5 with vcpkg now"
+if errorlevel 2 (
+    echo [run.bat] Skipping Qt: building console mode only.
+    set "USE_QT=OFF"
+    exit /b 0
+)
+"%VCPKG_DIR%\vcpkg.exe" install qt5-base:%TRIPLET%
+if errorlevel 1 (echo [run.bat] Qt install failed & exit /b 1)
 exit /b 0

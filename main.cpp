@@ -7,10 +7,23 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
 
 namespace {
+
+// Windows 콘솔은 기본이 로컬 코드 페이지라 UTF-8 한글이 깨진다. 출력만 UTF-8 로 바꾼다.
+void InitConsole() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+}
 
 struct Options {
     std::string file;
@@ -233,6 +246,7 @@ private:
 }  // namespace
 
 int main(int argc, char** argv) {
+    InitConsole();
     Options o;
     const int pr = ParseArgs(argc, argv, &o);
     if (pr == 1) return 0;
@@ -270,6 +284,7 @@ int main(int argc, char** argv) {
 #else  // Qt 없이 빌드: 콘솔 모드
 
 int main(int argc, char** argv) {
+    InitConsole();
     Options o;
     const int pr = ParseArgs(argc, argv, &o);
     if (pr == 1) return 0;
