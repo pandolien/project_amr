@@ -46,12 +46,12 @@ need_pkg() { dpkg -s "$1" >/dev/null 2>&1 || MISSING+=("$1"); }
 need_cmd g++ build-essential
 need_cmd make build-essential
 need_cmd cmake cmake
-need_pkg liblapacke-dev
+need_pkg liblapack-dev
 need_pkg libtinyxml2-dev   # 없어도 포함본으로 빌드되지만, 시스템 것을 쓰는 것이 기본
 [ "$USE_QT" = ON ] && need_pkg qtbase5-dev
 
 if ! command -v dpkg >/dev/null 2>&1; then
-    log "dpkg 가 없는 배포판입니다. 아래를 직접 설치한 뒤 다시 실행하세요: g++ make cmake LAPACKE tinyxml2 Qt5(필요 시)"
+    log "dpkg 가 없는 배포판입니다. 아래를 직접 설치한 뒤 다시 실행하세요: g++ make cmake LAPACK tinyxml2 Qt5(필요 시)"
     MISSING=()   # 자동 설치는 apt 계열에서만 한다
 fi
 

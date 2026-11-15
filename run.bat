@@ -85,7 +85,7 @@ if not defined VS_PATH (
 )
 echo [run.bat] Visual Studio: %VS_PATH%
 
-rem ---- 3. vcpkg + OpenBLAS (provides LAPACKE) -----------------------------------
+rem ---- 3. vcpkg + clapack (LAPACK: dgesvd for CMat) -----------------------------------
 if defined VCPKG_ROOT (set "VCPKG_DIR=%VCPKG_ROOT%") else (set "VCPKG_DIR=%~dp0.vcpkg")
 if not exist "%VCPKG_DIR%\vcpkg.exe" (
     if "%DO_INSTALL%"=="0" (
@@ -101,17 +101,17 @@ if not exist "%VCPKG_DIR%\vcpkg.exe" (
     if errorlevel 1 (echo [run.bat] vcpkg bootstrap failed & exit /b 1)
 )
 set "TRIPLET=x64-windows"
-"%VCPKG_DIR%\vcpkg.exe" list openblas | findstr /i /c:"openblas:%TRIPLET%" >nul
+"%VCPKG_DIR%\vcpkg.exe" list clapack | findstr /i /c:"clapack:%TRIPLET%" >nul
 if errorlevel 1 (
     if "%DO_INSTALL%"=="0" (
-        echo [run.bat] OpenBLAS is not installed. Run: "%VCPKG_DIR%\vcpkg.exe" install openblas:%TRIPLET%
+        echo [run.bat] clapack is not installed. Run: "%VCPKG_DIR%\vcpkg.exe" install clapack:%TRIPLET%
         exit /b 1
     )
-    echo [run.bat] Installing OpenBLAS with vcpkg ^(first time takes a while^)
-    "%VCPKG_DIR%\vcpkg.exe" install openblas:%TRIPLET%
+    echo [run.bat] Installing clapack (LAPACK) with vcpkg ^(first time takes a while^)
+    "%VCPKG_DIR%\vcpkg.exe" install clapack:%TRIPLET%
     if errorlevel 1 (echo [run.bat] vcpkg install failed & exit /b 1)
 ) else (
-    echo [run.bat] OpenBLAS is already installed.
+    echo [run.bat] clapack is already installed.
 )
 rem DLLs of installed packages, so the programs can start even outside the build folder
 set "PATH=%VCPKG_DIR%\installed\%TRIPLET%\bin;%PATH%"

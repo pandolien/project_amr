@@ -1,15 +1,13 @@
 #include "CMat/lMat.h"
 
 #include <vector>
-#define LAPACK_ROW_MAJOR               101
-#define LAPACK_COL_MAJOR               102
 extern "C" {
-	// 헤더(lapacke.h) 없이 직접 선언한다. 라이브러리(LAPACKE 또는 OpenBLAS)만 링크하면 된다.
-	int LAPACKE_dgesvd_work(int matrix_order, char jobu, char jobvt,
-		int m, int n, double* a,
-		int lda, double* s, double* u,
-		int ldu, double* vt, int ldvt,
-		double* work, int lwork);
+	// LAPACK(Fortran 인터페이스) 의 dgesvd 를 직접 선언해 쓴다. 헤더 없이 라이브러리만 링크하면 된다.
+	//   Linux: liblapack, Windows: vcpkg clapack (둘 다 이 심볼을 제공)
+	// 마지막 두 인자는 gfortran 의 숨은 문자열 길이 인자다 (f2c 기반 clapack 은 무시하므로 안전하다).
+	void dgesvd_(const char* jobu, const char* jobvt, const int* m, const int* n, double* a,
+		const int* lda, double* s, double* u, const int* ldu, double* vt, const int* ldvt,
+		double* work, const int* lwork, int* info, size_t jobu_len, size_t jobvt_len);
 }
 
 namespace {
@@ -32,15 +30,15 @@ bool SvdDouble(const float* a, int r, int c, bool full,
 	U->assign((size_t)r * (size_t)ucols, 0.0);
 	Vt->assign((size_t)vrows * (size_t)c, 0.0);
 
+	// Fortran 은 열 우선이라 lMat 의 저장 방식과 같다. lwork = -1 로 작업 공간 크기를 먼저 묻는다.
 	double query = 0.0;
-	int info = LAPACKE_dgesvd_work(LAPACK_COL_MAJOR, job, job, r, c, &A[0], r, &(*s)[0],
-		&(*U)[0], r, &(*Vt)[0], vrows, &query, -1);
+	int lwork = -1, info = 0;
+	dgesvd_(&job, &job, &r, &c, &A[0], &r, &(*s)[0], &(*U)[0], &r, &(*Vt)[0], &vrows, &query, &lwork, &info, 1, 1);
 	if (info != 0) return false;
-	int lwork = (int)query;
+	lwork = (int)query;
 	if (lwork < 1) lwork = 1;
 	std::vector<double> work((size_t)lwork);
-	info = LAPACKE_dgesvd_work(LAPACK_COL_MAJOR, job, job, r, c, &A[0], r, &(*s)[0],
-		&(*U)[0], r, &(*Vt)[0], vrows, &work[0], lwork);
+	dgesvd_(&job, &job, &r, &c, &A[0], &r, &(*s)[0], &(*U)[0], &r, &(*Vt)[0], &vrows, &work[0], &lwork, &info, 1, 1);
 	return info == 0;
 }
 

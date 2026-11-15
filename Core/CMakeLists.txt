@@ -8,24 +8,13 @@ target_include_directories(Core PUBLIC include)
 target_include_directories(Core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal)
 # 사용: #include "CMat/lMat.h" 처럼 include/ 아래 경로로 가져온다
 
-# ---- LAPACKE: CMat(lMat::SVD) 에서 사용 (modified BSD 라이선스)
-#   lMat.cpp 가 LAPACKE_sgesvd_work 를 직접 선언하므로 헤더는 필요 없고 라이브러리만 링크한다.
-#   Ubuntu 20.04: sudo apt install liblapacke-dev
-#   Windows     : vcpkg install openblas:x64-windows (OpenBLAS 가 LAPACKE 를 포함) 후
+# ---- LAPACK: CMat(lMat::SVD, Inv) 가 dgesvd_ 를 직접 호출한다 (modified BSD 라이선스)
+#   LAPACKE 는 필요 없다 (헤더 없이 dgesvd_ 를 직접 선언해서 쓴다).
+#   Ubuntu 20.04: sudo apt install liblapack-dev
+#   Windows     : vcpkg install clapack:x64-windows  (f2c 로 변환된 LAPACK, run.bat 이 설치함)
 #                 -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake 로 구성
-#                 또는 -DLAPACKE_LIBRARY=<lapacke 또는 openblas 라이브러리 경로>
-# CMake 3.16은 find_library의 REQUIRED 옵션이 없어 직접 검사한다.
-find_library(LAPACKE_LIBRARY NAMES lapacke openblas libopenblas)
-if(NOT LAPACKE_LIBRARY)
-    message(FATAL_ERROR "LAPACKE를 찾을 수 없습니다.\n"
-        "  Ubuntu : sudo apt install liblapacke-dev\n"
-        "  Windows: vcpkg install openblas 후 vcpkg 툴체인을 지정하거나 -DLAPACKE_LIBRARY=<경로> 를 지정하세요")
-endif()
-if(WIN32)
-    find_package(LAPACK QUIET)  # OpenBLAS 가 LAPACK 도 제공하므로 없어도 된다
-else()
-    find_package(LAPACK REQUIRED)
-endif()
+#   직접 지정    : -DLAPACK_LIBRARIES="<lapack>;<blas>..."
+find_package(LAPACK REQUIRED)
 
 # ---- tinyxml2: CURDF(URDF) 와 CMesh(COLLADA .dae) 의 XML 파싱 (zlib 라이선스)
 #   기본: 시스템에 있으면 그것을 쓰고(Ubuntu: sudo apt install libtinyxml2-dev), 없으면
@@ -53,10 +42,6 @@ target_include_directories(Core SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/cgltf
     ${TINYXML2_INCLUDE_DIR})
 
-# find_package(LAPACK) 가 실패하면 LAPACK_LIBRARIES 는 "FALSE" 가 되므로(-> FALSE.lib 링크 오류) 찾았을 때만 링크한다.
-target_link_libraries(Core PUBLIC ${LAPACKE_LIBRARY} ${TINYXML2_LIBRARY})
-if(LAPACK_FOUND)
-    target_link_libraries(Core PUBLIC ${LAPACK_LIBRARIES})
-endif()
+target_link_libraries(Core PUBLIC ${LAPACK_LIBRARIES} ${TINYXML2_LIBRARY})
 
 amr_set_warnings(Core)
