@@ -347,7 +347,7 @@ namespace {
 
 class MainWindow : public QMainWindow {
 public:
-    explicit MainWindow(const Options& o) : QMainWindow(nullptr), gravity_(o.gravity[0], o.gravity[1], o.gravity[2]) {
+    explicit MainWindow(const Options& o) : QMainWindow(nullptr), cli_(o), gravity_(o.gravity[0], o.gravity[1], o.gravity[2]) {
         setWindowTitle("AMR RobotArm Viewer");
         resize(o.width, o.height);
         setAcceptDrops(true);
@@ -506,6 +506,7 @@ public:
             return false;
         }
         afterLoad(path);
+        applyLidar(cli_);  // 메뉴/드래그로 연 파일에도 URDF 의 라이다를 단다
         return true;
     }
 
@@ -531,6 +532,8 @@ public:
     // 라이다: URDF 의 <gazebo><sensor type="ray"> 가 있으면 그 설정으로 단다 (여럿이면 첫 번째).
     // --lidar 링크 / --lidar-channels 는 명령행에서 덮어쓰거나 URDF 에 없을 때 쓴다.
     void applyLidar(const Options& o) {
+        viewer_->ClearLidar();
+        if (lidarDock_) lidarDock_->hide();
         if (!viewer_->HasRobot()) return;
         const amr::urdf::Robot& robot = viewer_->Robot();
         amr::sensor::LidarSettings ls;
@@ -563,9 +566,9 @@ public:
         viewer_->SetLidar(li, ls, mount);
         if (!lidarPlot_) {  // 스캔 그래프 (화면 아래 도크). 뷰어가 스캔할 때마다 갱신된다
             lidarPlot_ = new LidarPlot;
-            QDockWidget* d = new QDockWidget(QString::fromUtf8("라이다"), this);
-            d->setWidget(lidarPlot_);
-            addDockWidget(Qt::RightDockWidgetArea, d);
+            lidarDock_ = new QDockWidget(QString::fromUtf8("라이다"), this);
+            lidarDock_->setWidget(lidarPlot_);
+            addDockWidget(Qt::RightDockWidgetArea, lidarDock_);
             QObject::connect(viewer_, &ModelViewer::lidarScanned, lidarPlot_, &LidarPlot::SetScan);
             // 3D 화면이 그려지는지와 상관없이 그래프가 나오도록, 0.1 초마다 직접 스캔해서 갱신한다
             QTimer* t = new QTimer(this);
@@ -576,6 +579,7 @@ public:
             });
             t->start(100);
         }
+        lidarDock_->show();
     }
 
     void applyMove(const Options& o) {
@@ -757,8 +761,10 @@ private:
         setWindowTitle(QString("AMR RobotArm Viewer - ") + path);
     }
 
+    Options cli_;  // 명령행 옵션 (파일을 새로 열 때도 쓴다)
     ModelViewer* viewer_;
     LidarPlot* lidarPlot_ = nullptr;
+    QDockWidget* lidarDock_ = nullptr;
     JointPanel* panel_;
     QDockWidget* dock_;
     StructurePanel* tree_;
@@ -798,7 +804,6 @@ int main(int argc, char** argv) {
             w.applyJoints(o);
             w.applySelect(o);
             w.applyMove(o);
-            w.applyLidar(o);
         }
     }
     if (!o.shot.empty() || !o.shotWindow.empty()) {
