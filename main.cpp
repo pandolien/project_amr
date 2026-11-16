@@ -1,7 +1,7 @@
 // AMR + 로봇 팔 시스템 진입점.
 //   amr_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
-#include "CSensor/Lidar2D.h"
+#include "CSensor/Lidar.h"
 #include "CoreQt/QtString.h"
 #include "CBase/Math.h"
 #include <stdio.h>
@@ -47,6 +47,8 @@ struct Options {
     bool settle;               // --settle: 낙하가 끝날 때까지 진행한 뒤 위치를 출력 (확인용)
     amr::String lidarLink;     // --lidar: 2D 라이다를 달 링크 이름 (비어 있으면 없음)
     float lidarMount[3];       //   그 링크 좌표계에서의 센서 위치 (m)
+    int lidarChannels;         // --lidar-channels: 수직 채널 수 (1 이면 2D)
+    float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
@@ -55,6 +57,8 @@ struct Options {
     int width, height;
     Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
+        lidarChannels = 1;
+        lidarElev[0] = lidarElev[1] = 0;
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -amr::dynamics::kStandardGravity;
@@ -82,6 +86,7 @@ void PrintUsage(const char* exe) {
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
         "                     센서가 붙은 링크 자신을 뺀 나머지 메시를 스캔하고, 맞은 점 수와 거리 범위를 출력\n"
+        "  --lidar-channels 개수,최소고각,최대고각  (도) 수직 채널을 늘려 3D 라이다로 (예: 16,-15,15). 큰 메시에서는 느리다\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
         "  -h, --help         도움말\n",
@@ -131,6 +136,13 @@ int ParseArgs(int argc, char** argv, Options* o) {
             if (comma != amr::String::npos &&
                 sscanf(spec.c_str() + comma + 1, "%f,%f,%f", &o->lidarMount[0], &o->lidarMount[1], &o->lidarMount[2]) != 3) {
                 fprintf(stderr, "--lidar 는 링크이름 또는 링크이름,x,y,z 형식입니다\n");
+                return false;
+            }
+            continue;
+        }
+        if (a == "--lidar-channels" && hasNext) {
+            if (sscanf(argv[++i], "%d,%f,%f", &o->lidarChannels, &o->lidarElev[0], &o->lidarElev[1]) != 3 || o->lidarChannels < 1) {
+                fprintf(stderr, "--lidar-channels 는 개수,최소고각,최대고각 형식입니다 (예: 16,-15,15)\n");
                 return false;
             }
             continue;
@@ -514,7 +526,11 @@ public:
         if (o.lidarLink.empty() || !viewer_->HasRobot()) return;
         const int li = viewer_->Robot().FindLink(o.lidarLink);
         if (li < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (라이다를 달지 않음)\n", o.lidarLink.c_str()); return; }
-        viewer_->SetLidar(li, amr::sensor::LidarSettings(), dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]));
+        amr::sensor::LidarSettings ls;
+        ls.channels = o.lidarChannels;
+        ls.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
+        ls.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
+        viewer_->SetLidar(li, ls, dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]));
     }
 
     void applyMove(const Options& o) {

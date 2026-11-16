@@ -20,7 +20,7 @@
 #include "3d/dhMat.h"
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
-#include "CSensor/Lidar2D.h"
+#include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
 
 // 3D 모델 / URDF 로봇 뷰어 (QOpenGLWidget, OpenGL 2.1 호환, Qt 5.12).
@@ -189,7 +189,7 @@ private:
     bool lidarOn_;
     int lidarLink_;
     dhMat lidarMount_;
-    amr::sensor::Lidar2D lidar_;
+    amr::sensor::Lidar lidar_;
     amr::sensor::LidarScan lidarScan_;
     dhVector lidarOrigin_;  // 마지막 스캔의 센서 원점 (월드)
     int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2

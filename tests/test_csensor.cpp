@@ -1,10 +1,10 @@
-// CSensor 테스트: 2D 라이다. 상자/벽까지의 거리를 해석해와 비교하고, 가림·범위·잡음·자세·예외를 확인한다.
+// CSensor 테스트: 2D/3D 라이다. 상자/벽까지의 거리를 해석해와 비교하고, 가림·범위·잡음·자세·예외를 확인한다.
 #include <math.h>
 #include <stdio.h>
 
 #include "CBase/Array.h"
 #include "CBase/Math.h"
-#include "CSensor/Lidar2D.h"
+#include "CSensor/Lidar.h"
 
 using namespace amr;
 using namespace amr::sensor;
@@ -45,24 +45,24 @@ struct BoxMesh {
 };
 
 void testRayCount() {
-    Lidar2D l;
+    Lidar l;
     check(l.RayCount() == 541, "default: 270 deg / 0.5 deg = 541 rays");
     LidarSettings s;
     s.angleMin = 0;
     s.angleMax = 0;
-    check(Lidar2D(s).RayCount() == 1, "single ray");
+    check(Lidar(s).RayCount() == 1, "single ray");
     s.angleIncrement = 0;
-    check(Lidar2D(s).RayCount() == 0, "zero increment: no rays");
+    check(Lidar(s).RayCount() == 0, "zero increment: no rays");
     s.angleIncrement = 0.1f;
     s.angleMax = -1;
-    check(Lidar2D(s).RayCount() == 0, "max < min: no rays");
+    check(Lidar(s).RayCount() == 0, "max < min: no rays");
 }
 
 void testBoxAhead() {
     // 센서는 원점에서 +x 를 본다. 상자 x 4.5..5.5, y -0.5..0.5, z -1..1
     const BoxMesh box(4.5f, -0.5f, -1.0f, 5.5f, 0.5f, 1.0f);
     const LidarTarget t = box.target(7);
-    Lidar2D l;
+    Lidar l;
     LidarScan scan;
     l.Scan(dhMat(), &t, 1, &scan);
     check(scan.size() == 541, "scan size");
@@ -91,7 +91,7 @@ void testPose() {
     // 센서를 -90 도 돌리면(+x 가 월드 -y 를 본다) 월드 (0,-5) 의 상자가 정면에 온다. 센서를 (1,0) 으로 옮기면 거리는 그대로.
     const BoxMesh box(-0.5f, -5.5f, -1.0f, 0.5f, -4.5f, 1.0f);
     const LidarTarget t = box.target(1);
-    Lidar2D l;
+    Lidar l;
     LidarScan scan;
     dhMat pose = dhMat::Trans(0, 0, 0) * dhMat::RotZ(static_cast<float>(-dhPI / 2));
     l.Scan(pose, &t, 1, &scan);
@@ -115,7 +115,7 @@ void testOcclusionAndRange() {
     const BoxMesh wallNear(2.9f, -5.0f, -1.0f, 3.0f, 5.0f, 1.0f);   // 가까운 벽 (앞면 x=2.9)
     const BoxMesh wallFar(7.0f, -5.0f, -1.0f, 7.1f, 5.0f, 1.0f);
     LidarTarget ts[2] = {wallFar.target(20), wallNear.target(10)};   // 먼 것이 먼저 와도 가까운 것이 이긴다
-    Lidar2D l;
+    Lidar l;
     LidarScan scan;
     l.Scan(dhMat(), ts, 2, &scan);
     check(near(scan.ranges[270], 2.9, 1e-4) && scan.targetIds[270] == 10, "nearer target wins");
@@ -139,7 +139,7 @@ void testNoise() {
     LidarSettings s;
     s.noiseStdDev = 0.02f;
     s.angleMin = s.angleMax = 0.0f;  // 같은 광선을 여러 번
-    Lidar2D l(s);
+    Lidar l(s);
     LidarScan scan;
     double sum = 0, sum2 = 0;
     const int n = 4000;
@@ -153,15 +153,105 @@ void testNoise() {
     check(Abs(mean) < 0.002, "noise: mean ~ 0");
     check(near(sd, 0.02, 0.002), "noise: std dev ~ 0.02");
     // 같은 시드면 같은 결과
-    Lidar2D a(s), b(s);
+    Lidar a(s), b(s);
     LidarScan sa, sb;
     a.Scan(dhMat(), &t, 1, &sa);
     b.Scan(dhMat(), &t, 1, &sb);
     check(sa.ranges[0] == sb.ranges[0], "same seed: same noise");
 }
 
+void testMultiChannel() {
+    // 수직 채널 16 개 (-15 ~ +15 도). 벽 x = 5 와 바닥 z = -1.
+    const BoxMesh wall(5.0f, -50.0f, -50.0f, 5.1f, 50.0f, 50.0f);
+    const BoxMesh floorBox(-50.0f, -50.0f, -1.1f, 50.0f, 50.0f, -1.0f);
+    LidarTarget ts[2] = {wall.target(1), floorBox.target(2)};
+    LidarSettings s;
+    s.angleMin = static_cast<float>(-dhPI / 4);
+    s.angleMax = static_cast<float>(dhPI / 4);
+    s.angleIncrement = static_cast<float>(dhPI / 180.0 * 5.0);
+    s.channels = 16;
+    s.elevationMin = static_cast<float>(-15.0 * dhPI / 180.0);
+    s.elevationMax = static_cast<float>(15.0 * dhPI / 180.0);
+    Lidar l(s);
+    LidarScan scan;
+    l.Scan(dhMat(), ts, 2, &scan);
+    check(l.RayCount() == 19 * 16 && scan.size() == 19 * 16, "3D: rays = azimuth x channels");
+    check(scan.azimuthCount == 19 && scan.channelCount == 16, "3D: scan shape");
+    check(near(scan.Elevation(0), -15.0 * dhPI / 180, 1e-6) && near(scan.Elevation(15), 15.0 * dhPI / 180, 1e-6), "3D: channel elevations span the range");
+    int wallHits = 0, floorHits = 0;
+    for (size_t i = 0; i < scan.size(); i++) {
+        const double th = scan.Angle(i), ph = scan.Elevation(scan.Channel(i));
+        if (!scan.IsHit(i)) {
+            check(false, "3D: every ray hits the wall or the floor");
+            continue;
+        }
+        const double dx = cos(ph) * cos(th), dz = sin(ph);
+        const double tWall = 5.0 / dx;                               // x = 5 평면까지
+        const double tFloor = dz < 0 ? -1.0 / dz : 1e30;             // z = -1 평면까지
+        const double expect = tWall < tFloor ? tWall : tFloor;
+        if (!near(scan.ranges[i], expect, 2e-3)) check(false, "3D: range = distance to the nearer of wall / floor");
+        if (scan.targetIds[i] != (tWall < tFloor ? 1 : 2)) check(false, "3D: hit target id (wall vs floor)");
+        if (tWall < tFloor) wallHits++; else floorHits++;
+        // 맞은 점이 방향 * 거리와 같다
+        const double px = scan.ranges[i] * cos(ph) * cos(th), py = scan.ranges[i] * cos(ph) * sin(th), pz = scan.ranges[i] * sin(ph);
+        if (!near(scan.points[i].x, px, 2e-3) || !near(scan.points[i].y, py, 2e-3) || !near(scan.points[i].z, pz, 2e-3))
+            check(false, "3D: hit point = range * direction");
+    }
+    check(wallHits > 0 && floorHits > 0, "3D: both the wall and the floor are seen");
+
+    // 센서를 아래로 10 도 기울이면 (RotY(+10 도): +x 가 아래로) 수평 광선이 바닥에 닿는다: t = 1 / sin(10 도)
+    LidarSettings one;
+    one.angleMin = one.angleMax = 0.0f;
+    Lidar l1(one);
+    l1.Scan(dhMat::RotY(static_cast<float>(10.0 * dhPI / 180)), &ts[1], 1, &scan);
+    check(scan.IsHit(0) && near(scan.ranges[0], 1.0 / sin(10.0 * dhPI / 180), 1e-3), "tilted sensor: horizontal ray reaches the floor at 1/sin(10 deg)");
+
+    // 채널 1 개라도 고각이 0 이 아니면 (평면 가속을 쓰지 않는 경로) 벽까지 5 / (cos(phi) cos(theta))
+    LidarSettings up = one;
+    up.elevationMin = 0.2f;
+    Lidar l2(up);
+    l2.Scan(dhMat(), &ts[0], 1, &scan);
+    check(scan.IsHit(0) && near(scan.ranges[0], 5.0 / cos(0.2), 1e-3), "one channel with elevation 0.2 rad");
+
+    // 평면 한쪽에만 있는 벽 (z 0.5 ~ 50: 센서 수평면 z = 0 의 위쪽). 수평 광선은 못 보지만 고각 0.2 rad 광선은 z ~ 1 에서 맞는다.
+    // 이 경우 평면 가속을 잘못 쓰면 삼각형이 다 걸러져서 놓친다.
+    const BoxMesh upperWall(5.0f, -50.0f, 0.5f, 5.1f, 50.0f, 50.0f);
+    const LidarTarget uw = upperWall.target(9);
+    l1.Scan(dhMat(), &uw, 1, &scan);
+    check(!scan.IsHit(0), "horizontal ray passes under the upper wall");
+    l2.Scan(dhMat(), &uw, 1, &scan);
+    check(scan.IsHit(0) && near(scan.ranges[0], 5.0 / cos(0.2), 1e-3), "elevated ray hits a wall that lies entirely above the horizontal plane");
+
+    // 잘못된 채널 수
+    LidarSettings bad;
+    bad.channels = 0;
+    check(Lidar(bad).RayCount() == 0, "channels = 0: no rays");
+}
+
+void testPlanarShortcutConsistency() {
+    // 평면 가속(수평 1채널)을 쓰는 경로와 쓰지 않는 경로(고각 2e-6 rad: 사실상 같은 평면)의 결과가 같다
+    const BoxMesh a(2.0f, -1.0f, -1.0f, 3.0f, 1.0f, 1.0f), b(-4.0f, 1.0f, -0.5f, -3.0f, 3.0f, 0.5f), c(1.0f, -6.0f, 0.2f, 4.0f, -5.0f, 0.4f);
+    LidarTarget ts[3] = {a.target(1), b.target(2), c.target(3)};
+    LidarSettings s;
+    Lidar fast(s);
+    s.elevationMin = s.elevationMax = 2e-6f;
+    Lidar slow(s);
+    LidarScan sf, ss;
+    const dhMat pose = dhMat::Trans(0.3f, 0.2f, 0.1f) * dhMat::RotZ(0.4f);
+    fast.Scan(pose, ts, 3, &sf);
+    slow.Scan(pose, ts, 3, &ss);
+    bool same = sf.size() == ss.size();
+    int hits = 0;
+    for (size_t i = 0; same && i < sf.size(); i++) {
+        same = sf.targetIds[i] == ss.targetIds[i] && (!sf.IsHit(i) || near(sf.ranges[i], ss.ranges[i], 1e-3));
+        hits += sf.IsHit(i) ? 1 : 0;
+    }
+    check(same, "plane shortcut gives the same result as the general path");
+    check(hits > 20, "consistency scene has hits");
+}
+
 void testEdgeCases() {
-    Lidar2D l;
+    Lidar l;
     LidarScan scan;
     l.Scan(dhMat(), NULL, 0, &scan);
     check(scan.size() == 541 && !scan.IsHit(0) && !scan.IsHit(270), "no targets: all rays miss");
@@ -196,6 +286,8 @@ int main() {
     testPose();
     testOcclusionAndRange();
     testNoise();
+    testMultiChannel();
+    testPlanarShortcutConsistency();
     testEdgeCases();
     if (g_fail) {
         printf("%d failed\n", g_fail);
