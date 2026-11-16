@@ -62,6 +62,8 @@ ModelViewer::ModelViewer(QWidget* parent)
     showFrame_ = true;
     gizmoDirty_ = false;
     dragged_ = false;
+    lidarOn_ = false;
+    lidarLink_ = -1;
     dragAxis_ = -1;
     dragIk_ = false;
     dragU0_ = 0;
@@ -553,6 +555,92 @@ void ModelViewer::drawBoxEdges(const dhVector c[8], const QVector4D& color) {
     glDrawArrays(GL_LINES, 0, 24);
 }
 
+void ModelViewer::SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount) {
+    lidarOn_ = true;
+    lidarLink_ = link;
+    lidarMount_ = mount;
+    lidar_.SetSettings(settings);
+    update();
+}
+
+void ModelViewer::ClearLidar() {
+    lidarOn_ = false;
+    lidarScan_ = amr::sensor::LidarScan();
+    update();
+}
+
+const amr::sensor::LidarScan& ModelViewer::ScanLidar() {
+    // 센서 자세(월드) = 오브젝트 이동 * 링크 변환 * 마운트
+    dhMat pose = dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z);
+    if (lidarLink_ >= 0 && static_cast<size_t>(lidarLink_) < linkT_.size()) pose = pose * linkT_[static_cast<size_t>(lidarLink_)];
+    pose = pose * lidarMount_;
+    amr::Array<amr::sensor::LidarTarget> targets;
+    for (size_t i = 0; i < items_.size(); i++) {
+        Item& it = *items_[i];
+        if (lidarLink_ >= 0 && it.link == lidarLink_) continue;  // 센서가 붙은 링크 자신은 보지 않는다
+        if (it.link < 0 && !hasScene_) continue;                  // (로봇이 열려 있으면 gizmo 같은 보조 물체는 items_ 에 없다)
+        if (it.data.empty() || it.indices.empty()) continue;
+        amr::sensor::LidarTarget t;
+        t.positions = it.data.data();
+        t.vertexCount = it.data.size() / 6;
+        t.indices = it.indices.data();
+        t.indexCount = it.indices.size();
+        t.stride = 6;
+        t.world = itemWorld(it);
+        t.id = it.link < 0 ? 0 : it.link;
+        if (!it.boundsOk) {
+            t.ComputeBounds();
+            for (int k = 0; k < 3; k++) {
+                it.bmin[k] = t.boundsMin[k];
+                it.bmax[k] = t.boundsMax[k];
+            }
+            it.boundsOk = t.hasBounds;
+        } else {
+            t.hasBounds = true;
+            for (int k = 0; k < 3; k++) {
+                t.boundsMin[k] = it.bmin[k];
+                t.boundsMax[k] = it.bmax[k];
+            }
+        }
+        targets.push_back(t);
+    }
+    lidar_.Scan(pose, targets.data(), targets.size(), &lidarScan_);
+    lidarOrigin_ = pose.O();
+    return lidarScan_;
+}
+
+void ModelViewer::drawLidar() {
+    const amr::sensor::LidarScan& scan = ScanLidar();
+    amr::Array<float> beams, pts;
+    for (size_t i = 0; i < scan.size(); i++) {
+        if (!scan.IsHit(i)) continue;
+        beams.push_back(lidarOrigin_.x);
+        beams.push_back(lidarOrigin_.y);
+        beams.push_back(lidarOrigin_.z);
+        beams.push_back(scan.points[i].x);
+        beams.push_back(scan.points[i].y);
+        beams.push_back(scan.points[i].z);
+        // 맞은 점은 작은 십자(축 방향 선 3개, 한 변 3 cm)로 표시한다 (glPointSize 는 QOpenGLFunctions 에 없다)
+        const float h = 0.015f;
+        const dhVector& p = scan.points[i];
+        const float c[6][3] = {{p.x - h, p.y, p.z}, {p.x + h, p.y, p.z}, {p.x, p.y - h, p.z}, {p.x, p.y + h, p.z}, {p.x, p.y, p.z - h}, {p.x, p.y, p.z + h}};
+        for (int k = 0; k < 6; k++)
+            for (int m = 0; m < 3; m++) pts.push_back(c[k][m]);
+    }
+    if (pts.empty()) return;
+    glDisable(GL_DEPTH_TEST);  // 물체 안쪽에서 시작하는 광선도 보이게
+    glLineWidth(1.0f);
+    prog_->setUniformValue("uColor", QVector4D(0.3f, 0.9f, 0.95f, 0.30f));
+    prog_->setAttributeArray(0, GL_FLOAT, beams.data(), 3);
+    glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(beams.size() / 3));
+    glLineWidth(2.0f);
+    prog_->setUniformValue("uColor", QVector4D(1.0f, 0.15f, 0.15f, 1.0f));
+    prog_->setAttributeArray(0, GL_FLOAT, pts.data(), 3);
+    glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(pts.size() / 3));
+    glLineWidth(1.0f);
+    glEnable(GL_DEPTH_TEST);
+}
+
 void ModelViewer::paintGL() {
     glClearColor(0.16f, 0.17f, 0.20f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -663,6 +751,14 @@ void ModelViewer::paintGL() {
             it.vbo.release();
             it.ibo.release();
         }
+    }
+    if (lidarOn_) {
+        prog_->setUniformValue("uLit", 0.0f);
+        prog_->setUniformValue("uMVP", proj * view);
+        prog_->setUniformValue("uModelView", view);
+        prog_->enableAttributeArray(0);
+        prog_->disableAttributeArray(1);
+        drawLidar();
     }
     if (showFrame_ && HasSelection()) drawSelectionFrame(proj, view);
     prog_->release();

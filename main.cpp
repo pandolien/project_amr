@@ -1,6 +1,7 @@
 // AMR + 로봇 팔 시스템 진입점.
 //   amr_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
+#include "CSensor/Lidar2D.h"
 #include "CoreQt/QtString.h"
 #include "CBase/Math.h"
 #include <stdio.h>
@@ -44,6 +45,8 @@ struct Options {
     double simulate;           // --simulate 초: 모터를 끄고 그 시간만큼 시뮬레이션한 뒤 관절 값을 출력 (확인용, 실시간이 아님)
     bool noFall;               // --no-fall: 중력 낙하를 끈다
     bool settle;               // --settle: 낙하가 끝날 때까지 진행한 뒤 위치를 출력 (확인용)
+    amr::String lidarLink;     // --lidar: 2D 라이다를 달 링크 이름 (비어 있으면 없음)
+    float lidarMount[3];       //   그 링크 좌표계에서의 센서 위치 (m)
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
@@ -51,6 +54,7 @@ struct Options {
     amr::Array<amr::Pair<amr::String, amr::String> > packages;    // --package 이름=폴더
     int width, height;
     Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+        lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -amr::dynamics::kStandardGravity;
@@ -76,6 +80,8 @@ void PrintUsage(const char* exe) {
         "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
+        "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
+        "                     센서가 붙은 링크 자신을 뺀 나머지 메시를 스캔하고, 맞은 점 수와 거리 범위를 출력\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
         "  -h, --help         도움말\n",
@@ -118,6 +124,17 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--simulate" && hasNext) { o->simulate = atof(argv[++i]); o->motorsOff = true; continue; }
         if (a == "--no-fall") { o->noFall = true; continue; }
         if (a == "--settle") { o->settle = true; continue; }
+        if (a == "--lidar" && hasNext) {
+            const amr::String spec = argv[++i];
+            const size_t comma = spec.find(',');
+            o->lidarLink = spec.substr(0, comma);
+            if (comma != amr::String::npos &&
+                sscanf(spec.c_str() + comma + 1, "%f,%f,%f", &o->lidarMount[0], &o->lidarMount[1], &o->lidarMount[2]) != 3) {
+                fprintf(stderr, "--lidar 는 링크이름 또는 링크이름,x,y,z 형식입니다\n");
+                return false;
+            }
+            continue;
+        }
         if (a == "--move" && hasNext) {
             if (sscanf(argv[++i], "%f,%f,%f", &o->move[0], &o->move[1], &o->move[2]) != 3) { fprintf(stderr, "--move 는 x,y,z 형식입니다\n"); return false; }
             o->hasMove = true;
@@ -493,6 +510,13 @@ public:
         updateSelectionLabel();
     }
 
+    void applyLidar(const Options& o) {
+        if (o.lidarLink.empty() || !viewer_->HasRobot()) return;
+        const int li = viewer_->Robot().FindLink(o.lidarLink);
+        if (li < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (라이다를 달지 않음)\n", o.lidarLink.c_str()); return; }
+        viewer_->SetLidar(li, amr::sensor::LidarSettings(), dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]));
+    }
+
     void applyMove(const Options& o) {
         if (o.hasMove) viewer_->SetObjectPosition(o.move[0], o.move[1], o.move[2]);
     }
@@ -712,6 +736,7 @@ int main(int argc, char** argv) {
             w.applyJoints(o);
             w.applySelect(o);
             w.applyMove(o);
+            w.applyLidar(o);
         }
     }
     if (!o.shot.empty() || !o.shotWindow.empty()) {
@@ -762,6 +787,20 @@ int main(int argc, char** argv) {
                 QApplication::sendEvent(v, &release);
                 printf("클릭 (%d,%d) -> 선택 링크 %d%s\n", cx, cy, v->SelectedLink(), v->ModelSelected() ? " (모델)" : "");
                 v->repaint();
+            }
+            if (v->LidarEnabled()) {  // 확인용: 스캔 요약
+                const amr::sensor::LidarScan& sc = v->ScanLidar();
+                size_t hits = 0;
+                float lo = 1e30f, hi = 0;
+                for (size_t i = 0; i < sc.size(); i++)
+                    if (sc.IsHit(i)) {
+                        hits++;
+                        if (sc.ranges[i] < lo) lo = sc.ranges[i];
+                        if (sc.ranges[i] > hi) hi = sc.ranges[i];
+                    }
+                printf("라이다: 광선 %zu 개 중 %zu 개가 맞음", sc.size(), hits);
+                if (hits) printf(", 거리 %.3f ~ %.3f m", static_cast<double>(lo), static_cast<double>(hi));
+                printf("\n");
             }
             if (simSeconds > 0) win->runSimulation(simSeconds);
             if (settle) {  // 낙하가 끝날 때까지 시간을 진행시킨다

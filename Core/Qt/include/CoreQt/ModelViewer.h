@@ -20,6 +20,7 @@
 #include "3d/dhMat.h"
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
+#include "CSensor/Lidar2D.h"
 #include "CURDF/Urdf.h"
 
 // 3D 모델 / URDF 로봇 뷰어 (QOpenGLWidget, OpenGL 2.1 호환, Qt 5.12).
@@ -85,6 +86,14 @@ public:
     // 화살표 방향으로 따라오도록 관절 값이 바뀐다. 닿지 못하면 가장 가까운 자세에서 멈춘다 (관절 한계 준수).
     // 관절 값이 바뀔 때마다 jointValuesDragged 가 나가므로 슬라이더 등을 그 값으로 갱신하면 된다.
     bool CanIkSelection() const;
+
+    // 2D 라이다: 로봇 링크 link 에 달고 (mount = 그 링크 좌표계에서 센서까지의 변환, 센서의 +x 가 앞, +z 가 스캔 평면의 법선),
+    // 그 링크 자신을 뺀 나머지 메시(로봇의 다른 링크, 정적 모델)를 스캔한다. 매 프레임 다시 스캔해서 맞은 점(빨강)과 광선(옅은 청록)을
+    // 그린다. 정적 모델만 열려 있으면 link = -1 (월드 기준)로 달 수 있다. ClearLidar 로 끈다.
+    void SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount = dhMat());
+    void ClearLidar();
+    bool LidarEnabled() const { return lidarOn_; }
+    const amr::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
     void SetObjectPosition(float x, float y, float z);
     dhVector ObjectPosition() const;
     void ResetObjectPosition() { SetObjectPosition(0, 0, 0); }
@@ -129,10 +138,12 @@ private:
         amr::Array<uint32_t> indices;
         dhMat base;                     // 링크(또는 월드)에서 이 primitive 까지의 변환
         int link;                       // 로봇 링크 인덱스, 정적 모델이면 -1
+        bool boundsOk;                  // 아래 경계 상자(메시 좌표)가 계산됐는가 (라이다 가속용, 처음 스캔할 때 계산)
+        float bmin[3], bmax[3];
         float color[4];
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
-        Item() : link(-1), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer) {
+        Item() : link(-1), boundsOk(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer) {
             color[0] = color[1] = color[2] = 0.75f;
             color[3] = 1.0f;
         }
@@ -152,6 +163,7 @@ private:
     int hitGizmoAxis(const QPoint& pos, float* u) const;  // 마우스 아래의 화살표 (0 x, 1 y, 2 z, 없으면 -1) 와 그 축 위의 위치
     dhMat itemWorld(const Item& it) const;
     float objectMinZ() const;  // 이동량을 뺀 오브젝트 좌표계에서 가장 낮은 점의 높이 (캐시)
+    void drawLidar();
     void drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view);
     void recomputeCollisions();
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
@@ -174,6 +186,12 @@ private:
     QPoint pressPos_;
     bool dragged_;
     dhVector objectPos_;   // 이동량 (월드, m)
+    bool lidarOn_;
+    int lidarLink_;
+    dhMat lidarMount_;
+    amr::sensor::Lidar2D lidar_;
+    amr::sensor::LidarScan lidarScan_;
+    dhVector lidarOrigin_;  // 마지막 스캔의 센서 원점 (월드)
     int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2
     bool dragIk_;          // 그 끌기가 IK(관절 값 변경)인가, 아니면 물체 이동인가
     QVector3D dragIkOrigin_;  // IK 끌기를 시작한 순간의 좌표계 원점/축 (월드)

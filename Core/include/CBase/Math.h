@@ -31,6 +31,8 @@ inline float Pow(float x, float y) { return powf(x, y); }
 inline double Pow(double x, double y) { return pow(x, y); }
 inline float Exp(float x) { return expf(x); }
 inline double Exp(double x) { return exp(x); }
+inline float Log(float x) { return logf(x); }
+inline double Log(double x) { return log(x); }
 inline float Log10(float x) { return log10f(x); }
 inline double Log10(double x) { return log10(x); }
 inline float Floor(float x) { return floorf(x); }
