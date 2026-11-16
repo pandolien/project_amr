@@ -88,6 +88,15 @@ echo [run.bat] Visual Studio: %VS_PATH%
 
 rem ---- 3. vcpkg + clapack (LAPACK: dgesvd for CMat) -----------------------------------
 if defined VCPKG_ROOT (set "VCPKG_DIR=%VCPKG_ROOT%") else (set "VCPKG_DIR=%~dp0.vcpkg")
+rem Qt cannot be built in a path that contains a space (the build fails early), so when the project folder has one,
+rem keep vcpkg in a space-free folder on the system drive instead. Set VCPKG_ROOT yourself to choose another place.
+if not defined VCPKG_ROOT (
+    set "VCPKG_CHECK=!VCPKG_DIR!"
+    if not "!VCPKG_CHECK: =!"=="!VCPKG_CHECK!" (
+        set "VCPKG_DIR=%SystemDrive%\amr-vcpkg"
+        echo [run.bat] The project path contains a space, so vcpkg will live in !VCPKG_DIR! instead.
+    )
+)
 if not exist "%VCPKG_DIR%\vcpkg.exe" (
     if "%DO_INSTALL%"=="0" (
         echo [run.bat] vcpkg not found at %VCPKG_DIR%. Run without --no-install to set it up.
