@@ -588,20 +588,11 @@ const amr::sensor::LidarScan& ModelViewer::ScanLidar() {
         t.stride = 6;
         t.world = itemWorld(it);
         t.id = it.link < 0 ? 0 : it.link;
-        if (!it.boundsOk) {
-            t.ComputeBounds();
-            for (int k = 0; k < 3; k++) {
-                it.bmin[k] = t.boundsMin[k];
-                it.bmax[k] = t.boundsMax[k];
-            }
-            it.boundsOk = t.hasBounds;
-        } else {
-            t.hasBounds = true;
-            for (int k = 0; k < 3; k++) {
-                t.boundsMin[k] = it.bmin[k];
-                t.boundsMax[k] = it.bmax[k];
-            }
+        if (!it.bvhOk) {  // 처음 한 번만 (메시 좌표에서 만들어 두면 링크가 움직여도 그대로 쓴다)
+            it.bvh.Build(it.data.data(), it.data.size() / 6, it.indices.data(), it.indices.size(), 6);
+            it.bvhOk = true;
         }
+        t.bvh = &it.bvh;
         targets.push_back(t);
     }
     lidar_.Scan(pose, targets.data(), targets.size(), &lidarScan_);

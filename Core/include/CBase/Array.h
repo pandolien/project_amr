@@ -2,6 +2,7 @@
 #define CORE_CBASE_ARRAY_H
 
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "CBase/Util.h"
 
@@ -63,6 +64,7 @@ public:
 
     void reserve(size_t c) {
         if (c <= cap_) return;
+        if (c > (~static_cast<size_t>(0)) / 2 / sizeof(T)) abort();  // 크기 계산이 넘치는 터무니없는 요청 (음수를 size_t 로 넘긴 경우 등)
         T* nd = new T[c]();
         for (size_t i = 0; i < n_; i++) nd[i] = Move(d_[i]);
         delete[] d_;

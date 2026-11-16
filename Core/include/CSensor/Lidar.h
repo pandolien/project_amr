@@ -7,6 +7,7 @@
 #include "3d/dhMat.h"
 #include "3d/dhVector.h"
 #include "CBase/Array.h"
+#include "CCollision/Bvh.h"
 
 // 2D/3D 라이다 시뮬레이션. 센서에서 광선 여러 개를 쏘고, 광선마다 메시와 가장 가까운 교차점까지의 거리를 잰다
 // (광선-삼각형 교차는 CCollision/MeshRaycast 의 Möller-Trumbore).
@@ -40,10 +41,11 @@ struct LidarTarget {
     size_t indexCount;
     size_t stride;              // 3 = 빽빽한 xyz, 6 = 위치+법선 교차 배열
     dhMat world;                // 메시 좌표 -> 월드 (강체변환, Scale 없음)
+    const TriangleBvh* bvh;     // 이 메시의 BVH (없으면 NULL). 있으면 광선 검사를 BVH 로 한다 (positions/indices 로 만든 것이어야 한다)
     int id;                     // 호출자가 붙이는 번호 (맞은 메시를 알려줄 때 돌려준다. 보통 링크 번호)
     bool hasBounds;             // 아래 경계 상자가 계산돼 있는가 (있으면 광선이 빗나가는 메시를 빨리 거른다)
     float boundsMin[3], boundsMax[3];  // 메시 좌표의 경계 상자
-    LidarTarget() : positions(NULL), vertexCount(0), indices(NULL), indexCount(0), stride(3), id(-1), hasBounds(false) {
+    LidarTarget() : positions(NULL), vertexCount(0), indices(NULL), indexCount(0), stride(3), bvh(NULL), id(-1), hasBounds(false) {
         boundsMin[0] = boundsMin[1] = boundsMin[2] = 0.0f;
         boundsMax[0] = boundsMax[1] = boundsMax[2] = 0.0f;
     }

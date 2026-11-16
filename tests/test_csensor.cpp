@@ -4,6 +4,7 @@
 
 #include "CBase/Array.h"
 #include "CBase/Math.h"
+#include "CCollision/Bvh.h"
 #include "CSensor/Lidar.h"
 
 using namespace amr;
@@ -250,6 +251,39 @@ void testPlanarShortcutConsistency() {
     check(hits > 20, "consistency scene has hits");
 }
 
+void testBvhGivesSameScan() {
+    // 같은 장면을 BVH 없이/있이 스캔해서 같은 결과가 나오는지 (2D 와 3D 모두)
+    const BoxMesh a(2.0f, -1.0f, -1.0f, 3.0f, 1.0f, 1.0f), b(-4.0f, 1.0f, -0.5f, -3.0f, 3.0f, 0.5f), c(1.0f, -6.0f, 0.2f, 4.0f, -5.0f, 0.4f);
+    TriangleBvh bvhA, bvhB, bvhC;
+    bvhA.Build(a.pos.data(), a.pos.size() / 3, a.idx.data(), a.idx.size());
+    bvhB.Build(b.pos.data(), b.pos.size() / 3, b.idx.data(), b.idx.size());
+    bvhC.Build(c.pos.data(), c.pos.size() / 3, c.idx.data(), c.idx.size());
+    LidarTarget plain[3] = {a.target(1), b.target(2), c.target(3)};
+    LidarTarget fast[3] = {plain[0], plain[1], plain[2]};
+    fast[0].bvh = &bvhA;
+    fast[1].bvh = &bvhB;
+    fast[2].bvh = &bvhC;
+    for (int ch = 1; ch <= 8; ch += 7) {  // 2D (1 채널)와 3D (8 채널)
+        LidarSettings s;
+        s.channels = ch;
+        s.elevationMin = ch > 1 ? -0.3f : 0.0f;
+        s.elevationMax = ch > 1 ? 0.3f : 0.0f;
+        Lidar l1(s), l2(s);
+        LidarScan sp, sf;
+        const dhMat pose = dhMat::Trans(0.3f, 0.2f, 0.1f) * dhMat::RotZ(0.4f);
+        l1.Scan(pose, plain, 3, &sp);
+        l2.Scan(pose, fast, 3, &sf);
+        bool same = sp.size() == sf.size();
+        int hits = 0;
+        for (size_t i = 0; same && i < sp.size(); i++) {
+            same = sp.targetIds[i] == sf.targetIds[i] && (!sp.IsHit(i) || near(sp.ranges[i], sf.ranges[i], 1e-4));
+            hits += sp.IsHit(i) ? 1 : 0;
+        }
+        check(same, ch == 1 ? "BVH: same 2D scan" : "BVH: same 3D scan");
+        check(hits > 20, "BVH consistency scene has hits");
+    }
+}
+
 void testEdgeCases() {
     Lidar l;
     LidarScan scan;
@@ -288,6 +322,7 @@ int main() {
     testNoise();
     testMultiChannel();
     testPlanarShortcutConsistency();
+    testBvhGivesSameScan();
     testEdgeCases();
     if (g_fail) {
         printf("%d failed\n", g_fail);

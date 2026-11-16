@@ -117,10 +117,11 @@ void Lidar::Scan(const dhMat& sensorPose, const LidarTarget* targets, size_t tar
         const dhMat M = tg.world.Inv() * sensorPose;
         const float o[3] = {M.v[12], M.v[13], M.v[14]};
 
+        const bool useBvh = tg.bvh && !tg.bvh->empty();  // BVH 가 있으면 평면 가속과 경계 상자 대신 이것을 쓴다
         const uint32_t* triIdx = tg.indices;
         size_t triCount = tg.indexCount;
         amr::Array<uint32_t> near;
-        if (planar) {
+        if (planar && !useBvh) {
             // 평면(점 o, 법선 nrm = 센서의 z 축)의 한쪽에만 있는 삼각형은 어떤 광선도 맞출 수 없으므로,
             // 평면을 가로지르는 삼각형만 남긴다 (한 번에 O(정점 + 삼각형)).
             const float nrm[3] = {M.v[8], M.v[9], M.v[10]};
@@ -152,11 +153,15 @@ void Lidar::Scan(const dhMat& sensorPose, const LidarTarget* targets, size_t tar
                                 M.v[2] * sd[0] + M.v[6] * sd[1] + M.v[10] * sd[2]};
             // 지금까지 찾은 가장 가까운 거리(또는 rangeMax)까지만 검사하면 먼 메시를 더 빨리 거른다
             const float limit = IsFinite(out->ranges[i]) ? out->ranges[i] : settings_.rangeMax;
-            if (tg.hasBounds && !SegmentHitsBox(o, d, limit, tg.boundsMin, tg.boundsMax)) continue;
             float t = 0.0f;
-            if (!RaycastTriangles(tg.positions, tg.vertexCount, triIdx, triCount, dhVector(o[0], o[1], o[2]), dhVector(d[0], d[1], d[2]), limit, &t,
-                                  NULL, tg.stride))
-                continue;
+            if (useBvh) {
+                if (!tg.bvh->Raycast(dhVector(o[0], o[1], o[2]), dhVector(d[0], d[1], d[2]), limit, &t)) continue;
+            } else {
+                if (tg.hasBounds && !SegmentHitsBox(o, d, limit, tg.boundsMin, tg.boundsMax)) continue;
+                if (!RaycastTriangles(tg.positions, tg.vertexCount, triIdx, triCount, dhVector(o[0], o[1], o[2]), dhVector(d[0], d[1], d[2]), limit, &t,
+                                      NULL, tg.stride))
+                    continue;
+            }
             if (t < out->ranges[i] || !IsFinite(out->ranges[i])) {
                 out->ranges[i] = t;
                 out->targetIds[i] = tg.id < 0 ? 0 : tg.id;  // id 가 음수면 0 (맞았음을 -1 과 구별하기 위해)

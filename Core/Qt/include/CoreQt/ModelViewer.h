@@ -20,6 +20,7 @@
 #include "3d/dhMat.h"
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
+#include "CCollision/Bvh.h"
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
 
@@ -138,12 +139,12 @@ private:
         amr::Array<uint32_t> indices;
         dhMat base;                     // 링크(또는 월드)에서 이 primitive 까지의 변환
         int link;                       // 로봇 링크 인덱스, 정적 모델이면 -1
-        bool boundsOk;                  // 아래 경계 상자(메시 좌표)가 계산됐는가 (라이다 가속용, 처음 스캔할 때 계산)
-        float bmin[3], bmax[3];
+        bool bvhOk;                     // 아래 BVH 를 만들었는가 (라이다 스캔 가속용, 처음 스캔할 때 만든다. 메시는 바뀌지 않는다)
+        amr::TriangleBvh bvh;
         float color[4];
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
-        Item() : link(-1), boundsOk(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer) {
+        Item() : link(-1), bvhOk(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer) {
             color[0] = color[1] = color[2] = 0.75f;
             color[3] = 1.0f;
         }
