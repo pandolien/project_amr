@@ -42,6 +42,11 @@ StructurePanel::StructurePanel(QWidget* parent) : QTreeWidget(parent) {
     header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     header()->setStretchLastSection(true);
     connect(this, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* cur, QTreeWidgetItem*) { onCurrentChanged(cur); });
+    setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(this, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QTreeWidgetItem* it = itemAt(pos);
+        emit linkContextMenuRequested(it ? it->data(0, kLinkRole).toInt() : -1, viewport()->mapToGlobal(pos));
+    });
 }
 
 void StructurePanel::Clear() {

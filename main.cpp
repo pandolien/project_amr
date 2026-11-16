@@ -317,6 +317,7 @@ int PrintInfo(const Options& o) {
 #include <QApplication>
 #include <QMouseEvent>
 #include <QDockWidget>
+#include <QMenu>
 #include <QDragEnterEvent>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -362,6 +363,7 @@ public:
         treeDock_->setWidget(tree_);
         addDockWidget(Qt::LeftDockWidgetArea, treeDock_);
         treeDock_->hide();
+        QObject::connect(tree_, &StructurePanel::linkContextMenuRequested, this, [this](int link, const QPoint& p) { onLinkContextMenu(link, p); });
         QObject::connect(tree_, &StructurePanel::linkSelected, this, [this](int link) {
             viewer_->SetSelectedLink(link);
             updateSelectionLabel();
@@ -529,27 +531,28 @@ public:
         updateSelectionLabel();
     }
 
-    // 라이다: URDF 의 <gazebo><sensor type="ray"> 가 있으면 그 설정으로 단다 (여럿이면 첫 번째).
-    // --lidar 링크 / --lidar-channels 는 명령행에서 덮어쓰거나 URDF 에 없을 때 쓴다.
+    // 라이다: URDF 의 <gazebo><sensor type="ray"> 에서 설정을 읽어 둔다 (여럿이면 첫 번째).
+    // 화면에는 그 링크를 마우스 오른쪽 버튼으로 눌러 "라이다 스캔 표시" 를 켜면 나온다.
+    // --lidar 링크 / --lidar-channels 는 명령행에서 덮어쓰거나 URDF 에 없을 때 쓰며, 이때는 바로 켠다.
     void applyLidar(const Options& o) {
-        viewer_->ClearLidar();
-        if (lidarDock_) lidarDock_->hide();
+        showLidar(false);
+        lidarSpec_ = LidarSpec();
         if (!viewer_->HasRobot()) return;
         const amr::urdf::Robot& robot = viewer_->Robot();
-        amr::sensor::LidarSettings ls;
-        dhMat mount = dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]);
-        int li = -1;
+        LidarSpec sp;
+        sp.mount = dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]);
         if (!o.lidarLink.empty()) {  // 명령행
-            li = robot.FindLink(o.lidarLink);
-            if (li < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (라이다를 달지 않음)\n", o.lidarLink.c_str()); return; }
-            ls.channels = o.lidarChannels;
-            ls.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
-            ls.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
+            sp.link = robot.FindLink(o.lidarLink);
+            if (sp.link < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (라이다를 달지 않음)\n", o.lidarLink.c_str()); return; }
+            sp.settings.channels = o.lidarChannels;
+            sp.settings.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
+            sp.settings.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
         } else if (!robot.lidars.empty()) {  // URDF
             const amr::urdf::LidarDef& d = robot.lidars[0];
             if (robot.lidars.size() > 1) fprintf(stderr, "알림: 라이다가 %d 개 있어 첫 번째('%s')만 씁니다\n", static_cast<int>(robot.lidars.size()), d.name.c_str());
-            li = robot.FindLink(d.link);
-            if (li < 0) return;
+            sp.link = robot.FindLink(d.link);
+            if (sp.link < 0) return;
+            amr::sensor::LidarSettings& ls = sp.settings;
             ls.angleMin = d.hMin;
             ls.angleMax = d.hMax;
             ls.angleIncrement = d.hSamples > 1 ? (d.hMax - d.hMin) / static_cast<float>(d.hSamples - 1) : 1.0f;
@@ -559,17 +562,28 @@ public:
             ls.rangeMin = d.rangeMin;
             ls.rangeMax = d.rangeMax;
             ls.noiseStdDev = d.noiseStdDev;
-            mount = d.pose;
+            sp.mount = d.pose;
+            sp.fromUrdf = true;
         } else {
             return;
         }
-        viewer_->SetLidar(li, ls, mount);
-        if (!lidarPlot_) {  // 스캔 그래프 (화면 아래 도크). 뷰어가 스캔할 때마다 갱신된다
+        lidarSpec_ = sp;
+        if (!sp.fromUrdf || !o.lidarCsv.empty()) showLidar(true);  // URDF 의 라이다는 오른쪽 버튼으로 켠다 (CSV 저장을 요청했으면 바로)
+    }
+
+    // 라이다 스캔(광선, 맞은 점)과 그래프 도크를 켜고 끈다
+    void showLidar(bool on) {
+        if (!on || lidarSpec_.link < 0) {
+            viewer_->ClearLidar();
+            if (lidarDock_) lidarDock_->hide();
+            return;
+        }
+        viewer_->SetLidar(lidarSpec_.link, lidarSpec_.settings, lidarSpec_.mount);
+        if (!lidarPlot_) {  // 스캔 그래프 (오른쪽 도크)
             lidarPlot_ = new LidarPlot;
             lidarDock_ = new QDockWidget(QString::fromUtf8("라이다"), this);
             lidarDock_->setWidget(lidarPlot_);
             addDockWidget(Qt::RightDockWidgetArea, lidarDock_);
-            QObject::connect(viewer_, &ModelViewer::lidarScanned, lidarPlot_, &LidarPlot::SetScan);
             // 3D 화면이 그려지는지와 상관없이 그래프가 나오도록, 0.1 초마다 직접 스캔해서 갱신한다
             QTimer* t = new QTimer(this);
             QObject::connect(t, &QTimer::timeout, this, [this]() {
@@ -580,6 +594,16 @@ public:
             t->start(100);
         }
         lidarDock_->show();
+    }
+
+    // 구조 트리에서 링크를 오른쪽 버튼으로 눌렀을 때: 라이다가 달린 링크면 스캔 표시를 켜고 끈다
+    void onLinkContextMenu(int link, const QPoint& globalPos) {
+        if (link < 0 || link != lidarSpec_.link) return;
+        QMenu menu;
+        QAction* a = menu.addAction(QString::fromUtf8("라이다 스캔 표시 (광선 + 그래프)"));
+        a->setCheckable(true);
+        a->setChecked(viewer_->LidarEnabled());
+        if (menu.exec(globalPos) == a) showLidar(!viewer_->LidarEnabled());
     }
 
     void applyMove(const Options& o) {
@@ -762,6 +786,14 @@ private:
     }
 
     Options cli_;  // 명령행 옵션 (파일을 새로 열 때도 쓴다)
+    struct LidarSpec {
+        int link;
+        amr::sensor::LidarSettings settings;
+        dhMat mount;
+        bool fromUrdf;
+        LidarSpec() : link(-1), fromUrdf(false) {}
+    };
+    LidarSpec lidarSpec_;
     ModelViewer* viewer_;
     LidarPlot* lidarPlot_ = nullptr;
     QDockWidget* lidarDock_ = nullptr;

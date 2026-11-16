@@ -5,6 +5,7 @@
 #include "CBase/Array.h"
 #include "CBase/Math.h"
 #include "CCollision/Bvh.h"
+#include "CCollision/RobotCollision.h"
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
 
@@ -350,6 +351,20 @@ void testLidarRoomExample() {
     room.lidarLink = room.robot.FindLink("lidar_link");
     check(room.lidarLink >= 0, "room: lidar_link exists");
     if (room.lidarLink < 0) return;
+    {   // 충돌: 처음 자세와 방 안 어디서든(장애물 밖) 충돌이 없어야 하고, 장애물 안으로 들어가면 충돌로 나와야 한다
+        CollisionModelOptions copt;
+        copt.fallbackToVisual = true;  // 뷰어와 같은 설정
+        RobotCollisionModel cm;
+        check(BuildCollisionModel(room.robot, copt, &cm), "room: collision model builds");
+        urdf::JointValues q;
+        check(CheckSelfCollisions(room.robot, cm, q).collisions.empty(), "room: no collision at the start pose");
+        q["x_slide"] = -1.0f; q["y_slide"] = 0.5f; q["yaw"] = 0.5f;
+        check(CheckSelfCollisions(room.robot, cm, q).collisions.empty(), "room: no collision in free space");
+        q["x_slide"] = 3.6f; q["y_slide"] = -2.6f;  // 관절 한계의 모서리 (벽 안쪽 여유가 있다)
+        check(CheckSelfCollisions(room.robot, cm, q).collisions.empty(), "room: no collision at the joint-limit corner");
+        q["x_slide"] = 2.0f; q["y_slide"] = 1.2f;   // 상자 안
+        check(!CheckSelfCollisions(room.robot, cm, q).collisions.empty(), "room: pillar inside the box is a collision");
+    }
     check(room.robot.lidars.size() == 1 && room.robot.lidars[0].link == "lidar_link", "room: URDF declares one lidar on lidar_link");
     if (room.robot.lidars.size() == 1) {
         const urdf::LidarDef& d = room.robot.lidars[0];

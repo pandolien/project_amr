@@ -34,6 +34,7 @@ public:
 
 signals:
     void linkSelected(int link);  // 링크가 아닌 항목이나 선택 해제는 -1
+    void linkContextMenuRequested(int link, const QPoint& globalPos);  // 링크 항목에서 마우스 오른쪽 버튼 (링크가 아닌 곳은 -1)
 
 private:
     void onCurrentChanged(QTreeWidgetItem* cur);

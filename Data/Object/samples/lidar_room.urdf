@@ -63,6 +63,14 @@
       <geometry><box size="0.8 0.8 0.4"/></geometry>
       <material name="low"/>
     </visual>
+      <!-- 충돌 도형: 벽과 장애물만. 바닥(z 0~0.02)은 기둥이 서 있는 땅이라 뺀다 (넣으면 기둥 밑면이 바닥과 겹쳐 처음부터 충돌로 나온다) -->
+    <collision><origin xyz="0 3.1 1.25"/><geometry><box size="8.4 0.2 2.5"/></geometry></collision>
+    <collision><origin xyz="0 -3.1 1.25"/><geometry><box size="8.4 0.2 2.5"/></geometry></collision>
+    <collision><origin xyz="4.1 0 1.25"/><geometry><box size="0.2 6.0 2.5"/></geometry></collision>
+    <collision><origin xyz="-4.1 0 1.25"/><geometry><box size="0.2 6.0 2.5"/></geometry></collision>
+    <collision><origin xyz="2.0 1.2 0.75"/><geometry><box size="1.2 0.8 1.5"/></geometry></collision>
+    <collision><origin xyz="-2.2 -1.3 1.25"/><geometry><cylinder radius="0.35" length="2.5"/></geometry></collision>
+    <collision><origin xyz="1.5 -1.5 0.2"/><geometry><box size="0.8 0.8 0.4"/></geometry></collision>
   </link>
 
   <!-- 방 안에서 기둥을 움직이는 가상 관절 (x, y 이동 + 회전) -->
@@ -117,7 +125,7 @@
     <origin xyz="0 0 1.05"/>
   </joint>
 
-  <!-- 라이다 설정 (Gazebo 형식). 열기만 하면 자동으로 달린다: amr_main lidar_room.urdf
+  <!-- 라이다 설정 (Gazebo 형식). 왼쪽 구조 트리에서 lidar_link 를 마우스 오른쪽 버튼 -> "라이다 스캔 표시"
        270도(-135~135) 를 541 개 광선(0.5도 간격)으로, 수직 채널 1 개 = 2D. 3D 로 바꾸려면 vertical samples 를 늘리고 min/max_angle 을 준다. -->
   <gazebo reference="lidar_link">
     <sensor type="ray" name="lidar">
