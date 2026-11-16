@@ -337,6 +337,56 @@ struct RoomScene {
     }
 };
 
+// 예제 Data/Object/samples/lidar_room_3d.urdf: 3D 라이다. 아래를 보는 채널이 낮은 상자와 바닥을 잡아야 한다.
+void testLidarRoom3dExample() {
+    static RoomScene room;
+    String err;
+    const String path = String(AMR_TEST_DATA_DIR) + "/Object/samples/lidar_room_3d.urdf";
+    if (!urdf::LoadUrdf(path, &room.robot, &err)) {
+        printf("FAIL: cannot load %s (%s)\n", path.c_str(), err.c_str());
+        ++g_fail;
+        return;
+    }
+    urdf::LoadOptions opt;
+    check(urdf::LoadRobotMeshes(room.robot, opt, &room.meshes), "room3d: all visuals build");
+    room.lidarLink = room.robot.FindLink("lidar_link");
+    check(room.lidarLink >= 0 && room.robot.lidars.size() == 1, "room3d: one lidar on lidar_link");
+    if (room.lidarLink < 0 || room.robot.lidars.size() != 1) return;
+    const urdf::LidarDef& d = room.robot.lidars[0];
+    check(d.hSamples == 360 && d.vSamples == 16, "room3d: 360 x 16 channels");
+    LidarSettings s;  // main.cpp 의 URDF -> 설정 변환과 같다
+    s.angleMin = d.hMin;
+    s.angleMax = d.hMax;
+    s.angleIncrement = (d.hMax - d.hMin) / static_cast<float>(d.hSamples - 1);
+    s.channels = d.vSamples;
+    s.elevationMin = d.vMin;
+    s.elevationMax = d.vMax;
+    s.rangeMin = d.rangeMin;
+    s.rangeMax = d.rangeMax;
+    urdf::JointValues q;
+    q["x_slide"] = 1.5f;
+    q["y_slide"] = 0.5f;
+    const dhMat pose = room.build(q) * d.pose;
+    Lidar lidar(s);
+    check(lidar.RayCount() == 360u * 16u, "room3d: 5760 rays");
+    LidarScan scan;
+    lidar.Scan(pose, room.targets.data(), room.targets.size(), &scan);
+    check(scan.size() == 360u * 16u, "room3d: scan size");
+    // 낮은 상자(중심 1.5, -1.5, 한 변 0.8, 높이 0.4)의 윗면을 어떤 채널이 잡는다 (점의 z = 0.4)
+    size_t onLowBoxTop = 0, onFloor = 0, hits = 0;
+    for (size_t i = 0; i < scan.size(); i++) {
+        if (!scan.IsHit(i)) continue;
+        hits++;
+        const dhVector& p = scan.points[i];
+        if (near(p.z, 0.4, 1e-3) && p.x > 1.1 && p.x < 1.9 && p.y > -1.9 && p.y < -1.1) onLowBoxTop++;
+        if (near(p.z, 0.02, 1e-3)) onFloor++;
+        if (!(p.z > -0.001 && p.z < 2.501 && p.x > -4.001 && p.x < 4.001 && p.y > -3.001 && p.y < 3.001)) { check(false, "room3d: every hit is inside the room"); break; }
+    }
+    check(onLowBoxTop > 0, "room3d: downward channels hit the top of the low box");
+    check(onFloor > 100, "room3d: downward channels hit the floor");
+    check(hits > scan.size() / 2, "room3d: most rays hit something");
+}
+
 void testLidarRoomExample() {
     static RoomScene room;  // 메시를 가리키는 포인터가 있으므로 이동하지 않는 곳에 둔다
     String err;
@@ -467,6 +517,7 @@ int main() {
     testPlanarShortcutConsistency();
     testBvhGivesSameScan();
     testLidarRoomExample();
+    testLidarRoom3dExample();
     testEdgeCases();
     if (g_fail) {
         printf("%d failed\n", g_fail);
