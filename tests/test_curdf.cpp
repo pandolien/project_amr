@@ -364,7 +364,47 @@ void testDynamicsAndUnits() {
     check(amr::String(j1.TorqueUnit()) == "N*m" && amr::String(j2.TorqueUnit()) == "N", "torque units");
 }
 
+void testLidarSensor() {
+    const char* base = "<robot name='s'><link name='a'/><link name='b'/>"
+                       "<joint name='j' type='fixed'><parent link='a'/><child link='b'/></joint>";
+    Robot r;
+    amr::String err;
+    check(LoadUrdfFromString(amr::String(base) +
+              "<gazebo reference='b'><sensor type='gpu_ray' name='scan'><pose>0.1 0.2 0.3 0 0 1.5707963</pose><ray><scan>"
+              "<horizontal><samples>181</samples><min_angle>-1.5707963</min_angle><max_angle>1.5707963</max_angle></horizontal>"
+              "<vertical><samples>8</samples><min_angle>-0.2</min_angle><max_angle>0.2</max_angle></vertical></scan>"
+              "<range><min>0.1</min><max>12</max></range><noise><type>gaussian</type><stddev>0.02</stddev></noise></ray></sensor>"
+              "<sensor type='camera' name='cam'/></gazebo></robot>", &r, &err), "lidar sensor loads");
+    check(r.lidars.size() == 1, "camera sensor is skipped, lidar kept");
+    if (r.lidars.size() == 1) {
+        const LidarDef& d = r.lidars[0];
+        check(d.name == "scan" && d.link == "b", "lidar name/link");
+        check(d.hSamples == 181 && nearly(d.hMin, -1.5707963) && nearly(d.hMax, 1.5707963), "horizontal scan");
+        check(d.vSamples == 8 && nearly(d.vMin, -0.2) && nearly(d.vMax, 0.2), "vertical scan");
+        check(nearly(d.rangeMin, 0.1) && nearly(d.rangeMax, 12.0) && nearly(d.noiseStdDev, 0.02), "range and noise");
+        check(posIs(d.pose, 0.1, 0.2, 0.3), "sensor pose position");
+        const dhVector ex = d.pose * dhVector(1, 0, 0);  // yaw 90 도: 센서 +x 가 링크 +y
+        check(nearly(ex.x, 0.1, 1e-3) && nearly(ex.y, 1.2, 1e-3), "sensor pose yaw");
+    }
+    // 기본값: 센서에 scan 이 없어도 읽힌다
+    check(LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err) && r.lidars.size() == 1 &&
+              r.lidars[0].name == "a" && r.lidars[0].vSamples == 1, "defaults");
+    // 라이다가 없는 로봇
+    check(LoadUrdfFromString(amr::String(base) + "</robot>", &r, &err) && r.lidars.empty(), "no lidar");
+    // 잘못된 값은 거부
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='zz'><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err), "unknown link rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err), "missing reference rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'/></gazebo></robot>", &r, &err), "missing <ray> rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><samples>0</samples></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "samples 0 rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><samples>2.5</samples></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "fractional samples rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><min_angle>1</min_angle><max_angle>0</max_angle></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "max < min rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><range><min>5</min><max>1</max></range></ray></sensor></gazebo></robot>", &r, &err), "bad range rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><noise><stddev>-1</stddev></noise></ray></sensor></gazebo></robot>", &r, &err), "negative noise rejected");
+    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><pose>1 2 3</pose><ray/></sensor></gazebo></robot>", &r, &err), "short pose rejected");
+}
+
 int main() {
+    testLidarSensor();
     testDynamicsAndUnits();
     testParse();
     testKinematics();

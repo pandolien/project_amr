@@ -21,6 +21,7 @@ void Robot::Clear() {
     links.clear();
     joints.clear();
     materials.clear();
+    lidars.clear();
     root = -1;
     order.clear();
     baseDir.clear();
@@ -343,6 +344,66 @@ struct Parser {
         return true;
     }
 
+    // <tag>숫자</tag> 한 개. 없으면 def.
+    bool ChildFloat(XMLElement* parent, const char* tag, float def, float* out, const amr::String& ctx) {
+        *out = def;
+        XMLElement* e = parent ? parent->FirstChildElement(tag) : nullptr;
+        if (!e) return true;
+        if (!e->GetText() || !ParseFloats(e->GetText(), 1, out)) return Fail(ctx + ": <" + tag + "> 가 올바른 숫자가 아닙니다");
+        return true;
+    }
+
+    // <scan><horizontal|vertical><samples/min_angle/max_angle>. 개수 samples 는 정수여야 한다.
+    bool ScanAxis(XMLElement* axis, int defSamples, int* samples, float* mn, float* mx, const amr::String& ctx) {
+        float n = static_cast<float>(defSamples);
+        if (!ChildFloat(axis, "samples", n, &n, ctx) || !ChildFloat(axis, "min_angle", *mn, mn, ctx) || !ChildFloat(axis, "max_angle", *mx, mx, ctx)) return false;
+        if (!(n >= 1.0f) || n > 100000.0f || n != static_cast<float>(static_cast<int>(n))) return Fail(ctx + ": samples 는 1 이상의 정수여야 합니다");
+        *samples = static_cast<int>(n);
+        if (*mx < *mn) return Fail(ctx + ": max_angle 이 min_angle 보다 작습니다");
+        return true;
+    }
+
+    bool ParseGazebo(XMLElement* g) {
+        const char* ref = g->Attribute("reference");
+        for (XMLElement* s = g->FirstChildElement("sensor"); s; s = s->NextSiblingElement("sensor")) {
+            const amr::String type = s->Attribute("type") ? s->Attribute("type") : "";
+            if (type != "ray" && type != "gpu_ray" && type != "lidar" && type != "gpu_lidar") continue;  // 카메라 등은 아직 읽지 않는다
+            LidarDef d;
+            d.name = s->Attribute("name") ? s->Attribute("name") : "";
+            const amr::String ctx = "라이다 '" + (d.name.empty() ? amr::String(ref ? ref : "") : d.name) + "'";
+            if (!ref || !*ref) return Fail(ctx + ": <gazebo reference=\"링크\"> 가 필요합니다");
+            d.link = ref;
+            if (d.name.empty()) d.name = d.link;
+            XMLElement* pose = s->FirstChildElement("pose");
+            if (pose) {
+                float v[6];
+                if (!pose->GetText() || !ParseFloats(pose->GetText(), 6, v)) return Fail(ctx + ": <pose> 는 숫자 6개 (x y z roll pitch yaw) 여야 합니다");
+                d.pose = dhEuler(v[5], v[4], v[3]).GetMat();
+                d.pose.v[12] = v[0];
+                d.pose.v[13] = v[1];
+                d.pose.v[14] = v[2];
+            }
+            XMLElement* ray = s->FirstChildElement("ray");
+            if (!ray) return Fail(ctx + ": <ray> 가 없습니다");
+            XMLElement* scan = ray->FirstChildElement("scan");
+            if (scan) {
+                if (XMLElement* h = scan->FirstChildElement("horizontal"))
+                    if (!ScanAxis(h, d.hSamples, &d.hSamples, &d.hMin, &d.hMax, ctx + " horizontal")) return false;
+                if (XMLElement* v = scan->FirstChildElement("vertical"))
+                    if (!ScanAxis(v, 1, &d.vSamples, &d.vMin, &d.vMax, ctx + " vertical")) return false;
+            }
+            if (d.hSamples < 2 && d.hMax > d.hMin) return Fail(ctx + ": horizontal samples 가 1 이면 min_angle 과 max_angle 이 같아야 합니다");
+            XMLElement* range = ray->FirstChildElement("range");
+            if (range && (!ChildFloat(range, "min", d.rangeMin, &d.rangeMin, ctx + " range") || !ChildFloat(range, "max", d.rangeMax, &d.rangeMax, ctx + " range"))) return false;
+            if (!(d.rangeMin >= 0.0f) || !(d.rangeMax > d.rangeMin)) return Fail(ctx + ": range 는 0 <= min < max 여야 합니다");
+            XMLElement* noise = ray->FirstChildElement("noise");
+            if (noise && !ChildFloat(noise, "stddev", 0.0f, &d.noiseStdDev, ctx + " noise")) return false;
+            if (d.noiseStdDev < 0.0f) return Fail(ctx + ": noise stddev 가 음수입니다");
+            robot->lidars.push_back(d);
+        }
+        return true;
+    }
+
     bool Parse(const amr::String& xml) {
         if (xml.find("<xacro:") != amr::String::npos || xml.find("${") != amr::String::npos)
             return Fail("xacro 파일은 지원하지 않습니다. 'xacro robot.urdf.xacro > robot.urdf' 로 URDF 로 변환해 주세요");
@@ -362,6 +423,8 @@ struct Parser {
             if (!ParseLink(l)) return false;
         for (XMLElement* j = root->FirstChildElement("joint"); j; j = j->NextSiblingElement("joint"))
             if (!ParseJoint(j)) return false;
+        for (XMLElement* g = root->FirstChildElement("gazebo"); g; g = g->NextSiblingElement("gazebo"))
+            if (!ParseGazebo(g)) return false;
 
         // 이름만 참조한 visual 재질에 robot 재질의 색을 채운다
         for (size_t li = 0; li < robot->links.size(); li++) {
@@ -376,7 +439,10 @@ struct Parser {
                 }
             }
         }
-        return Validate();
+        if (!Validate()) return false;
+        for (size_t i = 0; i < robot->lidars.size(); i++)
+            if (robot->FindLink(robot->lidars[i].link) < 0) return Fail("라이다 '" + robot->lidars[i].name + "' 가 붙은 링크가 없습니다: " + robot->lidars[i].link);
+        return true;
     }
 };
 

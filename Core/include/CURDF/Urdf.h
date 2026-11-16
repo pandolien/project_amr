@@ -103,11 +103,27 @@ struct Joint {
 
 typedef amr::Map<amr::String, float> JointValues;  // 관절 이름 -> 각도(rad) 또는 변위(m)
 
+// <gazebo reference="링크"><sensor type="ray|gpu_ray|lidar|gpu_lidar"> 로 적은 라이다 (Gazebo 형식).
+// 각도는 rad, 거리는 m. 방위각 샘플 hSamples 개가 hMin..hMax 에 같은 간격으로 놓인다 (양 끝 포함).
+struct LidarDef {
+    amr::String name;     // sensor name (없으면 링크 이름)
+    amr::String link;     // 센서가 붙은 링크
+    dhMat pose;           // 링크 기준 센서 자세 (<pose>x y z roll pitch yaw</pose>)
+    int hSamples;
+    float hMin, hMax;
+    int vSamples;         // 1 이면 2D 라이다
+    float vMin, vMax;     // 고각
+    float rangeMin, rangeMax;
+    float noiseStdDev;
+    LidarDef() : hSamples(640), hMin(-1.5707963f), hMax(1.5707963f), vSamples(1), vMin(0), vMax(0), rangeMin(0.05f), rangeMax(30.0f), noiseStdDev(0) {}
+};
+
 struct Robot {
     amr::String name;
     amr::Array<Link> links;
     amr::Array<Joint> joints;
     amr::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
+    amr::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
     int root;                            // 루트 link 인덱스
     amr::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
     amr::String baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)

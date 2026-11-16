@@ -350,6 +350,11 @@ void testLidarRoomExample() {
     room.lidarLink = room.robot.FindLink("lidar_link");
     check(room.lidarLink >= 0, "room: lidar_link exists");
     if (room.lidarLink < 0) return;
+    check(room.robot.lidars.size() == 1 && room.robot.lidars[0].link == "lidar_link", "room: URDF declares one lidar on lidar_link");
+    if (room.robot.lidars.size() == 1) {
+        const urdf::LidarDef& d = room.robot.lidars[0];
+        check(d.hSamples == 541 && d.vSamples == 1 && near(d.hMax, 2.35619449, 1e-4) && d.rangeMax == 30.0f, "room: URDF lidar settings");
+    }
 
     LidarSettings s;
     s.angleMin = static_cast<float>(-dhPI);

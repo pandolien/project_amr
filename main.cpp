@@ -86,6 +86,7 @@ void PrintUsage(const char* exe) {
         "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
+        "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
         "                     센서가 붙은 링크 자신을 뺀 나머지 메시를 스캔하고, 맞은 점 수와 거리 범위를 출력\n"
         "  --lidar-channels 개수,최소고각,최대고각  (도) 수직 채널을 늘려 3D 라이다로 (예: 16,-15,15). 큰 메시에서는 느리다\n"
@@ -527,15 +528,39 @@ public:
         updateSelectionLabel();
     }
 
+    // 라이다: URDF 의 <gazebo><sensor type="ray"> 가 있으면 그 설정으로 단다 (여럿이면 첫 번째).
+    // --lidar 링크 / --lidar-channels 는 명령행에서 덮어쓰거나 URDF 에 없을 때 쓴다.
     void applyLidar(const Options& o) {
-        if (o.lidarLink.empty() || !viewer_->HasRobot()) return;
-        const int li = viewer_->Robot().FindLink(o.lidarLink);
-        if (li < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (라이다를 달지 않음)\n", o.lidarLink.c_str()); return; }
+        if (!viewer_->HasRobot()) return;
+        const amr::urdf::Robot& robot = viewer_->Robot();
         amr::sensor::LidarSettings ls;
-        ls.channels = o.lidarChannels;
-        ls.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
-        ls.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
-        viewer_->SetLidar(li, ls, dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]));
+        dhMat mount = dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]);
+        int li = -1;
+        if (!o.lidarLink.empty()) {  // 명령행
+            li = robot.FindLink(o.lidarLink);
+            if (li < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (라이다를 달지 않음)\n", o.lidarLink.c_str()); return; }
+            ls.channels = o.lidarChannels;
+            ls.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
+            ls.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
+        } else if (!robot.lidars.empty()) {  // URDF
+            const amr::urdf::LidarDef& d = robot.lidars[0];
+            if (robot.lidars.size() > 1) fprintf(stderr, "알림: 라이다가 %d 개 있어 첫 번째('%s')만 씁니다\n", static_cast<int>(robot.lidars.size()), d.name.c_str());
+            li = robot.FindLink(d.link);
+            if (li < 0) return;
+            ls.angleMin = d.hMin;
+            ls.angleMax = d.hMax;
+            ls.angleIncrement = d.hSamples > 1 ? (d.hMax - d.hMin) / static_cast<float>(d.hSamples - 1) : 1.0f;
+            ls.channels = d.vSamples;
+            ls.elevationMin = d.vMin;
+            ls.elevationMax = d.vMax;
+            ls.rangeMin = d.rangeMin;
+            ls.rangeMax = d.rangeMax;
+            ls.noiseStdDev = d.noiseStdDev;
+            mount = d.pose;
+        } else {
+            return;
+        }
+        viewer_->SetLidar(li, ls, mount);
         if (!lidarPlot_) {  // 스캔 그래프 (화면 아래 도크). 뷰어가 스캔할 때마다 갱신된다
             lidarPlot_ = new LidarPlot;
             QDockWidget* d = new QDockWidget(QString::fromUtf8("라이다"), this);

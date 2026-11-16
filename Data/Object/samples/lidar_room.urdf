@@ -8,9 +8,9 @@
   기둥:   x_slide, y_slide (방 안에서 이동, m), yaw (회전, 도) 관절로 움직인다. 위에 라이다(lidar_link, 높이 1.05 m).
           낮은 상자는 라이다 평면(z = 1.05) 아래라서 수평 2D 스캔에는 잡히지 않는다 (3D 채널을 아래로 향하게 하면 잡힌다).
 
-  실행:   amr_main Data/Object/samples/lidar_room.urdf --lidar lidar_link
-          3D:   ... --lidar lidar_link --lidar-channels 16,-15,15
-          스캔을 파일로: ... --lidar lidar_link --lidar-csv scan.csv --shot out.png
+  실행:   amr_main Data/Object/samples/lidar_room.urdf   (라이다 설정은 아래 <gazebo> 에 있다)
+          3D:   아래 vertical 의 samples/min_angle/max_angle 를 고치거나  ... --lidar lidar_link --lidar-channels 16,-15,15
+          스캔을 파일로: ... --lidar-csv scan.csv --shot out.png
 -->
 <robot name="lidar_room">
   <material name="floor"><color rgba="0.62 0.62 0.60 1"/></material>
@@ -116,4 +116,20 @@
     <child link="lidar_link"/>
     <origin xyz="0 0 1.05"/>
   </joint>
+
+  <!-- 라이다 설정 (Gazebo 형식). 열기만 하면 자동으로 달린다: amr_main lidar_room.urdf
+       270도(-135~135) 를 541 개 광선(0.5도 간격)으로, 수직 채널 1 개 = 2D. 3D 로 바꾸려면 vertical samples 를 늘리고 min/max_angle 을 준다. -->
+  <gazebo reference="lidar_link">
+    <sensor type="ray" name="lidar">
+      <pose>0 0 0 0 0 0</pose>
+      <ray>
+        <scan>
+          <horizontal><samples>541</samples><min_angle>-2.35619449</min_angle><max_angle>2.35619449</max_angle></horizontal>
+          <vertical><samples>1</samples><min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+        </scan>
+        <range><min>0.05</min><max>30</max></range>
+        <noise><type>gaussian</type><mean>0</mean><stddev>0</stddev></noise>
+      </ray>
+    </sensor>
+  </gazebo>
 </robot>
