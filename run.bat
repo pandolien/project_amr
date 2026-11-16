@@ -130,6 +130,8 @@ set "PATH=%VCPKG_DIR%\installed\%TRIPLET%\bin;%PATH%"
 
 rem ---- Qt (needed for the 3D window) ----------------------------------------------
 if "%USE_QT%"=="ON" (call :ensure_qt & if errorlevel 1 exit /b 1)
+rem a Qt installed outside vcpkg: its DLLs must be on PATH to run the program
+if defined CMAKE_PREFIX_PATH if exist "%CMAKE_PREFIX_PATH%\bin" set "PATH=%CMAKE_PREFIX_PATH%\bin;%PATH%"
 
 rem ---- 4. Configure + build -----------------------------------------------------
 if "%DO_CLEAN%"=="1" (
@@ -186,24 +188,42 @@ rem ---- helper: find or install Qt 5 (for the 3D window) ----------------------
 rem 1) a Qt you installed yourself: set CMAKE_PREFIX_PATH (or QT_DIR) to e.g. C:\Qt\5.15.2\msvc2019_64
 if defined CMAKE_PREFIX_PATH exit /b 0
 if defined QT_DIR (set "CMAKE_PREFIX_PATH=!QT_DIR!" & exit /b 0)
-rem 2) Qt installed through vcpkg
+rem 2a) Qt downloaded earlier by this script (aqtinstall)
+set "AQT_QT=%SystemDrive%\Qt\5.12.12\msvc2017_64"
+if exist "!AQT_QT!\bin\Qt5Core.dll" (set "CMAKE_PREFIX_PATH=!AQT_QT!" & exit /b 0)
+rem 2b) Qt installed through vcpkg
 "%VCPKG_DIR%\vcpkg.exe" list qt5-base | findstr /i /c:"qt5-base:%TRIPLET%" >nul
 if not errorlevel 1 exit /b 0
-rem 3) not found: offer to install it with vcpkg
+rem 3) not found: offer to download a prebuilt Qt (fast) or build it with vcpkg (slow)
 if "%DO_INSTALL%"=="0" (
     echo [run.bat] Qt 5 was not found, so the 3D window will not be built ^(console mode only^).
     set "USE_QT=OFF"
     exit /b 0
 )
 echo [run.bat] Qt 5 is needed to show the 3D window.
-echo [run.bat] vcpkg can build it for you ^(Release only, no OpenSSL^): still 20-40 minutes and a few GB.
-echo [run.bat] Or answer N and set CMAKE_PREFIX_PATH to your own Qt 5 folder, then run again.
-choice /c YN /m "Install Qt 5 with vcpkg now"
-if errorlevel 2 (
+echo [run.bat]   A = download a prebuilt Qt 5.12.12 with aqtinstall ^(fast, needs Python; installs to !AQT_QT!^)
+echo [run.bat]   V = build Qt with vcpkg ^(Release only, no OpenSSL^): 20-40 minutes and a few GB
+echo [run.bat]   N = skip; set CMAKE_PREFIX_PATH to your own Qt 5 folder and run again
+choice /c AVN /m "Install Qt 5"
+if errorlevel 3 (
     echo [run.bat] Skipping Qt: building console mode only.
     set "USE_QT=OFF"
     exit /b 0
 )
+if errorlevel 2 goto :qt_vcpkg
+where python >nul 2>nul
+if errorlevel 1 (
+    echo [run.bat] Python was not found. Install it ^(winget install Python.Python.3.12^), open a new terminal, and run again.
+    exit /b 1
+)
+python -m pip install --user --upgrade aqtinstall
+if errorlevel 1 (echo [run.bat] pip install aqtinstall failed & exit /b 1)
+python -m aqt install-qt windows desktop 5.12.12 win64_msvc2017_64 -O "%SystemDrive%\Qt"
+if errorlevel 1 (echo [run.bat] aqt install-qt failed. Check the arch name with: python -m aqt list-qt windows desktop --arch 5.12.12 & exit /b 1)
+if not exist "!AQT_QT!\bin\Qt5Core.dll" (echo [run.bat] Qt was not found at !AQT_QT! after the download & exit /b 1)
+set "CMAKE_PREFIX_PATH=!AQT_QT!"
+exit /b 0
+:qt_vcpkg
 "%VCPKG_DIR%\vcpkg.exe" install "qt5-base[core]:%TRIPLET%"
 if errorlevel 1 (echo [run.bat] Qt install failed & exit /b 1)
 exit /b 0
