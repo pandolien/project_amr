@@ -220,6 +220,7 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 - `LidarTarget` 하나가 메시 하나입니다 (정점 배열을 복사하지 않고 가리킵니다, `world` 로 자세를 줍니다). 센서가 붙은 로봇 자신은 대상에서 빼야 자기 몸이 안 잡힙니다.
 - 속도: `LidarTarget::bvh` 에 메시의 BVH(아래)를 넣으면 광선마다 BVH 로 검사합니다 (삼각형 20만 개의 벽, 3D 16 채널 8656 개 광선이 스캔 한 번에 약 1.3 ms. BVH 없이는 약 4.4 초). BVH 가 없으면 2D(수평 한 줄)는 센서 평면을 가로지르는 삼각형만 검사하고(약 3 ms), 경계 상자로도 거릅니다. 3D 에서 BVH 없이 큰 메시를 스캔하면 느립니다.
 - 뷰어: `--lidar 링크[,x,y,z]` 로 그 링크에 달면 (`--lidar-channels 16,-15,15` 로 3D) 맞은 점(빨강 십자)과 광선(옅은 청록)이 매 프레임 갱신됩니다. 로봇이 열려 있으면 센서가 붙은 링크를 뺀 다른 링크가 보입니다.
+- 예제: `Data/Object/samples/lidar_room.urdf` 는 8×6 m 방(벽, 상자, 원기둥, 라이다 높이 아래의 낮은 상자)과 그 안을 x, y 로 미끄러지고 회전하는 라이다 기둥입니다. `amr_main Data/Object/samples/lidar_room.urdf --lidar lidar_link --joint x_slide=-0.5 --joint yaw=-20 --lidar-csv scan.csv` 로 스캔을 CSV 로 저장하고, `python3 tools/plot_lidar_scan.py scan.csv out.png --room-example --sensor=-0.5,0,-20` 으로 위에서 본 지도와 방위각-거리 그래프를 그립니다 (matplotlib 필요). 정답 거리는 `tests/test_csensor.cpp` 의 `testLidarRoomExample` 이 검증합니다.
 - 아직 없는 것: 정적 모델(장애물)과 로봇을 한 화면에 같이 여는 것, 스캔 도중 센서가 움직이는 효과, 반사 강도.
 
 ## 충돌 감지 (CCollision)

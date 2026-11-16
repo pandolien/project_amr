@@ -1,6 +1,7 @@
 // AMR + 로봇 팔 시스템 진입점.
 //   amr_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
+#include "CBase/File.h"
 #include "CSensor/Lidar.h"
 #include "CoreQt/QtString.h"
 #include "CBase/Math.h"
@@ -47,6 +48,7 @@ struct Options {
     bool settle;               // --settle: 낙하가 끝날 때까지 진행한 뒤 위치를 출력 (확인용)
     amr::String lidarLink;     // --lidar: 2D 라이다를 달 링크 이름 (비어 있으면 없음)
     float lidarMount[3];       //   그 링크 좌표계에서의 센서 위치 (m)
+    amr::String lidarCsv;      // --lidar-csv: 스캔 결과를 CSV 로 저장할 파일
     int lidarChannels;         // --lidar-channels: 수직 채널 수 (1 이면 2D)
     float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
     bool hasMove;
@@ -87,6 +89,7 @@ void PrintUsage(const char* exe) {
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
         "                     센서가 붙은 링크 자신을 뺀 나머지 메시를 스캔하고, 맞은 점 수와 거리 범위를 출력\n"
         "  --lidar-channels 개수,최소고각,최대고각  (도) 수직 채널을 늘려 3D 라이다로 (예: 16,-15,15). 큰 메시에서는 느리다\n"
+        "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
         "  -h, --help         도움말\n",
@@ -147,6 +150,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             }
             continue;
         }
+        if (a == "--lidar-csv" && hasNext) { o->lidarCsv = argv[++i]; continue; }
         if (a == "--move" && hasNext) {
             if (sscanf(argv[++i], "%f,%f,%f", &o->move[0], &o->move[1], &o->move[2]) != 3) { fprintf(stderr, "--move 는 x,y,z 형식입니다\n"); return false; }
             o->hasMove = true;
@@ -762,8 +766,9 @@ int main(int argc, char** argv) {
         const int cx = o.clickX, cy = o.clickY;
         const bool settle = o.settle;
         const double simSeconds = o.simulate;
+        const amr::String lidarCsv = o.lidarCsv;
         const int d0x = o.dragX0, d0y = o.dragY0, d1x = o.dragX1, d1y = o.dragY1;
-        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle, simSeconds]() {
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle, simSeconds, lidarCsv]() {
             bool ok = true;
             if (d0x >= 0 && d0y >= 0 && d1x >= 0 && d1y >= 0) {
                 const QPoint p0(d0x, d0y), p1(d1x, d1y);
@@ -817,6 +822,22 @@ int main(int argc, char** argv) {
                 printf("라이다: 광선 %zu 개 중 %zu 개가 맞음", sc.size(), hits);
                 if (hits) printf(", 거리 %.3f ~ %.3f m", static_cast<double>(lo), static_cast<double>(hi));
                 printf("\n");
+                if (!lidarCsv.empty()) {
+                    amr::String csv = "index,channel,azimuth_deg,elevation_deg,hit,range_m,x,y,z,link\n";
+                    for (size_t i = 0; i < sc.size(); i++) {
+                        const bool hit = sc.IsHit(i);
+                        csv += amr::Format("%zu,%zu,%.4f,%.4f,%d,", i, sc.Channel(i), dhDeg(static_cast<double>(sc.Angle(i))),
+                                           dhDeg(static_cast<double>(sc.Elevation(sc.Channel(i)))), hit ? 1 : 0);
+                        if (hit)
+                            csv += amr::Format("%.5f,%.5f,%.5f,%.5f,%s\n", static_cast<double>(sc.ranges[i]), static_cast<double>(sc.points[i].x),
+                                               static_cast<double>(sc.points[i].y), static_cast<double>(sc.points[i].z),
+                                               v->Robot().links[static_cast<size_t>(sc.targetIds[i])].name.c_str());
+                        else
+                            csv += "inf,,,,\n";
+                    }
+                    if (amr::WriteFileText(lidarCsv, csv)) printf("스캔을 저장했습니다: %s\n", lidarCsv.c_str());
+                    else fprintf(stderr, "스캔 저장 실패: %s\n", lidarCsv.c_str());
+                }
             }
             if (simSeconds > 0) win->runSimulation(simSeconds);
             if (settle) {  // 낙하가 끝날 때까지 시간을 진행시킨다

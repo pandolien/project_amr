@@ -6,6 +6,7 @@
 #include "CBase/Math.h"
 #include "CCollision/Bvh.h"
 #include "CSensor/Lidar.h"
+#include "CURDF/Urdf.h"
 
 using namespace amr;
 using namespace amr::sensor;
@@ -284,6 +285,128 @@ void testBvhGivesSameScan() {
     }
 }
 
+// 예제 Data/Object/samples/lidar_room.urdf: 방 안의 라이다 기둥. 벽/장애물까지의 거리를 해석해와 비교한다.
+struct RoomScene {
+    amr::urdf::Robot robot;
+    amr::urdf::RobotMeshes meshes;
+    Array<TriangleBvh> bvhs;
+    Array<LidarTarget> targets;
+    int lidarLink;
+    bool ok;
+    RoomScene() : lidarLink(-1), ok(false) {}
+    // joints 자세에서의 라이다 센서 자세와 대상 목록(센서가 붙은 링크는 뺀다)을 만든다
+    dhMat build(const amr::urdf::JointValues& q) {
+        const Array<dhMat> link = robot.LinkTransforms(q);
+        bvhs.clear();
+        targets.clear();
+        struct Src { const Primitive* prim; dhMat world; int link; };
+        Array<Src> srcs;
+        for (size_t i = 0; i < meshes.visuals.size(); i++) {
+            const amr::urdf::LinkVisual& lv = meshes.visuals[i];
+            if (lv.link == lidarLink) continue;
+            const Array<dhMat> nodeWorld = lv.scene.WorldTransforms();
+            for (size_t n = 0; n < lv.scene.nodes.size(); n++) {
+                const SceneNode& node = lv.scene.nodes[n];
+                if (node.mesh < 0) continue;
+                const Mesh& mesh = lv.scene.meshes[static_cast<size_t>(node.mesh)];
+                for (size_t k = 0; k < mesh.primitives.size(); k++) {
+                    Src sr;
+                    sr.prim = &mesh.primitives[k];
+                    sr.world = link[static_cast<size_t>(lv.link)] * lv.local * nodeWorld[n];
+                    sr.link = lv.link;
+                    srcs.push_back(sr);
+                }
+            }
+        }
+        bvhs.resize(srcs.size());
+        for (size_t i = 0; i < srcs.size(); i++)
+            bvhs[i].Build(srcs[i].prim->positions.data(), srcs[i].prim->VertexCount(), srcs[i].prim->indices.data(), srcs[i].prim->indices.size());
+        for (size_t i = 0; i < srcs.size(); i++) {
+            LidarTarget t;
+            t.positions = srcs[i].prim->positions.data();
+            t.vertexCount = srcs[i].prim->VertexCount();
+            t.indices = srcs[i].prim->indices.data();
+            t.indexCount = srcs[i].prim->indices.size();
+            t.world = srcs[i].world;
+            t.bvh = &bvhs[i];
+            t.id = srcs[i].link;
+            targets.push_back(t);
+        }
+        return link[static_cast<size_t>(lidarLink)];
+    }
+};
+
+void testLidarRoomExample() {
+    static RoomScene room;  // 메시를 가리키는 포인터가 있으므로 이동하지 않는 곳에 둔다
+    String err;
+    const String path = String(AMR_TEST_DATA_DIR) + "/Object/samples/lidar_room.urdf";
+    if (!urdf::LoadUrdf(path, &room.robot, &err)) {
+        printf("FAIL: cannot load %s (%s)\n", path.c_str(), err.c_str());
+        ++g_fail;
+        return;
+    }
+    urdf::LoadOptions opt;
+    check(urdf::LoadRobotMeshes(room.robot, opt, &room.meshes), "room: all visuals build");
+    room.lidarLink = room.robot.FindLink("lidar_link");
+    check(room.lidarLink >= 0, "room: lidar_link exists");
+    if (room.lidarLink < 0) return;
+
+    LidarSettings s;
+    s.angleMin = static_cast<float>(-dhPI);
+    s.angleMax = static_cast<float>(dhPI);
+    s.angleIncrement = static_cast<float>(dhPI / 2.0);  // 광선 5 개: -180, -90, 0, 90, 180 도 (방위 번호 0..4)
+    Lidar lidar(s);
+    LidarScan scan;
+    urdf::JointValues q;
+    // 방 한가운데 (0, 0), yaw 0: 동서남북 벽까지. (y = 0 선 위에는 장애물이 없다. 낮은 상자는 라이다 평면 아래라 안 보인다.)
+    dhMat pose = room.build(q);
+    check(near(pose.O().z, 1.05, 1e-4), "room: lidar height is 1.05 m");
+    lidar.Scan(pose, room.targets.data(), room.targets.size(), &scan);
+    check(scan.size() == 5, "room: 5 rays");
+    check(scan.IsHit(2) && near(scan.ranges[2], 4.0, 1e-3), "room: +x wall at 4.0 m");
+    check(scan.IsHit(3) && near(scan.ranges[3], 3.0, 1e-3), "room: +y wall at 3.0 m");
+    check(scan.IsHit(0) && near(scan.ranges[0], 4.0, 1e-3), "room: -x wall at 4.0 m (-180 deg)");
+    check(scan.IsHit(1) && near(scan.ranges[1], 3.0, 1e-3), "room: -y wall at 3.0 m");
+
+    // y 를 1.2 로 올리면 +x 방향에는 상자(x 1.4 ~ 2.6, y 0.8 ~ 1.6)가 있다: 1.4 m
+    q["y_slide"] = 1.2f;
+    lidar.Scan(room.build(q), room.targets.data(), room.targets.size(), &scan);
+    check(near(scan.ranges[2], 1.4, 1e-3), "room: box face at 1.4 m");
+    check(scan.targetIds[2] == room.robot.FindLink("room"), "room: the box belongs to the room link");
+
+    // 원기둥(중심 -2.2, -1.3, 반지름 0.35): y = -1.3 에서 -x 방향으로 겨눈다. 면이 N 각형이라 약간의 차이를 허용.
+    q["y_slide"] = -1.3f;
+    lidar.Scan(room.build(q), room.targets.data(), room.targets.size(), &scan);
+    check(near(scan.ranges[0], 1.85, 0.02), "room: column surface at about 1.85 m");
+
+    // 기둥을 돌리면 (yaw 90 도) 같은 위치에서 방위 0 이 +y 벽을 향한다
+    q["y_slide"] = 0.0f;
+    q["yaw"] = static_cast<float>(dhPI / 2);
+    lidar.Scan(room.build(q), room.targets.data(), room.targets.size(), &scan);
+    check(near(scan.ranges[2], 3.0, 1e-3), "room: yaw 90 deg: azimuth 0 faces the +y wall");
+
+    // 낮은 상자(중심 1.5, -1.5; 높이 0.4)는 수평 2D 에서는 안 보이지만, 아래를 보는 3D 채널에서는 보인다.
+    // 센서 (1.5, 0.5) 에서 -y 방향, 고각 -18 도: 상자 윗면(z 0.4)에 0.65 / sin(18 도) = 2.10 m 거리, y = -1.5 에서 닿는다.
+    // (너무 가파르면 센서 바로 아래의 기둥 윗면(반지름 0.12, 센서보다 0.05 아래)에 먼저 맞는다. 실제 3D 라이다의 사각지대와 같다.)
+    q["x_slide"] = 1.5f;
+    q["y_slide"] = 0.5f;
+    q["yaw"] = static_cast<float>(-dhPI / 2);
+    LidarSettings down;
+    down.angleMin = down.angleMax = 0.0f;
+    down.elevationMin = static_cast<float>(-18.0 * dhPI / 180);
+    Lidar l3(down);
+    l3.Scan(room.build(q), room.targets.data(), room.targets.size(), &scan);
+    check(scan.IsHit(0) && near(scan.ranges[0], 0.65 / sin(18.0 * dhPI / 180), 5e-3), "room: the low box is seen by a downward-looking channel");
+    check(near(scan.points[0].z, 0.4, 5e-3) && near(scan.points[0].y, -1.5, 5e-3), "room: that hit point is on the box top (z 0.4, y -1.5)");
+    // 같은 센서의 수평 2D 스캔은 낮은 상자 위를 지나 -y 벽(y = -3)에 닿는다: 0.5 + 3 = 3.5 m
+    LidarSettings fwd = s;
+    fwd.angleMin = fwd.angleMax = 0.0f;
+    Lidar l2(fwd);
+    LidarScan flat;
+    l2.Scan(room.build(q), room.targets.data(), room.targets.size(), &flat);
+    check(near(flat.ranges[0], 3.5, 1e-3), "room: the horizontal 2D scan passes over the low box (reaches the wall at 3.5 m)");
+}
+
 void testEdgeCases() {
     Lidar l;
     LidarScan scan;
@@ -323,6 +446,7 @@ int main() {
     testMultiChannel();
     testPlanarShortcutConsistency();
     testBvhGivesSameScan();
+    testLidarRoomExample();
     testEdgeCases();
     if (g_fail) {
         printf("%d failed\n", g_fail);

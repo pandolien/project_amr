@@ -14,6 +14,7 @@ add_test(NAME test_bvh COMMAND test_bvh)
 add_executable(test_csensor test_csensor.cpp)
 target_link_libraries(test_csensor PRIVATE Core)
 amr_set_warnings(test_csensor)
+target_compile_definitions(test_csensor PRIVATE AMR_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_csensor COMMAND test_csensor)
 
 add_executable(test_ckinematics test_ckinematics.cpp)
