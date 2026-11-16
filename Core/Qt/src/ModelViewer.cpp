@@ -64,6 +64,7 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragged_ = false;
     lidarOn_ = false;
     lidarLink_ = -1;
+    lidarHeading_ = 0.0f;
     dragAxis_ = -1;
     dragIk_ = false;
     dragU0_ = 0;
@@ -597,11 +598,14 @@ const amr::sensor::LidarScan& ModelViewer::ScanLidar() {
     }
     lidar_.Scan(pose, targets.data(), targets.size(), &lidarScan_);
     lidarOrigin_ = pose.O();
+    const dhVector ex = pose * dhVector(1.0f, 0.0f, 0.0f);
+    lidarHeading_ = atan2f(ex.y - lidarOrigin_.y, ex.x - lidarOrigin_.x);
     return lidarScan_;
 }
 
 void ModelViewer::drawLidar() {
     const amr::sensor::LidarScan& scan = ScanLidar();
+    emit lidarScanned(scan, lidarOrigin_, lidarHeading_);
     amr::Array<float> beams, pts;
     for (size_t i = 0; i < scan.size(); i++) {
         if (!scan.IsHit(i)) continue;

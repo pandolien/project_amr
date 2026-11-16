@@ -120,6 +120,7 @@ signals:
     void modelChanged();
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
     void jointValuesDragged(const amr::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
+    void lidarScanned(const amr::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
     void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
     void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
@@ -193,6 +194,7 @@ private:
     amr::sensor::Lidar lidar_;
     amr::sensor::LidarScan lidarScan_;
     dhVector lidarOrigin_;  // 마지막 스캔의 센서 원점 (월드)
+    float lidarHeading_;    // 마지막 스캔에서 센서 +x 가 월드 xy 평면에서 향한 각 (rad)
     int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2
     bool dragIk_;          // 그 끌기가 IK(관절 값 변경)인가, 아니면 물체 이동인가
     QVector3D dragIkOrigin_;  // IK 끌기를 시작한 순간의 좌표계 원점/축 (월드)

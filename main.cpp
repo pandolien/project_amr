@@ -338,6 +338,7 @@ int PrintInfo(const Options& o) {
 #include "CDynamics/Dynamics.h"
 #include "3d/dhPose.h"
 #include "CoreQt/JointPanel.h"
+#include "CoreQt/LidarPlot.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
 
@@ -535,6 +536,13 @@ public:
         ls.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
         ls.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
         viewer_->SetLidar(li, ls, dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]));
+        if (!lidarPlot_) {  // 스캔 그래프 (화면 아래 도크). 뷰어가 스캔할 때마다 갱신된다
+            lidarPlot_ = new LidarPlot;
+            QDockWidget* d = new QDockWidget(QString::fromUtf8("라이다"), this);
+            d->setWidget(lidarPlot_);
+            addDockWidget(Qt::RightDockWidgetArea, d);
+            QObject::connect(viewer_, &ModelViewer::lidarScanned, lidarPlot_, &LidarPlot::SetScan);
+        }
     }
 
     void applyMove(const Options& o) {
@@ -717,6 +725,7 @@ private:
     }
 
     ModelViewer* viewer_;
+    LidarPlot* lidarPlot_ = nullptr;
     JointPanel* panel_;
     QDockWidget* dock_;
     StructurePanel* tree_;
