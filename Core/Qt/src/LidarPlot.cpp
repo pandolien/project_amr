@@ -51,7 +51,7 @@ void LidarPlot::paintEvent(QPaintEvent*) {
     p.setFont(f);
     if (!has_ || scan_.size() == 0) {
         p.setPen(kInk2);
-        p.drawText(rect(), Qt::AlignCenter, QString::fromUtf8("라이다 스캔 없음"));
+        p.drawText(rect(), Qt::AlignCenter, QString::fromUtf8("라이다 스캔 없음 (광선 0개)"));
         return;
     }
 

@@ -94,6 +94,8 @@ public:
     void SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount = dhMat());
     void ClearLidar();
     bool LidarEnabled() const { return lidarOn_; }
+    dhVector LidarOrigin() const { return lidarOrigin_; }  // 마지막 스캔의 센서 원점/방향각 (ScanLidar 뒤에 유효)
+    float LidarHeading() const { return lidarHeading_; }
     const amr::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
     void SetObjectPosition(float x, float y, float z);
     dhVector ObjectPosition() const;

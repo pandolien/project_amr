@@ -542,6 +542,14 @@ public:
             d->setWidget(lidarPlot_);
             addDockWidget(Qt::RightDockWidgetArea, d);
             QObject::connect(viewer_, &ModelViewer::lidarScanned, lidarPlot_, &LidarPlot::SetScan);
+            // 3D 화면이 그려지는지와 상관없이 그래프가 나오도록, 0.1 초마다 직접 스캔해서 갱신한다
+            QTimer* t = new QTimer(this);
+            QObject::connect(t, &QTimer::timeout, this, [this]() {
+                if (!viewer_->LidarEnabled()) return;
+                const amr::sensor::LidarScan& sc = viewer_->ScanLidar();
+                lidarPlot_->SetScan(sc, viewer_->LidarOrigin(), viewer_->LidarHeading());
+            });
+            t->start(100);
         }
     }
 
