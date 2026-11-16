@@ -121,8 +121,8 @@ void LidarPlot::paintEvent(QPaintEvent*) {
         if (d < best) { best = d; ch = c; }
     }
     const size_t n = scan_.azimuthCount;
-    const double a0 = scan_.angleMin * 180.0 / M_PI;
-    const double a1 = (scan_.angleMin + scan_.angleIncrement * static_cast<float>(n > 0 ? n - 1 : 0)) * 180.0 / M_PI;
+    const double a0 = scan_.angleMin * 180.0 / dhPI;
+    const double a1 = (scan_.angleMin + scan_.angleIncrement * static_cast<float>(n > 0 ? n - 1 : 0)) * 180.0 / dhPI;
     const double rMax = qMax(1.0, maxR * 1.1);
     auto plotPx = [&](double deg, double r) {
         const double u = a1 > a0 ? (deg - a0) / (a1 - a0) : 0.5;
@@ -150,7 +150,7 @@ void LidarPlot::paintEvent(QPaintEvent*) {
     for (size_t k = 0; k < n; k++) {
         const size_t i = ch * n + k;
         if (!scan_.IsHit(i)) { pen = false; continue; }
-        const QPointF q = plotPx((scan_.angleMin + scan_.angleIncrement * static_cast<float>(k)) * 180.0 / M_PI, scan_.ranges[i]);
+        const QPointF q = plotPx((scan_.angleMin + scan_.angleIncrement * static_cast<float>(k)) * 180.0 / dhPI, scan_.ranges[i]);
         if (pen) path.lineTo(q);
         else path.moveTo(q);
         pen = true;
