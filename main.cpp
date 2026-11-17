@@ -349,6 +349,7 @@ int PrintInfo(const Options& o) {
 #include <QDragEnterEvent>
 #include <QFileDialog>
 #include <QInputDialog>
+#include "CoreQt/SelectionOverlay.h"
 #include <QLineEdit>
 #include <QLabel>
 #include <QMainWindow>
@@ -422,6 +423,13 @@ public:
         dock_->setWidget(panel_);
         addDockWidget(Qt::RightDockWidgetArea, dock_);
         dock_->hide();
+        overlay_ = new SelectionOverlay(viewer_);   // 클릭한 물체 옆에 뜨는 정보 + 관절 슬라이더 (3D 화면 위)
+        QObject::connect(overlay_, &SelectionOverlay::valueEdited, this, [this](const QString& name, double value) {
+            panel_->SetValue(name, value);   // 관절 패널이 값을 들고 있다: 바꾸면 3D 화면, 토크, 시뮬레이션이 같이 갱신된다
+        });
+        QTimer* overlayTimer = new QTimer(this);   // 카메라가 움직여도 물체 옆을 따라다니게 한다
+        QObject::connect(overlayTimer, &QTimer::timeout, this, [this]() { placeOverlay(); });
+        overlayTimer->start(40);
         QObject::connect(panel_, &JointPanel::valueEdited, this, [this](const QString& name, double value) {
             if (motorsOff_) sim_.SetValue(simulqt::FromQ(name), value);  // 손으로 옮긴 관절은 속도를 0 으로 다시 시작
         });
@@ -516,6 +524,9 @@ public:
         structure->setText(QString::fromUtf8("구조 트리"));
         structure->setShortcut(Qt::Key_T);
         view->insertAction(viewSep, structure);
+        QAction* jointDock = dock_->toggleViewAction();   // 오른쪽 관절 도크는 기본으로 숨긴다 (슬라이더는 클릭한 물체 옆 오버레이에 나온다)
+        jointDock->setText(QString::fromUtf8("관절 도크 (전체 관절)"));
+        view->insertAction(viewSep, jointDock);
         QAction* frame = new QAction(QString::fromUtf8("선택 좌표계"), this);
         view->insertAction(viewSep, frame);
         frame->setShortcut(Qt::Key_G);
@@ -894,7 +905,71 @@ private:
     }
 
     // 선택한 것의 이름과 자세 (루트 링크 기준, 위치 m, 사람에게는 RPY degree, 데이터는 쿼터니언)
+    // 선택한 물체의 정보와, 그것을 움직이는 관절 슬라이더로 오버레이를 채운다.
+    // 링크의 부모 관절이 움직이면 그 관절 하나, 모델의 루트 링크면 그 모델의 모든 관절.
+    void refreshOverlay() {
+        const int link = viewer_->SelectedLink();
+        const simul::urdf::Robot& robot = viewer_->Robot();
+        if (!viewer_->HasRobot() || link < 0 || static_cast<size_t>(link) >= robot.links.size()) {
+            overlay_->hide();
+            overlayLink_ = -1;
+            return;
+        }
+        overlayLink_ = link;
+        const simul::String& lname = robot.links[static_cast<size_t>(link)].name;
+        const int model = viewer_->ModelOfLink(link);
+        QVector<SelectionOverlay::Joint> joints;
+        QString jointNote;
+        const simul::Array<int> act = robot.ActuatedJoints();
+        for (size_t k = 0; k < act.size(); k++) {
+            const simul::urdf::Joint& j = robot.joints[static_cast<size_t>(act[k])];
+            const bool mine = viewer_->ModelOfRoot(link) >= 0 ? viewer_->ModelOfLink(robot.FindLink(j.child)) == model : j.child == lname;
+            if (!mine) continue;
+            SelectionOverlay::Joint o;
+            o.name = simulqt::ToQ(j.name);
+            o.angular = j.IsAngular();
+            const bool unlimited = j.type == simul::urdf::kJointContinuous || !j.hasLimit;
+            o.lower = unlimited ? (o.angular ? -3.14159265358979 : -1.0) : static_cast<double>(j.lower);
+            o.upper = unlimited ? (o.angular ? 3.14159265358979 : 1.0) : static_cast<double>(j.upper);
+            const simul::urdf::JointValues& q = viewer_->CurrentJointValues();
+            const simul::urdf::JointValues::const_iterator it = q.find(j.name);
+            o.value = it == q.end() ? 0.0 : static_cast<double>(it->second);
+            joints.push_back(o);
+        }
+        QString title = simulqt::ToQ(lname);
+        overlay_->SetContent(title, overlayInfo(link), joints);
+        overlay_->show();
+        placeOverlay();
+    }
+
+    QString overlayInfo(int link) const {
+        dhMat f;
+        if (!viewer_->SelectedFrame(&f)) return QString();
+        const dhPose pose = dhPose::FromMat(f).Normalized();
+        const simul::units::RpyDeg r = simul::units::RpyDegFromQuat(pose.orientation);
+        QString model = viewer_->ModelName(viewer_->ModelOfLink(link));
+        QString s = QString::fromUtf8("모델 %1<br>위치 %2, %3, %4 m<br>RPY %5°, %6°, %7°")
+                        .arg(model.isEmpty() ? QString("-") : model)
+                        .arg(static_cast<double>(pose.position.x), 0, 'f', 3).arg(static_cast<double>(pose.position.y), 0, 'f', 3).arg(static_cast<double>(pose.position.z), 0, 'f', 3)
+                        .arg(r.roll, 0, 'f', 1).arg(r.pitch, 0, 'f', 1).arg(r.yaw, 0, 'f', 1);
+        if (viewer_->CanMoveSelection()) s += QString::fromUtf8("<br>화살표: 이동, 링: 회전");
+        else if (viewer_->CanIkSelection()) s += QString::fromUtf8("<br>화살표를 끌면 관절이 따라옵니다");
+        return s;
+    }
+
+    void placeOverlay() {
+        if (!overlay_ || !overlay_->isVisible()) return;
+        QPoint p;
+        if (!viewer_->SelectionScreenPos(&p)) return;
+        overlay_->PlaceNear(p);
+    }
+
     void updateSelectionLabel() {
+        if (viewer_->SelectedLink() != overlayLink_) refreshOverlay();   // 선택이 바뀌면 내용을 새로 채운다
+        else if (overlay_ && overlay_->isVisible()) {                    // 같은 물체면 자세 숫자와 슬라이더 위치만 갱신
+            overlay_->SetInfo(overlayInfo(overlayLink_));
+            overlay_->ShowValues(viewer_->CurrentJointValues());
+        }
         dhMat f;
         if (!viewer_->SelectedFrame(&f)) {
             statusBar()->showMessage(infoMessage_);
@@ -977,7 +1052,6 @@ private:
                 panel_->blockSignals(false);
             }
             updateTorques();
-            dock_->setVisible(!panel_->IsEmpty());
         } else {
             if (viewer_->HasScene()) tree_->SetScene(viewer_->StaticScene());
             else tree_->Clear();
@@ -1008,6 +1082,8 @@ private:
     LidarPlot* lidarPlot_ = nullptr;
     QDockWidget* lidarDock_ = nullptr;
     JointPanel* panel_;
+    SelectionOverlay* overlay_ = nullptr;
+    int overlayLink_ = -1;   // 오버레이가 지금 보여주는 링크
     QDockWidget* dock_;
     StructurePanel* tree_;
     QDockWidget* treeDock_;

@@ -645,6 +645,15 @@ bool ModelViewer::ensureComposite() {
     return true;
 }
 
+bool ModelViewer::SelectionScreenPos(QPoint* out) const {
+    dhMat f;
+    if (!SelectedFrame(&f) || width() <= 0 || height() <= 0) return false;
+    const QVector4D c = projMatrix() * viewMatrix() * QVector4D(ToQt(f).column(3).toVector3D(), 1.0f);
+    if (c.w() <= 0.0f) return false;  // 카메라 뒤
+    if (out) *out = QPoint(static_cast<int>((c.x() / c.w() * 0.5f + 0.5f) * static_cast<float>(width())), static_cast<int>((1.0f - (c.y() / c.w() * 0.5f + 0.5f)) * static_cast<float>(height())));
+    return true;
+}
+
 bool ModelViewer::CanRotateSelection() const {
     return showFrame_ && hasRobot_ && selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;
 }

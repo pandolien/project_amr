@@ -54,6 +54,7 @@ public:
     void ModelPlacement6(int index, float v[6]) const;
     void SetModelPose(int index, const dhMat& pose);
     dhMat ModelPose(int index) const;
+    bool SelectionScreenPos(QPoint* out) const;   // 선택한 것의 원점이 3D 화면 어디에 보이는가 (화면 안이 아니어도 값은 나온다)
     bool CanRotateSelection() const;
     bool worldAxes() const { return !ringLocal_ && CanRotateSelection(); }  // 화살표와 링을 월드 축에 둔다
     void SetRingLocal(bool local) { ringLocal_ = local; update(); }   // 회전 링을 월드 축(기본)/오브젝트 축에 붙인다
