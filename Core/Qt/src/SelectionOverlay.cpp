@@ -7,7 +7,7 @@
 #include "CBase/Util.h"
 #include "3d/Units.h"
 
-SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), title_(nullptr), info_(nullptr), rowsBox_(nullptr) {
+SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), moved_(false), dragging_(false), title_(nullptr), info_(nullptr), rowsBox_(nullptr) {
     setObjectName("selectionOverlay");
     setStyleSheet(
         "#selectionOverlay { background: rgba(28, 30, 38, 225); border: 1px solid rgba(255,255,255,70); border-radius: 8px; }"
@@ -29,6 +29,7 @@ SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), title_(nul
     lay->addWidget(title_);
     lay->addWidget(info_);
     lay->addWidget(rowsBox_);
+    setCursor(Qt::SizeAllCursor);
     hide();
 }
 
@@ -49,6 +50,7 @@ void SelectionOverlay::SetContent(const QString& title, const QString& info, con
         name->setStyleSheet("font-size: 11px;");
         r.slider = new QSlider(Qt::Horizontal, rowsBox_);
         r.slider->setRange(0, kSteps);
+        r.slider->setCursor(Qt::ArrowCursor);
         r.value = new QLabel(rowsBox_);
         r.value->setMinimumWidth(64);
         r.value->setAlignment(Qt::AlignRight);
@@ -106,13 +108,43 @@ void SelectionOverlay::ShowValues(const simul::urdf::JointValues& q) {
     }
 }
 
+void SelectionOverlay::mousePressEvent(QMouseEvent* e) {
+    if (e->button() == Qt::LeftButton) {
+        dragging_ = true;
+        grab_ = e->pos();
+        e->accept();
+    }
+}
+
+void SelectionOverlay::mouseMoveEvent(QMouseEvent* e) {
+    if (!dragging_ || !parentWidget()) return;
+    const QRect area = parentWidget()->rect().adjusted(6, 6, -6, -6);
+    QPoint p = mapToParent(e->pos()) - grab_;
+    p.setX(simul::Max(area.left(), simul::Min(p.x(), area.right() - width())));
+    p.setY(simul::Max(area.top(), simul::Min(p.y(), area.bottom() - height())));
+    move(p);
+    offset_ = p - anchor_;   // 물체 기준 상대 위치로 기억한다
+    moved_ = true;
+}
+
+void SelectionOverlay::mouseReleaseEvent(QMouseEvent*) {
+    dragging_ = false;
+}
+
 void SelectionOverlay::PlaceNear(const QPoint& anchor) {
-    if (!parentWidget()) return;
+    anchor_ = anchor;
+    if (dragging_ || !parentWidget()) return;   // 끌고 있는 동안에는 손을 따른다
     adjustSize();
     const QRect area = parentWidget()->rect().adjusted(6, 6, -6, -6);
-    int x = anchor.x() + 28;
-    int y = anchor.y() - height() / 2;
-    if (x + width() > area.right()) x = anchor.x() - 28 - width();   // 오른쪽이 모자라면 왼쪽에 놓는다
+    int x, y;
+    if (moved_) {
+        x = anchor.x() + offset_.x();
+        y = anchor.y() + offset_.y();
+    } else {
+        x = anchor.x() + 28;
+        y = anchor.y() - height() / 2;
+        if (x + width() > area.right()) x = anchor.x() - 28 - width();   // 오른쪽이 모자라면 왼쪽에 놓는다
+    }
     x = simul::Max(area.left(), simul::Min(x, area.right() - width()));
     y = simul::Max(area.top(), simul::Min(y, area.bottom() - height()));
     if (pos() != QPoint(x, y)) move(x, y);

@@ -3,6 +3,7 @@
 
 #include <QFrame>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPoint>
 #include <QSlider>
 #include <QString>
@@ -31,9 +32,16 @@ public:
     void ShowValues(const simul::urdf::JointValues& q);
     void PlaceNear(const QPoint& anchor);   // anchor(부모 좌표) 오른쪽에 놓고, 부모 안에 들어오게 민다
     bool HasJoints() const { return !rows_.isEmpty(); }
+    void ResetOffset() { moved_ = false; }   // 끌어서 옮긴 자리를 잊고 기본 자리(물체 오른쪽)로 돌아간다
 
 signals:
     void valueEdited(const QString& jointName, double value);
+
+protected:
+    // 슬라이더 말고 패널의 아무 곳이나 잡고 끌면 옮길 수 있다. 옮긴 자리는 물체 기준 상대 위치로 기억해서 물체를 계속 따라다닌다.
+    void mousePressEvent(QMouseEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
+    void mouseReleaseEvent(QMouseEvent* e) override;
 
 private:
     struct Row {
@@ -46,6 +54,11 @@ private:
     void setSlider(Row& r, double v);
     void updateLabel(Row& r);
 
+    bool moved_;           // 사용자가 끌어서 옮겼는가
+    QPoint offset_;        // 옮겼다면 물체 위치 기준 상대 위치
+    QPoint anchor_;        // 마지막으로 받은 물체 위치
+    QPoint grab_;          // 끌기 시작 때 패널 안에서 잡은 점
+    bool dragging_;
     QLabel* title_;
     QLabel* info_;
     QWidget* rowsBox_;
