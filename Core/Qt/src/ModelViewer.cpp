@@ -21,23 +21,102 @@ const char* kVertexShader =
     "uniform mat4 uMVP;\n"
     "uniform mat4 uModelView;\n"
     "varying vec3 vN;\n"
+    "varying vec3 vP;\n"
     "void main() {\n"
-    "    vN = mat3(uModelView) * aNormal;\n"
+    "    vN = mat3(uModelView) * aNormal;\n"        // 법선을 카메라 좌표로
+    "    vP = (uModelView * vec4(aPos, 1.0)).xyz;\n"  // 위치를 카메라 좌표로 (시선 방향 V 를 구하려고)
     "    gl_Position = uMVP * vec4(aPos, 1.0);\n"
     "}\n";
 
-// 카메라 방향 조명 + 보조광. 양면 렌더링을 위해 뒷면은 법선을 뒤집는다.
+// 조명 방식을 uShading 으로 고른다: 0 = Lambert, 1 = Blinn-Phong, 2 = PBR (Cook-Torrance GGX).
+// 모든 계산은 카메라 좌표에서 한다 (카메라 위치가 원점, 카메라가 -z 쪽을 본다). 빛 두 개는 카메라에 고정이라 화면을 돌려도 입체감이 같다.
+// 약어: N 법선, V 표면에서 카메라로 가는 방향, L 표면에서 빛으로 가는 방향, H = normalize(L + V) 하프벡터.
 const char* kFragmentShader =
     "#version 120\n"
-    "uniform vec4 uColor;\n"
-    "uniform float uLit;\n"
+    "uniform vec4 uColor;\n"      // 재질 색 (알파 포함)
+    "uniform float uLit;\n"       // 0 이면 조명 없이 uColor 그대로 (광선, 좌표축 같은 것)
+    "uniform int uShading;\n"     // 0 Lambert, 1 Blinn-Phong, 2 PBR
+    "uniform float uMetal;\n"     // 금속성 0..1 (PBR)
+    "uniform float uRough;\n"     // 거칠기 0..1 (Blinn-Phong 은 광택도로 바꿔 쓴다)
+    "uniform vec3 uUp;\n"         // 월드 +z 를 카메라 좌표로 (주변 환경의 위/아래)
     "varying vec3 vN;\n"
+    "varying vec3 vP;\n"
+    "const float PI = 3.14159265;\n"
+    "\n"
+    // ---- PBR 의 세 항 ----
+    // D: 표면의 미세한 면들이 H 쪽을 향한 비율 (GGX). 거칠수록 넓게 퍼지고, 매끈할수록 좁고 밝은 점이 된다.
+    "float D_GGX(float NdH, float a2) {\n"
+    "    float d = NdH * NdH * (a2 - 1.0) + 1.0;\n"
+    "    return a2 / (PI * d * d);\n"
+    "}\n"
+    // G: 미세한 면끼리 서로 빛/시선을 가리는 정도 (Schlick-GGX 를 빛 쪽과 시선 쪽에 한 번씩 곱한 Smith 방식)
+    "float G_Smith(float NdL, float NdV, float rough) {\n"
+    "    float k = (rough + 1.0) * (rough + 1.0) / 8.0;\n"
+    "    return (NdL / (NdL * (1.0 - k) + k)) * (NdV / (NdV * (1.0 - k) + k));\n"
+    "}\n"
+    // F: 보는 각도가 비스듬할수록 반사가 강해지는 Fresnel (Schlick 근사). F0 은 정면에서 본 반사율.
+    "vec3 F_Schlick(float cosT, vec3 F0) {\n"
+    "    return F0 + (1.0 - F0) * pow(1.0 - cosT, 5.0);\n"
+    "}\n"
+    // 주변 환경: 아래는 어둡고 위는 밝은 하늘. 월드 위쪽(uUp)을 기준으로 방향마다 색을 돌려준다.
+    "vec3 envColor(vec3 dir) {\n"
+    "    float t = dot(dir, uUp) * 0.5 + 0.5;\n"
+    "    vec3 ground = vec3(0.10, 0.10, 0.11);\n"
+    "    vec3 horizon = vec3(0.55, 0.57, 0.60);\n"
+    "    vec3 sky = vec3(0.80, 0.88, 1.00);\n"
+    "    return t < 0.5 ? mix(ground, horizon, t * 2.0) : mix(horizon, sky, (t - 0.5) * 2.0);\n"
+    "}\n"
+    // 빛 하나가 만드는 색: (난반사 + 정반사) x 빛 세기 x cos(N, L)
+    "vec3 pbrLight(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, vec3 F0, float rough, float metal) {\n"
+    "    vec3 H = normalize(L + V);\n"
+    "    float NdL = max(dot(N, L), 0.0);\n"
+    "    float NdV = max(dot(N, V), 1e-3);\n"
+    "    float NdH = max(dot(N, H), 0.0);\n"
+    "    float VdH = max(dot(V, H), 0.0);\n"
+    "    float a = rough * rough;\n"
+    "    vec3 F = F_Schlick(VdH, F0);\n"
+    "    vec3 spec = D_GGX(NdH, a * a) * G_Smith(NdL, NdV, rough) * F / (4.0 * NdL * NdV + 1e-4);\n"
+    "    vec3 diff = (1.0 - F) * (1.0 - metal) * albedo / PI;\n"   // 반사되고 남은 빛만 난반사, 금속은 난반사가 없다
+    "    return (diff + spec) * radiance * NdL;\n"
+    "}\n"
+    "\n"
     "void main() {\n"
-    "    vec3 n = normalize(vN);\n"
-    "    if (!gl_FrontFacing) n = -n;\n"
-    "    float l = 0.30 + 0.55 * max(dot(n, vec3(0.0, 0.0, 1.0)), 0.0)\n"
-    "                   + 0.30 * max(dot(n, normalize(vec3(-0.5, 0.7, 0.5))), 0.0);\n"
-    "    gl_FragColor = vec4(uColor.rgb * mix(1.0, min(l, 1.2), uLit), uColor.a);\n"
+    "    if (uLit < 0.5) { gl_FragColor = uColor; return; }\n"
+    "    vec3 N = normalize(vN);\n"
+    "    if (!gl_FrontFacing) N = -N;\n"                     // 양면 렌더링: 뒷면은 법선을 뒤집는다
+    "    vec3 V = normalize(-vP);\n"
+    "    vec3 col;\n"
+    "    if (uShading == 0) {\n"
+    // Lambert: 주변광 + cos(N, 빛) 두 개 (카메라 방향 빛, 보조광)
+    "        float l = 0.30 + 0.55 * max(dot(N, vec3(0.0, 0.0, 1.0)), 0.0)\n"
+    "                       + 0.30 * max(dot(N, normalize(vec3(-0.5, 0.7, 0.5))), 0.0);\n"
+    "        col = uColor.rgb * min(l, 1.2);\n"
+    "    } else if (uShading == 1) {\n"
+    // Blinn-Phong: Lambert + 하이라이트. 거칠기를 광택도로 바꿔 쓴다 (매끈할수록 작고 밝은 점)
+    "        vec3 L1 = normalize(vec3(-0.3, 0.6, 0.75));\n"
+    "        vec3 L2 = normalize(vec3(0.6, -0.2, 0.5));\n"
+    "        float shin = clamp(2.0 / (uRough * uRough + 0.001) - 1.0, 4.0, 400.0);\n"
+    "        float d = 0.25 + 0.65 * max(dot(N, L1), 0.0) + 0.25 * max(dot(N, L2), 0.0);\n"
+    "        float s = pow(max(dot(N, normalize(L1 + V)), 0.0), shin) * 0.45 * step(0.0, dot(N, L1));\n"
+    "        col = uColor.rgb * min(d, 1.2) + vec3(s);\n"
+    "    } else {\n"
+    // PBR. 재질 색은 sRGB 이므로 먼저 선형으로 바꾸고, 계산한 뒤 톤매핑과 감마로 화면 값으로 돌려놓는다.
+    "        vec3 albedo = pow(uColor.rgb, vec3(2.2));\n"
+    "        float rough = clamp(uRough, 0.05, 1.0);\n"
+    "        float metal = clamp(uMetal, 0.0, 1.0);\n"
+    "        vec3 F0 = mix(vec3(0.04), albedo, metal);\n"      // 비금속 반사율은 4%, 금속은 자기 색이 곧 반사색
+    "        float NdV = max(dot(N, V), 1e-3);\n"
+    "        vec3 c = pbrLight(normalize(vec3(-0.3, 0.6, 0.75)), vec3(2.4), N, V, albedo, F0, rough, metal);\n"   // 주광
+    "        c += pbrLight(normalize(vec3(0.6, -0.2, 0.5)), vec3(0.9, 0.95, 1.1), N, V, albedo, F0, rough, metal);\n"  // 보조광
+    // 주변광: 난반사는 법선 쪽 환경색, 정반사는 반사 방향의 환경색 (거칠수록 흐려져 법선 쪽 색과 섞는다)
+    "        vec3 R = reflect(-V, N);\n"
+    "        vec3 envSpec = mix(envColor(R), envColor(N), rough);\n"
+    "        vec3 Fe = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - NdV, 5.0);\n"
+    "        c += (1.0 - metal) * albedo * (1.0 - Fe) * envColor(N) * 0.30 + Fe * envSpec * 0.55;\n"
+    "        c = c * (1.0 + c / 16.0) / (1.0 + c);\n"        // 밝은 부분이 하얗게 날아가지 않게 누르는 톤매핑 (Reinhard)
+    "        col = pow(c, vec3(1.0 / 2.2));\n"
+    "    }\n"
+    "    gl_FragColor = vec4(col, uColor.a);\n"
     "}\n";
 
 QMatrix4x4 ToQt(const dhMat& m) {
@@ -51,6 +130,8 @@ void Transform(const dhMat& m, const float* p, float* o) {
 }
 
 const float kDefaultColor[4] = {0.72f, 0.74f, 0.78f, 1.0f};
+const float kDefaultMetal = 0.0f;   // glTF 재질이 없는 모델(URDF 기본 도형, STL 등)의 기본 PBR 값
+const float kDefaultRough = 0.45f;
 
 }  // namespace
 
@@ -64,6 +145,7 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragged_ = false;
     lidarOn_ = false;
     lidarDraw_ = true;
+    shading_ = 2;
     lidarLink_ = -1;
     lidarHeading_ = 0.0f;
     dragAxis_ = -1;
@@ -156,11 +238,15 @@ void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local
             it->indices = prim.indices;
             it->base = local * world[n];
             it->link = link;
+            it->metallic = kDefaultMetal;
+            it->roughness = kDefaultRough;
             if (colorOverride) {
                 for (int k = 0; k < 4; k++) it->color[k] = colorOverride[k];
             } else if (prim.material >= 0 && static_cast<size_t>(prim.material) < scene.materials.size()) {
-                const amr::Color& c = scene.materials[static_cast<size_t>(prim.material)].baseColor;
-                it->color[0] = c.r; it->color[1] = c.g; it->color[2] = c.b; it->color[3] = c.a;
+                const amr::Material& m = scene.materials[static_cast<size_t>(prim.material)];
+                it->color[0] = m.baseColor.r; it->color[1] = m.baseColor.g; it->color[2] = m.baseColor.b; it->color[3] = m.baseColor.a;
+                it->metallic = m.metallic;   // glTF 파일의 PBR 재질 값을 그대로 쓴다
+                it->roughness = m.roughness;
             } else {
                 for (int k = 0; k < 4; k++) it->color[k] = kDefaultColor[k];
             }
@@ -657,6 +743,13 @@ void ModelViewer::paintGL() {
 
     prog_->bind();
     prog_->setUniformValue("uLit", 0.0f);
+    prog_->setUniformValue("uShading", shading_);
+    prog_->setUniformValue("uMetal", kDefaultMetal);
+    prog_->setUniformValue("uRough", kDefaultRough);
+    {   // 월드 위쪽(+z)이 카메라 좌표에서 어느 쪽인지 (PBR 의 하늘/바닥 환경)
+        const QVector3D up = view.mapVector(QVector3D(0.0f, 0.0f, 1.0f)).normalized();
+        prog_->setUniformValue("uUp", up);
+    }
 
     // 격자와 축 (조명 없음)
     {
@@ -736,6 +829,8 @@ void ModelViewer::paintGL() {
                 col.setW(it.color[3]);
             }
             prog_->setUniformValue("uColor", col);
+            prog_->setUniformValue("uMetal", it.metallic);
+            prog_->setUniformValue("uRough", it.roughness);
             it.vbo.bind();
             it.ibo.bind();
             prog_->enableAttributeArray(0);

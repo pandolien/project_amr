@@ -314,3 +314,11 @@ std::vector<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContr
 | LAPACK (Linux: liblapack, Windows: clapack) | CMat (SVD, 역행렬) | modified BSD |
 | cgltf 1.15 | GLB/glTF 읽기 (`third_party/cgltf`, 수정 없이 포함) | MIT |
 | tinyxml2 | URDF, COLLADA 의 XML 읽기 (Linux: apt 동적 링크, 없으면 `third_party/tinyxml2` 포함본 10.0.0) | zlib |
+
+## 조명 방식 (셰이더)
+
+뷰어의 셰이더(`Core/Qt/src/ModelViewer.cpp` 위쪽, GLSL 1.20)에는 세 가지 조명 방식이 들어 있고, 실행 중에 `보기 -> 조명 방식` 에서 고르거나 `--shading lambert|phong|pbr` 로 정합니다. 기본은 PBR 입니다.
+
+- Lambert: 주변광 + 난반사(cos). 무광.
+- Blinn-Phong: Lambert + 하이라이트(하프벡터와 광택도).
+- PBR: Cook-Torrance (D: GGX, G: Smith, F: Schlick) + 하늘/바닥 그라데이션 환경 반사. 재질은 금속성/거칠기 두 값이며, glTF 파일에 있으면 그 값을 쓰고 없으면(URDF 기본 도형, STL 등) 금속성 0, 거칠기 0.45 입니다. 셰이더에 항마다 한국어 주석이 있습니다.

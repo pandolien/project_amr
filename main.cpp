@@ -33,6 +33,7 @@ void InitConsole() {
 
 struct Options {
     amr::String file;
+    int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
     bool obb;                  // OBB 충돌 박스를 처음부터 표시
@@ -57,7 +58,7 @@ struct Options {
     amr::Array<amr::Pair<amr::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     amr::Array<amr::Pair<amr::String, amr::String> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : shading(2), info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
@@ -86,6 +87,7 @@ void PrintUsage(const char* exe) {
         "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
+        "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
         "                     센서가 붙은 링크 자신을 뺀 나머지 메시를 스캔하고, 맞은 점 수와 거리 범위를 출력\n"
@@ -149,6 +151,14 @@ int ParseArgs(int argc, char** argv, Options* o) {
                 fprintf(stderr, "--lidar-channels 는 개수,최소고각,최대고각 형식입니다 (예: 16,-15,15)\n");
                 return false;
             }
+            continue;
+        }
+        if (a == "--shading" && hasNext) {
+            const amr::String v = argv[++i];
+            if (v == "lambert") o->shading = 0;
+            else if (v == "phong") o->shading = 1;
+            else if (v == "pbr") o->shading = 2;
+            else { fprintf(stderr, "--shading 은 lambert, phong, pbr 중 하나입니다: %s\n", v.c_str()); return false; }
             continue;
         }
         if (a == "--lidar-csv" && hasNext) { o->lidarCsv = argv[++i]; continue; }
@@ -316,6 +326,7 @@ int PrintInfo(const Options& o) {
 #include <QAction>
 #include <QApplication>
 #include <QMouseEvent>
+#include <QActionGroup>
 #include <QDockWidget>
 #include <QMenu>
 #include <QDragEnterEvent>
@@ -419,6 +430,17 @@ public:
         QAction* fit = view->addAction(QString::fromUtf8("화면에 맞춤"));
         fit->setShortcut(Qt::Key_F);
         QObject::connect(fit, &QAction::triggered, viewer_, &ModelViewer::FitView);
+        QMenu* shadeMenu = view->addMenu(QString::fromUtf8("조명 방식"));
+        QActionGroup* shadeGroup = new QActionGroup(this);
+        const char* shadeNames[3] = {"Lambert (무광)", "Blinn-Phong (하이라이트)", "PBR (물리 기반)"};
+        for (int m = 0; m < 3; m++) {
+            QAction* sa = shadeMenu->addAction(QString::fromUtf8(shadeNames[m]));
+            sa->setCheckable(true);
+            sa->setChecked(m == cli_.shading);
+            shadeGroup->addAction(sa);
+            QObject::connect(sa, &QAction::triggered, this, [this, m]() { viewer_->SetShading(m); });
+        }
+        viewer_->SetShading(cli_.shading);
         QAction* grid = view->addAction(QString::fromUtf8("격자"));
         grid->setCheckable(true);
         grid->setChecked(true);

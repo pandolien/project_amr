@@ -95,6 +95,10 @@ public:
     void ClearLidar();
     bool LidarEnabled() const { return lidarOn_; }  // 센서가 달려 있는가 (스캔은 ScanLidar 로 언제든 할 수 있다)
     // 3D 화면에 광선(청록 선)과 맞은 점(빨간 십자)을 그릴지. SetLidar 직후는 true. 끄면 그리는 비용도 들지 않는다.
+    // 조명 방식: 0 = Lambert(무광), 1 = Blinn-Phong(하이라이트), 2 = PBR(물리 기반, 기본). 실행 중에 바꿀 수 있다.
+    enum Shading { kLambert = 0, kBlinnPhong = 1, kPbr = 2 };
+    void SetShading(int mode) { shading_ = (mode < 0 || mode > 2) ? 2 : mode; update(); }
+    int GetShading() const { return shading_; }
     void SetLidarDrawn(bool on) { lidarDraw_ = on; update(); }
     bool LidarDrawn() const { return lidarDraw_; }
     dhVector LidarOrigin() const { return lidarOrigin_; }  // 마지막 스캔의 센서 원점/방향각 (ScanLidar 뒤에 유효)
@@ -148,11 +152,14 @@ private:
         bool bvhOk;                     // 아래 BVH 를 만들었는가 (라이다 스캔 가속용, 처음 스캔할 때 만든다. 메시는 바뀌지 않는다)
         amr::TriangleBvh bvh;
         float color[4];
+        float metallic, roughness;      // PBR 재질 (glTF 에서 읽거나 기본값)
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
         Item() : link(-1), bvhOk(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer) {
             color[0] = color[1] = color[2] = 0.75f;
             color[3] = 1.0f;
+            metallic = 0.0f;
+            roughness = 0.45f;
         }
     };
 
@@ -195,6 +202,7 @@ private:
     dhVector objectPos_;   // 이동량 (월드, m)
     bool lidarOn_;
     bool lidarDraw_;
+    int shading_;
     int lidarLink_;
     dhMat lidarMount_;
     amr::sensor::Lidar lidar_;
