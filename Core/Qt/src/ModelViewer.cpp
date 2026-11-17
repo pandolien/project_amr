@@ -138,6 +138,7 @@ const float kDefaultRough = 0.45f;
 ModelViewer::ModelViewer(QWidget* parent)
     : QOpenGLWidget(parent), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-60.0f), pitch_(25.0f), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
+    setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
     selectedModel_ = false;
     showFrame_ = true;
@@ -155,6 +156,7 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragRingDir_ = QPointF(1, 0);
     dragRingPx_ = 100;
     ringLocal_ = false;
+    hoverRing_ = -1;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
@@ -422,7 +424,9 @@ void ModelViewer::SetFallEnabled(bool enabled) {
 void ModelViewer::SetGravity(double, double, double gz) { gravityZ_ = gz; }
 
 bool ModelViewer::StepFall(double dt) {
-    if (!fallEnabled_ || items_.empty() || dragAxis_ >= 0) {  // 끄는 동안에는 손이 붙잡고 있다
+    // 끄는 동안에는 손이 붙잡고 있다. world 아래에 모델을 올려 둔 장면(둘 이상이거나 회전한 모델)은 모델마다 자세를 attach 관절이 가지므로
+    // 장면 전체를 떨어뜨리지 않는다 (회전만 했는데 위치가 바뀌는 것을 막는다)
+    if (!fallEnabled_ || items_.empty() || dragAxis_ >= 0 || dragRing_ >= 0 || world_.Composite()) {
         fallVel_ = 0;
         return false;
     }
@@ -1020,8 +1024,12 @@ void ModelViewer::paintGL() {
 void ModelViewer::drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view) {
     dhMat f;
     if (!SelectedFrame(&f)) return;
-    const QMatrix4x4 frame = ToQt(f);
+    QMatrix4x4 frame = ToQt(f);
     const QVector3D origin = frame.column(3).toVector3D();
+    if (worldAxes()) {  // 위치만 쓰고 자세는 월드에 맞춘다
+        frame.setToIdentity();
+        frame.translate(origin);
+    }
     const QVector3D eye = view.inverted().column(3).toVector3D();
     const float s = simul::Max((eye - origin).length() * 0.14f, 1e-6f);
     glClear(GL_DEPTH_BUFFER_BIT);
@@ -1191,6 +1199,9 @@ bool ModelViewer::selectionGizmo(QVector3D* origin, QVector3D axis[3], float* sc
     const QMatrix4x4 frame = ToQt(f);
     *origin = frame.column(3).toVector3D();
     for (int i = 0; i < 3; i++) axis[i] = frame.column(i).toVector3D().normalized();
+    if (worldAxes()) {  // 모델을 돌려도 화살표가 따라 돌지 않게 월드 축에 고정한다 (오브젝트 축을 고르면 따라 돈다)
+        axis[0] = QVector3D(1, 0, 0); axis[1] = QVector3D(0, 1, 0); axis[2] = QVector3D(0, 0, 1);
+    }
     const QVector3D eye = viewMatrix().inverted().column(3).toVector3D();
     *scale = simul::Max((eye - *origin).length() * 0.14f, 1e-6f);  // drawSelectionFrame 과 같은 크기
     return true;
@@ -1297,7 +1308,7 @@ void ModelViewer::drawRings(const QMatrix4x4& proj, const QMatrix4x4& view) {
             pts[k][i1] = simul::Cos(t);
             pts[k][i2] = simul::Sin(t);
         }
-        prog_->setUniformValue("uColor", dragRing_ == axis ? QVector4D(1.0f, 0.95f, 0.3f, 1) : colors[axis]);
+        prog_->setUniformValue("uColor", (dragRing_ == axis || (dragRing_ < 0 && hoverRing_ == axis)) ? QVector4D(1.0f, 0.95f, 0.3f, 1) : colors[axis]);
         prog_->setAttributeArray(0, GL_FLOAT, pts, 3);
         glDrawArrays(GL_LINE_STRIP, 0, N + 1);
     }
@@ -1333,6 +1344,11 @@ int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
 }
 
 void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
+    if (e->buttons() == Qt::NoButton) {
+        const int hr = hitRing(e->pos(), nullptr);
+        if (hr != hoverRing_) { hoverRing_ = hr; update(); }
+        return;
+    }
     const QPoint d = e->pos() - lastPos_;
     lastPos_ = e->pos();
     if ((e->pos() - pressPos_).manhattanLength() > 4) dragged_ = true;
