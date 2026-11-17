@@ -322,3 +322,11 @@ std::vector<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContr
 - Lambert: 주변광 + 난반사(cos). 무광.
 - Blinn-Phong: Lambert + 하이라이트(하프벡터와 광택도).
 - PBR: Cook-Torrance (D: GGX, G: Smith, F: Schlick) + 하늘/바닥 그라데이션 환경 반사. 재질은 금속성/거칠기 두 값이며, glTF 파일에 있으면 그 값을 쓰고 없으면(URDF 기본 도형, STL 등) 금속성 0, 거칠기 0.45 입니다. 셰이더에 항마다 한국어 주석이 있습니다.
+
+## 상단 메뉴
+
+- 파일: 열기(Ctrl+O), 종료
+- 보기: 화면에 맞춤(F), 격자, 구조 트리(T), 선택 좌표계(G) | 조명 방식(Lambert, Blinn-Phong, PBR) | 충돌 박스(OBB 는 O, AABB 는 B)
+- 물리: 중력 방향, 중력 낙하, 모터 끄기(M) | 오브젝트 위치 초기화
+- 센서: 라이다(레이저 표시, 그래프 표시). 모델에 라이다가 없으면 꺼져 있습니다.
+- 도움말: 조작 방법(F1)

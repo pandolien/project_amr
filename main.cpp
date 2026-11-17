@@ -426,10 +426,18 @@ public:
         QAction* quit = file->addAction(QString::fromUtf8("종료"));
         quit->setShortcut(QKeySequence::Quit);
         QObject::connect(quit, &QAction::triggered, this, &QWidget::close);
-        QMenu* view = menuBar()->addMenu(QString::fromUtf8("보기"));
+        QMenu* view = menuBar()->addMenu(QString::fromUtf8("보기"));      // 화면에 보이는 것
+        QMenu* phys = menuBar()->addMenu(QString::fromUtf8("물리"));      // 중력, 모터, 낙하
+        QMenu* sensorMenu = menuBar()->addMenu(QString::fromUtf8("센서"));  // 라이다 표시
+        QMenu* help = menuBar()->addMenu(QString::fromUtf8("도움말"));
         QAction* fit = view->addAction(QString::fromUtf8("화면에 맞춤"));
         fit->setShortcut(Qt::Key_F);
         QObject::connect(fit, &QAction::triggered, viewer_, &ModelViewer::FitView);
+        QAction* grid = view->addAction(QString::fromUtf8("격자"));
+        grid->setCheckable(true);
+        grid->setChecked(true);
+        QObject::connect(grid, &QAction::toggled, viewer_, &ModelViewer::SetShowGrid);
+        QAction* viewSep = view->addSeparator();  // 위: 화면 요소, 아래: 조명/충돌 박스
         QMenu* shadeMenu = view->addMenu(QString::fromUtf8("조명 방식"));
         QActionGroup* shadeGroup = new QActionGroup(this);
         const char* shadeNames[3] = {"Lambert (무광)", "Blinn-Phong (하이라이트)", "PBR (물리 기반)"};
@@ -441,11 +449,7 @@ public:
             QObject::connect(sa, &QAction::triggered, this, [this, m]() { viewer_->SetShading(m); });
         }
         viewer_->SetShading(cli_.shading);
-        QAction* grid = view->addAction(QString::fromUtf8("격자"));
-        grid->setCheckable(true);
-        grid->setChecked(true);
-        QObject::connect(grid, &QAction::toggled, viewer_, &ModelViewer::SetShowGrid);
-        QAction* grav = view->addAction(QString::fromUtf8("중력 방향..."));
+        QAction* grav = phys->addAction(QString::fromUtf8("중력 방향..."));
         QObject::connect(grav, &QAction::triggered, this, [this]() {
             bool ok = false;
             const QString cur = QString("%1, %2, %3").arg(gravity_.x).arg(gravity_.y).arg(gravity_.z);
@@ -475,19 +479,20 @@ public:
         QAction* structure = treeDock_->toggleViewAction();
         structure->setText(QString::fromUtf8("구조 트리"));
         structure->setShortcut(Qt::Key_T);
-        view->addAction(structure);
-        QAction* frame = view->addAction(QString::fromUtf8("선택 좌표계"));
+        view->insertAction(viewSep, structure);
+        QAction* frame = new QAction(QString::fromUtf8("선택 좌표계"), this);
+        view->insertAction(viewSep, frame);
         frame->setShortcut(Qt::Key_G);
         frame->setCheckable(true);
         frame->setChecked(true);
         QObject::connect(frame, &QAction::toggled, viewer_, &ModelViewer::SetShowSelectionFrame);
-        QAction* fall = view->addAction(QString::fromUtf8("중력 낙하 (물체를 놓으면 떨어짐)"));
+        QAction* fall = phys->addAction(QString::fromUtf8("중력 낙하 (물체를 놓으면 떨어짐)"));
         fall->setCheckable(true);
         fall->setChecked(!o.noFall);
         viewer_->SetFallEnabled(!o.noFall);
         viewer_->SetGravity(gravity_.x, gravity_.y, gravity_.z);
         QObject::connect(fall, &QAction::toggled, viewer_, &ModelViewer::SetFallEnabled);
-        QAction* motors = view->addAction(QString::fromUtf8("모터 끄기 (관절이 중력에 처짐)"));
+        QAction* motors = phys->addAction(QString::fromUtf8("모터 끄기 (관절이 중력에 처짐)"));
         motors->setShortcut(Qt::Key_M);
         motors->setCheckable(true);
         simManual_ = o.simulate > 0;
@@ -501,20 +506,56 @@ public:
         });
         motorsOff_ = false;
         motors->setChecked(o.motorsOff);
-        QAction* resetPos = view->addAction(QString::fromUtf8("오브젝트 위치 초기화"));
+        phys->addSeparator();
+        QAction* resetPos = phys->addAction(QString::fromUtf8("오브젝트 위치 초기화"));
         QObject::connect(resetPos, &QAction::triggered, viewer_, [this]() { viewer_->ResetObjectPosition(); });
-        QAction* obbs = view->addAction(QString::fromUtf8("OBB 충돌 박스"));
+        view->addSeparator();
+        QMenu* colMenu = view->addMenu(QString::fromUtf8("충돌 박스"));
+        QAction* obbs = colMenu->addAction(QString::fromUtf8("OBB (회전하는 박스, 정밀)"));
         obbs->setShortcut(Qt::Key_O);
         obbs->setCheckable(true);
         obbs->setChecked(o.obb);
         viewer_->SetShowObbs(o.obb);
         QObject::connect(obbs, &QAction::toggled, viewer_, &ModelViewer::SetShowObbs);
-        QAction* boxes = view->addAction(QString::fromUtf8("AABB 충돌 박스"));
+        QAction* boxes = colMenu->addAction(QString::fromUtf8("AABB (축에 맞춘 박스, 빠른 1차 검사)"));
         boxes->setShortcut(Qt::Key_B);
         boxes->setCheckable(true);
         boxes->setChecked(o.aabb);
         viewer_->SetShowCollisionBoxes(o.aabb);
         QObject::connect(boxes, &QAction::toggled, viewer_, &ModelViewer::SetShowCollisionBoxes);
+        // 센서 메뉴: 현재 모델에 라이다가 있을 때만 켜진다. 열 때마다 상태를 다시 읽는다
+        QMenu* lidarMenu = sensorMenu->addMenu(QString::fromUtf8("라이다"));
+        QAction* lidarBeams = lidarMenu->addAction(QString::fromUtf8("레이저 표시 (3D 화면)"));
+        lidarBeams->setCheckable(true);
+        QAction* lidarGraph = lidarMenu->addAction(QString::fromUtf8("그래프 표시"));
+        lidarGraph->setCheckable(true);
+        QObject::connect(lidarMenu, &QMenu::aboutToShow, this, [this, lidarBeams, lidarGraph]() {
+            const bool has = lidarSpec_.link >= 0;
+            lidarBeams->setEnabled(has);
+            lidarGraph->setEnabled(has);
+            lidarBeams->setChecked(has && viewer_->LidarEnabled() && viewer_->LidarDrawn());
+            lidarGraph->setChecked(has && lidarDock_ && lidarDock_->isVisible());
+        });
+        QObject::connect(lidarBeams, &QAction::triggered, this, [this](bool on) { showLidarBeams(on); });
+        QObject::connect(lidarGraph, &QAction::triggered, this, [this](bool on) { showLidarGraph(on); });
+        QObject::connect(sensorMenu, &QMenu::aboutToShow, this, [this, lidarMenu]() {
+            lidarMenu->setEnabled(lidarSpec_.link >= 0);
+            lidarMenu->setTitle(QString::fromUtf8(lidarSpec_.link >= 0 ? "라이다" : "라이다 (이 모델에는 없음)"));
+        });
+        QAction* usage = help->addAction(QString::fromUtf8("조작 방법"));
+        usage->setShortcut(Qt::Key_F1);
+        QObject::connect(usage, &QAction::triggered, this, [this]() {
+            QMessageBox::information(this, QString::fromUtf8("조작 방법"), QString::fromUtf8(
+                "마우스\n"
+                "  왼쪽 드래그: 회전\n"
+                "  오른쪽 드래그: 이동\n"
+                "  휠: 확대/축소\n"
+                "  왼쪽 클릭: 물체(링크) 선택, 로봇팔 끝을 드래그하면 IK 로 따라감\n"
+                "  구조 트리에서 라이다 링크 오른쪽 클릭: 레이저/그래프 켜고 끄기\n\n"
+                "단축키\n"
+                "  Ctrl+O 열기   F 화면에 맞춤   T 구조 트리   G 선택 좌표계\n"
+                "  M 모터 끄기   O OBB 박스   B AABB 박스   F1 이 도움말"));
+        });
         collisionLabel_ = new QLabel;
         statusBar()->addPermanentWidget(collisionLabel_);
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { updateCollisionLabel(); });
