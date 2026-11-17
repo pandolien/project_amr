@@ -151,6 +151,8 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragAxis_ = -1;
     dragIk_ = false;
     dragModel_ = -1;
+    dragRot_ = false;
+    dragRotA0_ = 0;
     dragPlace_[0] = dragPlace_[1] = dragPlace_[2] = dragPlace_[3] = 0;
     dragU0_ = 0;
     fallEnabled_ = true;
@@ -996,6 +998,15 @@ void ModelViewer::drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& v
     }
 }
 
+// 광선이 원점의 높이에 있는 수평면과 만나는 곳의 방위각 (원점 기준, rad)
+static bool HorizontalAngle(const QVector3D& o, const QVector3D& d, const QVector3D& c, float* ang) {
+    if (simul::Abs(d.z()) < 1e-9f) return false;
+    const float t = (c.z() - o.z()) / d.z();
+    const QVector3D p = o + d * t;
+    *ang = simul::Atan2(p.y() - c.y(), p.x() - c.x());
+    return true;
+}
+
 void ModelViewer::mousePressEvent(QMouseEvent* e) {
     lastPos_ = e->pos();
     pressPos_ = e->pos();
@@ -1015,6 +1026,8 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
                 float s = 0;
                 selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
                 ModelPlacement(dragModel_, &dragPlace_[0], &dragPlace_[1], &dragPlace_[2], &dragPlace_[3]);
+                QVector3D o, dd;
+                dragRot_ = (e->modifiers() & Qt::ShiftModifier) && mouseRay(e->pos(), &o, &dd) && HorizontalAngle(o, dd, dragIkOrigin_, &dragRotA0_);
             }
             if (dragIk_) {  // 시작 순간의 좌표계를 기억해 둔다 (관절이 움직여도 축이 흔들리지 않게)
                 float s = 0;
@@ -1031,6 +1044,7 @@ void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
         dragAxis_ = -1;
         dragIk_ = false;
         dragModel_ = -1;
+        dragRot_ = false;
         update();
         return;
     }
@@ -1149,8 +1163,11 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
         }
     } else if (dragAxis_ >= 0 && dragModel_ >= 0 && (e->buttons() & Qt::LeftButton)) {
         QVector3D o, dd;
-        float u = 0;
-        if (mouseRay(e->pos(), &o, &dd) && RayAxisParam(o, dd, dragIkOrigin_, dragIkAxes_[dragAxis_], &u)) {
+        float u = 0, a = 0;
+        if (dragRot_) {  // Shift + 화살표: 모델의 z축 회전. 마우스가 모델 원점 둘레를 돈 각도만큼 돌린다
+            if (mouseRay(e->pos(), &o, &dd) && HorizontalAngle(o, dd, dragIkOrigin_, &a))
+                SetModelPlacement(dragModel_, dragPlace_[0], dragPlace_[1], dragPlace_[2], dragPlace_[3] + static_cast<float>(dhDeg(a - dragRotA0_)));
+        } else if (mouseRay(e->pos(), &o, &dd) && RayAxisParam(o, dd, dragIkOrigin_, dragIkAxes_[dragAxis_], &u)) {
             const QVector3D delta = dragIkAxes_[dragAxis_] * (u - dragU0_);
             SetModelPlacement(dragModel_, dragPlace_[0] + delta.x(), dragPlace_[1] + delta.y(), dragPlace_[2] + delta.z(), dragPlace_[3]);
         }

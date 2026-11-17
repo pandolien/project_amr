@@ -230,6 +230,8 @@ private:
     QVector3D dragIkAxes_[3];
     float dragU0_;
     dhVector dragStart_;
+    bool dragRot_;            // Shift 로 눌러 시작한, z축 회전 끌기인가
+    float dragRotA0_;         // 회전 끌기를 시작한 때 마우스의 방위각 (rad)
     int dragModel_;           // 둘 이상 올렸을 때 끌고 있는 모델 번호 (아니면 -1)
     float dragPlace_[4];      // 끌기 시작 때의 그 모델 배치 x,y,z,yaw
     QTimer* fallTimer_;

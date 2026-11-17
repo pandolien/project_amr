@@ -888,7 +888,7 @@ private:
                                      .arg(r.roll, 0, 'f', 1).arg(r.pitch, 0, 'f', 1).arg(r.yaw, 0, 'f', 1)
                                      .arg(static_cast<double>(pose.orientation.x), 0, 'f', 3).arg(static_cast<double>(pose.orientation.y), 0, 'f', 3)
                                      .arg(static_cast<double>(pose.orientation.z), 0, 'f', 3).arg(static_cast<double>(pose.orientation.w), 0, 'f', 3)
-                                     .arg(viewer_->CanMoveSelection() ? QString::fromUtf8("화살표를 끌어서 이동") : QString::fromUtf8("관절로 움직이는 링크")));
+                                     .arg(viewer_->CanMoveSelection() ? QString::fromUtf8(viewer_->ModelCount() > 1 ? "화살표를 끌어서 이동 (Shift+끌기: 회전)" : "화살표를 끌어서 이동") : QString::fromUtf8("관절로 움직이는 링크")));
     }
 
     // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
