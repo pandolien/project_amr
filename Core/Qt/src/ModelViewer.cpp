@@ -150,6 +150,8 @@ ModelViewer::ModelViewer(QWidget* parent)
     lidarHeading_ = 0.0f;
     dragAxis_ = -1;
     dragIk_ = false;
+    dragModel_ = -1;
+    dragPlace_[0] = dragPlace_[1] = dragPlace_[2] = dragPlace_[3] = 0;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
@@ -357,6 +359,7 @@ bool ModelViewer::SelectedFrame(dhMat* out) const {
 }
 
 bool ModelViewer::CanMoveSelection() const {
+    if (world_.size() >= 2) return selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;  // 둘 이상이면 각 모델의 루트 링크가 이동 손잡이
     if (selectedModel_) return true;
     return hasRobot_ && selectedLink_ >= 0 && selectedLink_ == robot_.root;
 }
@@ -1006,6 +1009,13 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
             dragU0_ = u;
             dragStart_ = objectPos_;
             dragIk_ = !CanMoveSelection();
+            dragModel_ = -1;
+            if (!dragIk_ && world_.size() >= 2) {  // 모델 하나를 움직인다: 시작 순간의 좌표계와 배치를 기억한다
+                dragModel_ = ModelOfRoot(selectedLink_);
+                float s = 0;
+                selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
+                ModelPlacement(dragModel_, &dragPlace_[0], &dragPlace_[1], &dragPlace_[2], &dragPlace_[3]);
+            }
             if (dragIk_) {  // 시작 순간의 좌표계를 기억해 둔다 (관절이 움직여도 축이 흔들리지 않게)
                 float s = 0;
                 selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
@@ -1020,6 +1030,7 @@ void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     if (dragAxis_ >= 0) {  // 화살표를 끌던 중이었다: 선택은 그대로 두고 끝낸다
         dragAxis_ = -1;
         dragIk_ = false;
+        dragModel_ = -1;
         update();
         return;
     }
@@ -1135,6 +1146,13 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
             const simul::kinematics::IkResult r = simul::kinematics::SolveIk(robot_, q_, selectedLink_, target, opt);
             SetJointValues(r.q);
             emit jointValuesDragged(r.q);
+        }
+    } else if (dragAxis_ >= 0 && dragModel_ >= 0 && (e->buttons() & Qt::LeftButton)) {
+        QVector3D o, dd;
+        float u = 0;
+        if (mouseRay(e->pos(), &o, &dd) && RayAxisParam(o, dd, dragIkOrigin_, dragIkAxes_[dragAxis_], &u)) {
+            const QVector3D delta = dragIkAxes_[dragAxis_] * (u - dragU0_);
+            SetModelPlacement(dragModel_, dragPlace_[0] + delta.x(), dragPlace_[1] + delta.y(), dragPlace_[2] + delta.z(), dragPlace_[3]);
         }
     } else if (dragAxis_ >= 0 && (e->buttons() & Qt::LeftButton)) {
         QVector3D o, dd, p, ax[3];

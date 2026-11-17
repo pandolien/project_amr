@@ -230,6 +230,8 @@ private:
     QVector3D dragIkAxes_[3];
     float dragU0_;
     dhVector dragStart_;
+    int dragModel_;           // 둘 이상 올렸을 때 끌고 있는 모델 번호 (아니면 -1)
+    float dragPlace_[4];      // 끌기 시작 때의 그 모델 배치 x,y,z,yaw
     QTimer* fallTimer_;
     QElapsedTimer fallClock_;
     bool fallEnabled_;
