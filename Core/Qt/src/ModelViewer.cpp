@@ -157,12 +157,13 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragRingPx_ = 100;
     ringLocal_ = false;
     hoverRing_ = -1;
+    modelMinZValid_ = false;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
     fallVel_ = 0;
     minZ_ = 0;
-    minZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false;
     fallTimer_ = new QTimer(this);
     fallTimer_->setInterval(16);
     fallClock_.start();
@@ -213,7 +214,7 @@ void ModelViewer::Clear() {
     selectedModel_ = false;
     objectPos_ = dhVector(0, 0, 0);
     fallVel_ = 0;
-    minZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false;
     scene_ = simul::Scene();
     hasScene_ = false;
     warnings_.clear();
@@ -305,7 +306,7 @@ void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;
     linkT_ = robot_.LinkTransforms(q);
-    minZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false;
     recomputeCollisions();
     update();
 }
@@ -424,9 +425,9 @@ void ModelViewer::SetFallEnabled(bool enabled) {
 void ModelViewer::SetGravity(double, double, double gz) { gravityZ_ = gz; }
 
 bool ModelViewer::StepFall(double dt) {
-    // 끄는 동안에는 손이 붙잡고 있다. world 아래에 모델을 올려 둔 장면(둘 이상이거나 회전한 모델)은 모델마다 자세를 attach 관절이 가지므로
-    // 장면 전체를 떨어뜨리지 않는다 (회전만 했는데 위치가 바뀌는 것을 막는다)
-    if (!fallEnabled_ || items_.empty() || dragAxis_ >= 0 || dragRing_ >= 0 || world_.Composite()) {
+    // world 아래에 모델을 올려 둔 장면(둘 이상이거나 회전한 모델)은 모델마다 자세를 attach 관절이 가지므로 모델 하나하나가 떨어진다
+    if (world_.Composite()) return stepFallModels(dt);
+    if (!fallEnabled_ || items_.empty() || dragAxis_ >= 0) {  // 끄는 동안에는 손이 붙잡고 있다
         fallVel_ = 0;
         return false;
     }
@@ -446,6 +447,64 @@ bool ModelViewer::StepFall(double dt) {
         emit objectMoved();
     }
     return moving;
+}
+
+// 모델에 속한 모든 꼭짓점의 월드 z 가 가장 낮은 값 (자세와 관절 값이 반영된다)
+float ModelViewer::modelBottom(int model) const {
+    if (!modelMinZValid_) {
+        modelMinZ_.clear();
+        for (size_t k = 0; k < world_.size(); k++) modelMinZ_.push_back(simul::kFloatMax);
+        for (size_t i = 0; i < items_.size(); i++) {
+            const Item& it = *items_[i];
+            const int k = world_.EntryOfLink(robot_, it.link);
+            if (k < 0) continue;
+            dhMat m = it.base;
+            if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+            float lo = modelMinZ_[static_cast<size_t>(k)];
+            for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
+                float p[3];
+                Transform(m, &it.data[v], p);
+                lo = simul::Min(lo, p[2]);
+            }
+            modelMinZ_[static_cast<size_t>(k)] = lo;
+        }
+        modelMinZValid_ = true;
+    }
+    if (model < 0 || static_cast<size_t>(model) >= modelMinZ_.size() || modelMinZ_[static_cast<size_t>(model)] == simul::kFloatMax) return 0.0f;
+    return modelMinZ_[static_cast<size_t>(model)];
+}
+
+bool ModelViewer::stepFallModels(double dt) {
+    const size_t n = world_.size();
+    while (modelFallVel_.size() < n) modelFallVel_.push_back(0.0);
+    if (!fallEnabled_ || items_.empty()) {
+        for (size_t k = 0; k < modelFallVel_.size(); k++) modelFallVel_[k] = 0.0;
+        return false;
+    }
+    bool any = false;
+    for (size_t k = 0; k < n; k++) {
+        if (dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0)) {  // 끄는 동안에는 손이 붙잡고 있다
+            modelFallVel_[k] = 0.0;
+            continue;
+        }
+        simul::dynamics::FallBody b;
+        b.height = static_cast<double>(modelBottom(static_cast<int>(k)));
+        b.velocity = modelFallVel_[k];
+        if (b.height >= 0.0 && b.height < 1e-5 && b.velocity <= 0.0) {  // 바닥에 놓여 있다
+            modelFallVel_[k] = 0.0;
+            continue;
+        }
+        const double before = b.height;
+        const bool moving = b.Step(dt, gravityZ_);
+        modelFallVel_[k] = b.velocity;
+        if (b.height != before) {
+            dhMat pose = ModelPose(static_cast<int>(k));
+            pose.v[14] += static_cast<float>(b.height - before);
+            SetModelPose(static_cast<int>(k), pose);
+        }
+        any = any || moving;
+    }
+    return any;
 }
 
 double ModelViewer::SimulateFall(double maxSeconds) {
@@ -599,7 +658,7 @@ void ModelViewer::SetModelPose(int index, const dhMat& pose) {
         if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = pose;
     }
     linkT_ = robot_.LinkTransforms(q_);
-    minZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false;
     recomputeCollisions();
     updateBounds();
     update();
@@ -657,6 +716,7 @@ bool ModelViewer::rebuildWorld(QString* error, bool keepView) {
         if (error) *error = simulqt::ToQ(err);
         return false;
     }
+    modelFallVel_.clear();
     const simul::urdf::JointValues oldQ = q_;
     const QString selName = (selectedLink_ >= 0 && static_cast<size_t>(selectedLink_) < robot_.links.size()) ? simulqt::ToQ(robot_.links[static_cast<size_t>(selectedLink_)].name) : QString();
     const float vYaw = yaw_, vPitch = pitch_, vDist = dist_;

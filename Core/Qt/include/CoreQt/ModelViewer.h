@@ -258,6 +258,11 @@ private:
     double fallVel_;      // 위쪽이 + (m/s)
     mutable float minZ_;
     mutable bool minZValid_;
+    mutable simul::Array<float> modelMinZ_;   // world 아래에 올린 모델마다 가장 낮은 점의 월드 높이
+    mutable bool modelMinZValid_;
+    simul::Array<double> modelFallVel_;       // 모델마다 낙하 속도 (위쪽이 +)
+    float modelBottom(int model) const;
+    bool stepFallModels(double dt);           // 모델 하나하나를 바닥(z=0)까지 떨어뜨린다
     simul::Scene scene_;
     bool hasScene_;
     QStringList warnings_;
