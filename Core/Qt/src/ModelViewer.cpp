@@ -1213,9 +1213,11 @@ int ModelViewer::hitGizmoAxis(const QPoint& pos, float* uOut) const {
 bool ModelViewer::ringBasis(int axis, QVector3D* origin, QVector3D* a, QVector3D* u, QVector3D* v, float* scale) const {
     QVector3D ax[3];
     if (axis < 0 || axis > 2 || !selectionGizmo(origin, ax, scale)) return false;
-    *a = ax[axis];
-    *u = ax[(axis + 1) % 3];
-    *v = QVector3D::crossProduct(*a, *u).normalized();
+    // 링은 모델이 얼마나 돌아가 있든 월드 X/Y/Z 에 고정한다 (모델 좌표축을 따라가면 한 번 돌린 뒤 링이 비스듬해진다)
+    const QVector3D w[3] = {QVector3D(1, 0, 0), QVector3D(0, 1, 0), QVector3D(0, 0, 1)};
+    *a = w[axis];
+    *u = w[(axis + 1) % 3];
+    *v = w[(axis + 2) % 3];
     return true;
 }
 
@@ -1247,11 +1249,11 @@ void ModelViewer::drawRings(const QMatrix4x4& proj, const QMatrix4x4& view) {
     if (!CanRotateSelection()) return;
     dhMat f;
     if (!SelectedFrame(&f)) return;
-    const QMatrix4x4 frame = ToQt(f);
-    const QVector3D origin = frame.column(3).toVector3D();
+    const QVector3D origin = ToQt(f).column(3).toVector3D();
     const QVector3D eye = view.inverted().column(3).toVector3D();
     const float s = simul::Max((eye - origin).length() * 0.14f, 1e-6f);
-    QMatrix4x4 scaled = frame;
+    QMatrix4x4 scaled;  // 회전 없이 모델 원점에 놓는다 (월드 축 고정)
+    scaled.translate(origin);
     scaled.scale(s * kRingRadius);
     prog_->setUniformValue("uLit", 0.0f);
     prog_->setUniformValue("uMVP", proj * view * scaled);
