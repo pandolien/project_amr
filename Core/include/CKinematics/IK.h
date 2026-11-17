@@ -16,7 +16,7 @@
 //  - 관절 한계는 지킨다 (한계에 닿은 관절은 고정하고 나머지로 다시 푼다). 한계 때문에 못 닿으면 converged = false 이고
 //    가장 가까운 값을 돌려준다.
 // 단위: m, rad (관절 값도 내부 단위). mimic 관절은 마스터에 합쳐서 푼다.
-namespace amr {
+namespace simul {
 namespace kinematics {
 
 struct IkOptions {
@@ -54,6 +54,6 @@ void PoseError(const urdf::Robot& robot, const urdf::JointValues& q, int link, c
                double* orientationError);
 
 }  // namespace kinematics
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CKINEMATICS_IK_H

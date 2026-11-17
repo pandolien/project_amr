@@ -7,7 +7,7 @@
 #include "CMesh/Primitives.h"
 #include "FileUtil.h"
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -19,7 +19,7 @@ bool LooksBinary(const unsigned char* d, size_t size) {
     return static_cast<uint64_t>(84) + static_cast<uint64_t>(count) * 50 == size;
 }
 
-bool ParseBinary(const unsigned char* d, size_t size, Primitive* p, amr::String* error) {
+bool ParseBinary(const unsigned char* d, size_t size, Primitive* p, simul::String* error) {
     uint32_t count = 0;
     memcpy(&count, d + 80, 4);
     if (count == 0) {
@@ -44,9 +44,9 @@ bool ParseBinary(const unsigned char* d, size_t size, Primitive* p, amr::String*
     return true;
 }
 
-bool ParseAscii(const amr::String& text, Primitive* p, amr::String* error) {
+bool ParseAscii(const simul::String& text, Primitive* p, simul::String* error) {
     Tokens in(text);
-    amr::String word;
+    simul::String word;
     size_t pending = 0;
     while (in.Next(&word)) {
         if (word != "vertex") continue;
@@ -71,7 +71,7 @@ bool ParseAscii(const amr::String& text, Primitive* p, amr::String* error) {
 
 }  // namespace
 
-bool LoadStlFromMemory(const void* data, size_t size, Scene* out, amr::String* error) {
+bool LoadStlFromMemory(const void* data, size_t size, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
     if (!data || size == 0) {
@@ -91,7 +91,7 @@ bool LoadStlFromMemory(const void* data, size_t size, Scene* out, amr::String* e
             detail::SetError(error, "STL 형식이 아닙니다 (바이너리 크기 불일치, ASCII 헤더 없음)");
             return false;
         }
-        ok = ParseAscii(amr::String(reinterpret_cast<const char*>(d), size), &prim, error);
+        ok = ParseAscii(simul::String(reinterpret_cast<const char*>(d), size), &prim, error);
     }
     if (!ok) return false;
     prim.ComputeNormals();
@@ -99,10 +99,10 @@ bool LoadStlFromMemory(const void* data, size_t size, Scene* out, amr::String* e
     return true;
 }
 
-bool LoadStl(const amr::String& path, Scene* out, amr::String* error) {
+bool LoadStl(const simul::String& path, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
-    amr::Array<char> bytes;
+    simul::Array<char> bytes;
     if (!detail::ReadFileBytes(path, &bytes, error)) return false;
     if (bytes.empty()) {
         detail::SetError(error, "빈 파일입니다: " + path);
@@ -111,4 +111,4 @@ bool LoadStl(const amr::String& path, Scene* out, amr::String* error) {
     return LoadStlFromMemory(&bytes[0], bytes.size(), out, error);
 }
 
-}  // namespace amr
+}  // namespace simul

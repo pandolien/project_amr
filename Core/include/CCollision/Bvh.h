@@ -11,7 +11,7 @@
 // 대략 O(log n) 로 끝난다. 메시 좌표에서 한 번 만들어 두고 (메시가 바뀌지 않으면) 계속 쓴다.
 // 분할은 binned SAH (표면적 휴리스틱, 구간 16개). 교차 판정은 RaycastTriangles 와 똑같다 (양면, 평행/퇴화/NaN 삼각형은 건너뜀,
 // 정점 범위를 벗어난 인덱스의 삼각형은 건너뜀).
-namespace amr {
+namespace simul {
 
 class TriangleBvh {
 public:
@@ -47,6 +47,6 @@ private:
     size_t depth_;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CCOLLISION_BVH_H

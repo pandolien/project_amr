@@ -34,7 +34,7 @@ LidarPlot::LidarPlot(QWidget* parent) : QWidget(parent), heading_(0.0f), has_(fa
     setMinimumSize(280, 340);
 }
 
-void LidarPlot::SetScan(const amr::sensor::LidarScan& scan, const dhVector& origin, float heading) {
+void LidarPlot::SetScan(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading) {
     scan_ = scan;
     origin_ = origin;
     heading_ = heading;

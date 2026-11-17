@@ -37,15 +37,15 @@ public:
     // 실패하면 false 와 error. 성공 시 카메라를 모델에 맞춘다.
     bool LoadFile(const QString& path, QString* error = nullptr);
 
-    void SetScene(const amr::Scene& scene);  // 정적 모델 (이미 Z-up 이어야 한다)
-    void SetRobot(const amr::urdf::Robot& robot, const amr::urdf::RobotMeshes& meshes);
+    void SetScene(const simul::Scene& scene);  // 정적 모델 (이미 Z-up 이어야 한다)
+    void SetRobot(const simul::urdf::Robot& robot, const simul::urdf::RobotMeshes& meshes);
     void Clear();
 
     bool HasRobot() const { return hasRobot_; }
-    const amr::urdf::Robot& Robot() const { return robot_; }
-    void SetJointValues(const amr::urdf::JointValues& q);  // 관절 값(rad, m)으로 링크 위치 갱신
-    const amr::urdf::JointValues& CurrentJointValues() const { return q_; }
-    amr::urdf::LoadOptions& LoadOptions() { return options_; }  // package:// 경로 등
+    const simul::urdf::Robot& Robot() const { return robot_; }
+    void SetJointValues(const simul::urdf::JointValues& q);  // 관절 값(rad, m)으로 링크 위치 갱신
+    const simul::urdf::JointValues& CurrentJointValues() const { return q_; }
+    simul::urdf::LoadOptions& LoadOptions() { return options_; }  // package:// 경로 등
 
     void FitView();                    // 모델 전체가 보이도록 카메라를 맞춘다
     void SetShowGrid(bool show);
@@ -56,9 +56,9 @@ public:
     bool ShowCollisionBoxes() const { return showBoxes_; }
     void SetShowObbs(bool show);            // 도형별 OBB (하늘색, 충돌하면 빨강)
     bool ShowObbs() const { return showObbs_; }
-    const amr::Array<amr::CollisionPair>& SelfCollisions() const { return report_.collisions; }     // OBB 까지 겹친 링크 쌍
-    const amr::Array<amr::CollisionPair>& AabbCandidates() const { return report_.aabbCandidates; }  // AABB 만 겹친 후보
-    amr::Array<int> CollidingLinks() const;    // 충돌한 링크 인덱스 (중복 없음, 오름차순)
+    const simul::Array<simul::CollisionPair>& SelfCollisions() const { return report_.collisions; }     // OBB 까지 겹친 링크 쌍
+    const simul::Array<simul::CollisionPair>& AabbCandidates() const { return report_.aabbCandidates; }  // AABB 만 겹친 후보
+    simul::Array<int> CollidingLinks() const;    // 충돌한 링크 인덱스 (중복 없음, 오름차순)
     QStringList CollisionDescriptions() const;  // "링크A <-> 링크B"
 
     // 링크 강조: 선택한 링크의 모양을 밝게 칠한다. -1 이면 해제.
@@ -91,7 +91,7 @@ public:
     // 2D 라이다: 로봇 링크 link 에 달고 (mount = 그 링크 좌표계에서 센서까지의 변환, 센서의 +x 가 앞, +z 가 스캔 평면의 법선),
     // 그 링크 자신을 뺀 나머지 메시(로봇의 다른 링크, 정적 모델)를 스캔한다. 매 프레임 다시 스캔해서 맞은 점(빨강)과 광선(옅은 청록)을
     // 그린다. 정적 모델만 열려 있으면 link = -1 (월드 기준)로 달 수 있다. ClearLidar 로 끈다.
-    void SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount = dhMat());
+    void SetLidar(int link, const simul::sensor::LidarSettings& settings, const dhMat& mount = dhMat());
     void ClearLidar();
     bool LidarEnabled() const { return lidarOn_; }  // 센서가 달려 있는가 (스캔은 ScanLidar 로 언제든 할 수 있다)
     // 3D 화면에 광선(청록 선)과 맞은 점(빨간 십자)을 그릴지. SetLidar 직후는 true. 끄면 그리는 비용도 들지 않는다.
@@ -103,7 +103,7 @@ public:
     bool LidarDrawn() const { return lidarDraw_; }
     dhVector LidarOrigin() const { return lidarOrigin_; }  // 마지막 스캔의 센서 원점/방향각 (ScanLidar 뒤에 유효)
     float LidarHeading() const { return lidarHeading_; }
-    const amr::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
+    const simul::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
     void SetObjectPosition(float x, float y, float z);
     dhVector ObjectPosition() const;
     void ResetObjectPosition() { SetObjectPosition(0, 0, 0); }
@@ -120,7 +120,7 @@ public:
 
     // 정적 모델(.glb 등)을 열었으면 그 장면
     bool HasScene() const { return hasScene_; }
-    const amr::Scene& StaticScene() const { return scene_; }
+    const simul::Scene& StaticScene() const { return scene_; }
 
     QString Summary() const;           // "삼각형 N개, 크기 ..." 같은 한 줄 설명
     const QStringList& Warnings() const { return warnings_; }
@@ -128,8 +128,8 @@ public:
 signals:
     void modelChanged();
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
-    void jointValuesDragged(const amr::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
-    void lidarScanned(const amr::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
+    void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
+    void lidarScanned(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
     void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
     void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
@@ -145,12 +145,12 @@ protected:
 
 private:
     struct Item {                       // primitive 하나
-        amr::Array<float> data;        // 위치(3) + 법선(3) 교차 배열
-        amr::Array<uint32_t> indices;
+        simul::Array<float> data;        // 위치(3) + 법선(3) 교차 배열
+        simul::Array<uint32_t> indices;
         dhMat base;                     // 링크(또는 월드)에서 이 primitive 까지의 변환
         int link;                       // 로봇 링크 인덱스, 정적 모델이면 -1
         bool bvhOk;                     // 아래 BVH 를 만들었는가 (라이다 스캔 가속용, 처음 스캔할 때 만든다. 메시는 바뀌지 않는다)
-        amr::TriangleBvh bvh;
+        simul::TriangleBvh bvh;
         float color[4];
         float metallic, roughness;      // PBR 재질 (glTF 에서 읽거나 기본값)
         QOpenGLBuffer vbo;
@@ -163,8 +163,8 @@ private:
         }
     };
 
-    typedef amr::Array<amr::UniquePtr<Item> > ItemList;
-    void addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst = nullptr);
+    typedef simul::Array<simul::UniquePtr<Item> > ItemList;
+    void addScene(const simul::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst = nullptr);
     void updateBounds();
     void rebuildGrid();
     void uploadBuffers();
@@ -183,15 +183,15 @@ private:
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
     QMatrix4x4 viewMatrix() const;
 
-    amr::Array<amr::UniquePtr<Item> > items_;
+    simul::Array<simul::UniquePtr<Item> > items_;
     bool buffersDirty_;
     bool hasRobot_;
-    amr::urdf::Robot robot_;
-    amr::urdf::LoadOptions options_;
-    amr::Array<dhMat> linkT_;
-    amr::urdf::JointValues q_;
-    amr::RobotCollisionModel colModel_;
-    amr::SelfCollisionReport report_;
+    simul::urdf::Robot robot_;
+    simul::urdf::LoadOptions options_;
+    simul::Array<dhMat> linkT_;
+    simul::urdf::JointValues q_;
+    simul::RobotCollisionModel colModel_;
+    simul::SelfCollisionReport report_;
     int selectedLink_;
     bool selectedModel_;
     bool showFrame_;
@@ -205,8 +205,8 @@ private:
     int shading_;
     int lidarLink_;
     dhMat lidarMount_;
-    amr::sensor::Lidar lidar_;
-    amr::sensor::LidarScan lidarScan_;
+    simul::sensor::Lidar lidar_;
+    simul::sensor::LidarScan lidarScan_;
     dhVector lidarOrigin_;  // 마지막 스캔의 센서 원점 (월드)
     float lidarHeading_;    // 마지막 스캔에서 센서 +x 가 월드 xy 평면에서 향한 각 (rad)
     int dragAxis_;         // 좌표계 화살표를 끄는 중이면 0..2
@@ -222,7 +222,7 @@ private:
     double fallVel_;      // 위쪽이 + (m/s)
     mutable float minZ_;
     mutable bool minZValid_;
-    amr::Scene scene_;
+    simul::Scene scene_;
     bool hasScene_;
     QStringList warnings_;
     size_t triangleCount_;
@@ -236,11 +236,11 @@ private:
     bool showBoxes_;
     bool showObbs_;
     bool showGrid_;
-    amr::Array<float> gridData_;   // 격자 선분의 위치(3) 배열
+    simul::Array<float> gridData_;   // 격자 선분의 위치(3) 배열
     float extent_[3];               // 경계 상자의 크기 (x, y, z)
     float gridCell_;                // 격자 한 칸의 길이
 
-    amr::UniquePtr<QOpenGLShaderProgram> prog_;
+    simul::UniquePtr<QOpenGLShaderProgram> prog_;
 };
 
 #endif  // CORECQT_MODELVIEWER_H

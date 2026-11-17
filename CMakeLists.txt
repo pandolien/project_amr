@@ -1,9 +1,9 @@
 # Ubuntu 20.04 LTS 기본 CMake 버전(3.16)에 맞춤
 cmake_minimum_required(VERSION 3.16)
 
-project(project_amr
+project(project_simul
     VERSION 0.1.0
-    DESCRIPTION "AMR + Robot Arm integrated control system"
+    DESCRIPTION "Project Simul: AMR + Robot Arm integrated simulation and control system"
     LANGUAGES CXX)
 
 # ---- C++11 / gcc 기준 ----
@@ -33,35 +33,35 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 include(CompilerWarnings)
 
 # ---- 옵션 ----
-option(AMR_BUILD_QT    "CoreQt(Qt5 위젯) 빌드 (Qt 5.12, LGPLv3 동적 링크)" ON)
-option(AMR_BUILD_TESTS "테스트 빌드" OFF)
+option(SIMUL_BUILD_QT    "CoreQt(Qt5 위젯) 빌드 (Qt 5.12, LGPLv3 동적 링크)" ON)
+option(SIMUL_BUILD_TESTS "테스트 빌드" OFF)
 
 # 런타임에서 Data/ 위치를 찾기 위한 경로
-set(AMR_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
+set(SIMUL_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 
 # ---- 라이브러리 (의존 순서: Core <- CoreQt) ----
 add_subdirectory(Core)
 
 # ---- 메인 시스템 (main.cpp + 루트 src/ + 루트 include/) ----
-# main.cpp 가 비어 있는 동안(구조만 잡은 단계)에는 링크가 실패하므로 amr_main 을 만들지 않는다.
-file(SIZE ${CMAKE_SOURCE_DIR}/main.cpp AMR_MAIN_SIZE)
-if(AMR_MAIN_SIZE GREATER 0)
+# main.cpp 가 비어 있는 동안(구조만 잡은 단계)에는 링크가 실패하므로 simul_main 을 만들지 않는다.
+file(SIZE ${CMAKE_SOURCE_DIR}/main.cpp SIMUL_MAIN_SIZE)
+if(SIMUL_MAIN_SIZE GREATER 0)
     file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS src/*.cpp)
-    add_executable(amr_main main.cpp ${PROJECT_SOURCES})
-    target_include_directories(amr_main PRIVATE include)
-    target_link_libraries(amr_main PRIVATE Core)
-    target_compile_definitions(amr_main PRIVATE AMR_DATA_DIR="${AMR_DATA_DIR}")
-    amr_set_warnings(amr_main)
-    if(AMR_BUILD_QT)
-        target_link_libraries(amr_main PRIVATE CoreQt)   # 3D 뷰어 창
-        target_compile_definitions(amr_main PRIVATE AMR_HAS_QT)
+    add_executable(simul_main main.cpp ${PROJECT_SOURCES})
+    target_include_directories(simul_main PRIVATE include)
+    target_link_libraries(simul_main PRIVATE Core)
+    target_compile_definitions(simul_main PRIVATE SIMUL_DATA_DIR="${SIMUL_DATA_DIR}")
+    simul_set_warnings(simul_main)
+    if(SIMUL_BUILD_QT)
+        target_link_libraries(simul_main PRIVATE CoreQt)   # 3D 뷰어 창
+        target_compile_definitions(simul_main PRIVATE SIMUL_HAS_QT)
     endif()
 else()
-    message(STATUS "main.cpp 가 비어 있어 amr_main 은 만들지 않습니다")
+    message(STATUS "main.cpp 가 비어 있어 simul_main 은 만들지 않습니다")
 endif()
 
 # ---- CoreQt (Qt 5.12) ----
-if(AMR_BUILD_QT)
+if(SIMUL_BUILD_QT)
     # Ubuntu 20.04 apt: qtbase5-dev 5.12.8
     # LGPLv3 준수: 반드시 공유 라이브러리(동적 링크)로 사용, GPL 전용 모듈 금지
     find_package(Qt5 5.12 REQUIRED COMPONENTS Core Gui Widgets)
@@ -71,7 +71,7 @@ if(AMR_BUILD_QT)
     add_subdirectory(Core/Qt)   # CoreQt: 재사용 Qt 위젯
 endif()
 
-if(AMR_BUILD_TESTS)
+if(SIMUL_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()

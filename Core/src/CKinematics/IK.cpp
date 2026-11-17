@@ -7,10 +7,10 @@
 
 #include "DynMath.h"
 
-namespace amr {
+namespace simul {
 namespace kinematics {
 
-using namespace amr::dynamics::detail;
+using namespace simul::dynamics::detail;
 
 namespace {
 
@@ -56,9 +56,9 @@ TaskError ComputeError(const Kinematics& k, size_t link, const V3& tp, const M3&
 }
 
 // 연립방정식 A x = b (n x n, 행 우선) 을 부분 피벗 가우스 소거로 푼다. 특이하면 false.
-bool SolveLinear(amr::Array<double>* A, amr::Array<double>* b, size_t n) {
-    amr::Array<double>& a = *A;
-    amr::Array<double>& x = *b;
+bool SolveLinear(simul::Array<double>* A, simul::Array<double>* b, size_t n) {
+    simul::Array<double>& a = *A;
+    simul::Array<double>& x = *b;
     for (size_t c = 0; c < n; c++) {
         size_t piv = c;
         for (size_t r = c + 1; r < n; r++)
@@ -128,7 +128,7 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
     const M3 tR = RotOf(target);
 
     // 목표 링크까지의 관절 사슬 (조상 관절)
-    amr::Array<char> inChain(robot.joints.size(), 0);
+    simul::Array<char> inChain(robot.joints.size(), 0);
     {
         int cur = link;
         for (size_t guard = 0; guard <= robot.joints.size(); guard++) {
@@ -143,11 +143,11 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
     }
 
     // 변수 = 구동 관절 중 사슬에 영향을 주는 것 (자신 또는 mimic 으로 딸린 관절이 사슬에 있는 것)
-    const amr::Array<int> actuated = robot.ActuatedJoints();
-    amr::Array<Variable> vars;
-    amr::Array<int> varOfActuated(robot.joints.size(), -1);
-    amr::Array<double> factorOf(robot.joints.size(), 0.0);  // 관절 -> 마스터 변수로의 배율
-    amr::Array<int> masterOf(robot.joints.size(), -1);
+    const simul::Array<int> actuated = robot.ActuatedJoints();
+    simul::Array<Variable> vars;
+    simul::Array<int> varOfActuated(robot.joints.size(), -1);
+    simul::Array<double> factorOf(robot.joints.size(), 0.0);  // 관절 -> 마스터 변수로의 배율
+    simul::Array<int> masterOf(robot.joints.size(), -1);
     for (size_t j = 0; j < robot.joints.size(); j++) {
         if (!robot.joints[j].IsMovable()) continue;
         const MasterOf m = FindMaster(robot, j);
@@ -173,7 +173,7 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
     if (n == 0) return res;
 
     // 현재 값 (한계 안으로)
-    amr::Array<double> x(n, 0.0);
+    simul::Array<double> x(n, 0.0);
     for (size_t i = 0; i < n; i++) {
         const urdf::Joint& jt = robot.joints[static_cast<size_t>(vars[i].joint)];
         double v = static_cast<double>(robot.EffectiveJointValue(start, vars[i].joint, false));
@@ -206,7 +206,7 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
         if (perr <= opt.positionTolerance && (!opt.useOrientation || rerr <= opt.orientationTolerance)) break;
 
         // 자코비안 (m x n): 열 = 변수 하나가 끝단을 움직이는 방식
-        amr::Array<double> J(m * n, 0.0);
+        simul::Array<double> J(m * n, 0.0);
         for (size_t j = 0; j < robot.joints.size(); j++) {
             if (!inChain[j] || !robot.joints[j].IsMovable()) continue;
             const int vi = varOfActuated[static_cast<size_t>(masterOf[j])];
@@ -230,7 +230,7 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
                 J[5 * n + c] += f * opt.orientationWeight * ang.z;
             }
         }
-        amr::Array<double> e(m, 0.0);
+        simul::Array<double> e(m, 0.0);
         e[0] = err.pos.x; e[1] = err.pos.y; e[2] = err.pos.z;
         if (opt.useOrientation) {
             e[3] = opt.orientationWeight * err.rot.x;
@@ -239,11 +239,11 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
         }
 
         // 한계에 걸린 변수를 고정하며 푼다 (활성 집합). 고정된 변수는 열을 0 으로 둔다.
-        amr::Array<char> fixedVar(n, 0);
-        amr::Array<double> dx(n, 0.0);
+        simul::Array<char> fixedVar(n, 0);
+        simul::Array<double> dx(n, 0.0);
         bool solved = false;
         for (size_t pass = 0; pass <= n; pass++) {
-            amr::Array<double> A(m * m, 0.0), y = e;
+            simul::Array<double> A(m * m, 0.0), y = e;
             for (size_t r = 0; r < m; r++)
                 for (size_t c2 = 0; c2 < m; c2++) {
                     double s = 0.0;
@@ -284,7 +284,7 @@ IkResult SolveOnce(const urdf::Robot& robot, const urdf::JointValues& start, int
         }
 
         // 후보 값. 한계 안으로 잘라낸다.
-        amr::Array<double> xn = x;
+        simul::Array<double> xn = x;
         for (size_t k = 0; k < n; k++) {
             double v = x[k] + dx[k];
             if (vars[k].limited) {
@@ -328,4 +328,4 @@ IkResult SolveIk(const urdf::Robot& robot, const urdf::JointValues& start, int l
 }
 
 }  // namespace kinematics
-}  // namespace amr
+}  // namespace simul

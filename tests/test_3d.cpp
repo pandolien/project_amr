@@ -23,7 +23,7 @@ void check(bool ok, const char* what) {
     }
 }
 
-bool nearly(float a, float b) { return amr::Abs(a - b) <= kEps; }
+bool nearly(float a, float b) { return simul::Abs(a - b) <= kEps; }
 
 bool nearlyVec(const dhVector& a, const dhVector& b) {
     return nearly(a.x, b.x) && nearly(a.y, b.y) && nearly(a.z, b.z);
@@ -89,10 +89,10 @@ void testQuatFromQuaternion() {
     // Quat(dhQuat)이 전치되어 반대로 회전하던 버그 회귀
     const float H = kPi / 2;
     dhQuat q;
-    q.w = amr::Cos(H / 2);
+    q.w = simul::Cos(H / 2);
     q.x = 0;
     q.y = 0;
-    q.z = amr::Sin(H / 2);  // Z축 90도
+    q.z = simul::Sin(H / 2);  // Z축 90도
     check(nearlyVec(dhMat::Quat(q) * dhVector(1, 0, 0), dhVector(0, 1, 0)), "Quat(q_z90) * x = y");
     check(nearlyMat(dhMat::Quat(q), dhMat::RotZ(H)), "Quat(q_z90) == RotZ(90)");
 }
@@ -130,8 +130,8 @@ void testRPY() {
 }
 
 void testAngleHelpers() {
-    check(amr::Abs(dhRad(180.0) - dhPI) < 1e-9, "dhRad(180) = pi");
-    check(amr::Abs(dhDeg(dhPI / 2) - 90.0) < 1e-9, "dhDeg(pi/2) = 90");
+    check(simul::Abs(dhRad(180.0) - dhPI) < 1e-9, "dhRad(180) = pi");
+    check(simul::Abs(dhDeg(dhPI / 2) - 90.0) < 1e-9, "dhDeg(pi/2) = 90");
 }
 
 void testVertexExtras() {
@@ -151,8 +151,8 @@ void testQuatClass() {
     check(nearlyMat(id.GetMat(), dhMat()), "dhQuat: 항등 -> 단위행렬");
 
     // 생성자 인자 순서는 (x, y, z, w)
-    dhQuat q(0, 0, amr::Sin(H / 2), amr::Cos(H / 2));
-    check(nearly(q.x, 0) && nearly(q.z, amr::Sin(H / 2)) && nearly(q.w, amr::Cos(H / 2)), "dhQuat: 생성자 인자 순서 (x,y,z,w)");
+    dhQuat q(0, 0, simul::Sin(H / 2), simul::Cos(H / 2));
+    check(nearly(q.x, 0) && nearly(q.z, simul::Sin(H / 2)) && nearly(q.w, simul::Cos(H / 2)), "dhQuat: 생성자 인자 순서 (x,y,z,w)");
     check(nearlyVec(q.GetMat() * dhVector(1, 0, 0), dhVector(0, 1, 0)), "dhQuat::GetMat: Z축 90도 (역방향 아님)");
     check(nearlyMat(q.GetMat(), dhMat::RotZ(H)), "dhQuat::GetMat == RotZ(90)");
     dhEuler e = q.GetEuler();
@@ -203,7 +203,7 @@ void testPose() {
     const dhPose p(dhVector(1, 2, 3), dhQuat::FromAxisAngle(0.7f, dhVector(0, 0, 1)));
     check(nearlyMat(p.ToMat(), dhMat::Trans(1, 2, 3) * dhMat::RotZ(0.7f)), "Pose::ToMat == Trans * Rot");
     const dhPose back = dhPose::FromMat(p.ToMat());
-    check(nearlyVec(back.position, p.position) && nearly(amr::Abs(back.orientation.Dot(p.orientation)), 1.0f), "FromMat round trip");
+    check(nearlyVec(back.position, p.position) && nearly(simul::Abs(back.orientation.Dot(p.orientation)), 1.0f), "FromMat round trip");
 
     const dhPose q(dhVector(-0.5f, 0.2f, 1.0f), dhQuat::FromAxisAngle(1.3f, dhVector(1, 1, 0)));
     check(nearlyMat((p * q).ToMat(), p.ToMat() * q.ToMat()), "Pose composition == matrix product");
@@ -230,20 +230,20 @@ void testPose() {
 }
 
 void testUnits() {
-    check(amr::Abs(amr::units::DegToRad(180.0) - 3.14159265358979323846) < 1e-12, "DegToRad(180) = pi");
-    check(amr::Abs(amr::units::RadToDeg(3.14159265358979323846 / 2) - 90.0) < 1e-12, "RadToDeg(pi/2) = 90");
+    check(simul::Abs(simul::units::DegToRad(180.0) - 3.14159265358979323846) < 1e-12, "DegToRad(180) = pi");
+    check(simul::Abs(simul::units::RadToDeg(3.14159265358979323846 / 2) - 90.0) < 1e-12, "RadToDeg(pi/2) = 90");
     // 표시용 rpy(deg) 왕복. 짐벌 락에서 먼 값만 쓴다.
-    const amr::units::RpyDeg d(20.0, -35.0, 110.0);
-    const dhQuat q = amr::units::QuatFromRpyDeg(d);
+    const simul::units::RpyDeg d(20.0, -35.0, 110.0);
+    const dhQuat q = simul::units::QuatFromRpyDeg(d);
     check(nearly(q.Norm(), 1.0f), "QuatFromRpyDeg is a unit quaternion");
-    const amr::units::RpyDeg e = amr::units::RpyDegFromQuat(q);
-    check(amr::Abs(e.roll - 20.0) < 1e-2 && amr::Abs(e.pitch + 35.0) < 1e-2 && amr::Abs(e.yaw - 110.0) < 1e-2, "rpy(deg) round trip");
+    const simul::units::RpyDeg e = simul::units::RpyDegFromQuat(q);
+    check(simul::Abs(e.roll - 20.0) < 1e-2 && simul::Abs(e.pitch + 35.0) < 1e-2 && simul::Abs(e.yaw - 110.0) < 1e-2, "rpy(deg) round trip");
     // URDF rpy 규약과 같다: yaw 90 도이면 x 축이 y 축이 된다
-    check(nearlyVec(amr::units::QuatFromRpyDeg(amr::units::RpyDeg(0, 0, 90)).Rotate(dhVector(1, 0, 0)), dhVector(0, 1, 0)), "yaw 90 deg maps x to y");
+    check(nearlyVec(simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 90)).Rotate(dhVector(1, 0, 0)), dhVector(0, 1, 0)), "yaw 90 deg maps x to y");
     // -q 도 같은 회전이므로 같은 표시값이 나온다
     const dhQuat nq(-q.x, -q.y, -q.z, -q.w);
-    const amr::units::RpyDeg f = amr::units::RpyDegFromQuat(nq);
-    check(amr::Abs(f.roll - e.roll) < 1e-2 && amr::Abs(f.pitch - e.pitch) < 1e-2 && amr::Abs(f.yaw - e.yaw) < 1e-2, "q and -q display the same angles");
+    const simul::units::RpyDeg f = simul::units::RpyDegFromQuat(nq);
+    check(simul::Abs(f.roll - e.roll) < 1e-2 && simul::Abs(f.pitch - e.pitch) < 1e-2 && simul::Abs(f.yaw - e.yaw) < 1e-2, "q and -q display the same angles");
 }
 
 

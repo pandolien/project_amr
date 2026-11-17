@@ -12,7 +12,7 @@
 // 렌더링과 분리된 메시/장면 데이터. GLB, STL, OBJ, DAE 로더가 모두 이 구조로 채운다.
 // 좌표는 파일의 원래 좌표계를 그대로 유지한다 (GLB: Y-up, DAE: up_axis 에 따라 Z-up 으로 변환).
 // 변환 행렬은 dhMat(열 우선, 이동 v[12..14]) 이며 OpenGL 행렬과 배치가 같다.
-namespace amr {
+namespace simul {
 
 struct Color {
     float r, g, b, a;
@@ -21,21 +21,21 @@ struct Color {
 };
 
 struct Material {
-    amr::String name;
+    simul::String name;
     Color baseColor;
     float metallic;
     float roughness;
-    amr::String baseColorTexture;  // 외부 이미지 경로. 없거나 임베디드이면 빈 문자열
+    simul::String baseColorTexture;  // 외부 이미지 경로. 없거나 임베디드이면 빈 문자열
     bool doubleSided;
     Material() : metallic(0.0f), roughness(1.0f), doubleSided(false) {}
 };
 
 // 삼각형 메시 하나 (glTF 의 primitive 에 해당)
 struct Primitive {
-    amr::Array<float> positions;   // xyz * 정점 수
-    amr::Array<float> normals;     // xyz * 정점 수. 비어 있으면 ComputeNormals() 로 만든다
-    amr::Array<float> uvs;         // uv * 정점 수. 없으면 비어 있음
-    amr::Array<uint32_t> indices;  // 삼각형 인덱스 (3개씩)
+    simul::Array<float> positions;   // xyz * 정점 수
+    simul::Array<float> normals;     // xyz * 정점 수. 비어 있으면 ComputeNormals() 로 만든다
+    simul::Array<float> uvs;         // uv * 정점 수. 없으면 비어 있음
+    simul::Array<uint32_t> indices;  // 삼각형 인덱스 (3개씩)
     int material;                   // Scene::materials 인덱스, 없으면 -1
 
     Primitive() : material(-1) {}
@@ -49,30 +49,30 @@ struct Primitive {
 };
 
 struct Mesh {
-    amr::String name;
-    amr::Array<Primitive> primitives;
+    simul::String name;
+    simul::Array<Primitive> primitives;
 };
 
 struct SceneNode {
-    amr::String name;
+    simul::String name;
     dhMat local;                 // 부모 기준 변환
     int mesh;                    // Scene::meshes 인덱스, 없으면 -1
     int parent;                  // 루트이면 -1
-    amr::Array<int> children;
+    simul::Array<int> children;
     SceneNode() : mesh(-1), parent(-1) {}
 };
 
 struct Scene {
-    amr::String name;
-    amr::Array<Material> materials;
-    amr::Array<Mesh> meshes;
-    amr::Array<SceneNode> nodes;
-    amr::Array<int> roots;
-    amr::Array<amr::String> warnings;  // 지원하지 않아 무시한 항목 등
+    simul::String name;
+    simul::Array<Material> materials;
+    simul::Array<Mesh> meshes;
+    simul::Array<SceneNode> nodes;
+    simul::Array<int> roots;
+    simul::Array<simul::String> warnings;  // 지원하지 않아 무시한 항목 등
 
     void Clear();
     // 각 노드의 월드 변환 (nodes 와 같은 순서)
-    amr::Array<dhMat> WorldTransforms() const;
+    simul::Array<dhMat> WorldTransforms() const;
     // 모든 루트 노드의 변환 앞에 t 를 곱한다 (좌표축 변환, 단위 변환 등)
     void ApplyRootTransform(const dhMat& t);
     // 월드 좌표 기준 경계 상자. 정점이 하나도 없으면 false
@@ -82,6 +82,6 @@ struct Scene {
     bool IsValid() const;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CMESH_MESH_H

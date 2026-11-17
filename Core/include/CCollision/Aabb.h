@@ -11,7 +11,7 @@
 //   - 기본 생성은 "빈 상자" 이다. 빈 상자는 어떤 것과도 겹치지 않고 아무것도 포함하지 않는다.
 //   - 면이 닿기만 해도 겹친 것으로 본다 (경계 포함, 닫힌 구간).
 //   - float 이므로 닿는 경우의 판정은 반올림 오차에 영향을 받을 수 있다. 여유가 필요하면 Inflated() 를 쓴다.
-namespace amr {
+namespace simul {
 
 struct Aabb {
     dhVector lo;  // 각 축의 최솟값
@@ -53,6 +53,6 @@ struct Aabb {
     bool Raycast(const dhVector& origin, const dhVector& dir, float tMax, float* tHit) const;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CCOLLISION_AABB_H

@@ -8,7 +8,7 @@
 #include "TestGlb.h"
 #include "TestUtil.h"
 
-using namespace amr;
+using namespace simul;
 
 namespace {
 
@@ -21,7 +21,7 @@ void check(bool ok, const char* what) {
     }
 }
 
-bool nearly(double a, double b, double eps = 1e-4) { return amr::Abs(a - b) <= eps; }
+bool nearly(double a, double b, double eps = 1e-4) { return simul::Abs(a - b) <= eps; }
 
 // 닫힌 메시의 부호 있는 부피 (바깥 방향 와인딩이면 양수)
 double SignedVolume(const Primitive& p) {
@@ -92,8 +92,8 @@ void testSceneUtil() {
 }
 
 // 삼각형 하나: 위치 3개(36B) + 인덱스 3개
-amr::String TriJson(const amr::String& indexType, const amr::String& extra, const amr::String& nodeExtra,
-                    size_t binLen, const amr::String& primExtra = "", int indexCount = 3, const amr::String& ext = "") {
+simul::String TriJson(const simul::String& indexType, const simul::String& extra, const simul::String& nodeExtra,
+                    size_t binLen, const simul::String& primExtra = "", int indexCount = 3, const simul::String& ext = "") {
     char buf[2048];
     snprintf(buf, sizeof(buf),
         "{\"asset\":{\"version\":\"2.0\"},%s"
@@ -111,8 +111,8 @@ amr::String TriJson(const amr::String& indexType, const amr::String& extra, cons
     return buf;
 }
 
-amr::Array<char> TriBin16() {
-    amr::Array<char> b;
+simul::Array<char> TriBin16() {
+    simul::Array<char> b;
     const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
     for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);
     testglb::putu16(&b, 0);
@@ -122,14 +122,14 @@ amr::Array<char> TriBin16() {
 }
 
 void testGlbBasic() {
-    const amr::Array<char> bin = TriBin16();
-    const amr::Array<char> glb = testglb::MakeGlb(
+    const simul::Array<char> bin = TriBin16();
+    const simul::Array<char> glb = testglb::MakeGlb(
         TriJson("5123", "\"materials\":[{\"name\":\"red\",\"doubleSided\":true,\"pbrMetallicRoughness\":"
                         "{\"baseColorFactor\":[1,0,0,1],\"metallicFactor\":0.25,\"roughnessFactor\":0.5}}],",
                 ",\"translation\":[1,2,3]", bin.size(), ",\"material\":0"),
         bin);
     Scene s;
-    amr::String err;
+    simul::String err;
     check(LoadGlbFromMemory(&glb[0], glb.size(), &s, &err), "basic glb loads");
     if (!s.meshes.empty()) {
         check(s.TriangleCount() == 1, "1 triangle");
@@ -147,9 +147,9 @@ void testGlbBasic() {
     check(s.IsValid(), "scene valid");
 
     // 파일 경로 버전
-    const amr::String path = tu::Tmp("amr_test_tri.glb");
+    const simul::String path = tu::Tmp("simul_test_tri.glb");
     {
-        amr::WriteFileBytes(path, &glb[0], glb.size());
+        simul::WriteFileBytes(path, &glb[0], glb.size());
     }
     Scene s2;
     check(LoadGlb(path, &s2, &err) && s2.TriangleCount() == 1, "LoadGlb from file");
@@ -161,22 +161,22 @@ void testGlbBasic() {
 
 void testGlbIndexVariants() {
     // 인덱스 없음 (3 정점이 곧 삼각형 1개)
-    amr::Array<char> b;
+    simul::Array<char> b;
     const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
     for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);
-    amr::String json =
+    simul::String json =
         "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
         "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],"
         "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}],"
         "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}";
-    amr::Array<char> glb = testglb::MakeGlb(json, b);
+    simul::Array<char> glb = testglb::MakeGlb(json, b);
     Scene s;
-    amr::String err;
+    simul::String err;
     check(LoadGlbFromMemory(&glb[0], glb.size(), &s, &err) && s.TriangleCount() == 1, "non-indexed primitive");
 
     // 삼각형 스트립 (사각형 = 정점 4, 삼각형 2) 과 팬
     for (int mode = 5; mode <= 6; mode++) {
-        amr::Array<char> b4;
+        simul::Array<char> b4;
         const float q[12] = {0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0};
         for (int i = 0; i < 12; i++) testglb::putf(&b4, q[i]);
         char js[1024];
@@ -193,7 +193,7 @@ void testGlbIndexVariants() {
 
     // 점(points, mode 0) 은 건너뛰고 경고
     {
-        amr::String js2 =
+        simul::String js2 =
             "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
             "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"mode\":0}]}],"
             "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}],"
@@ -207,7 +207,7 @@ void testGlbIndexVariants() {
 
 void testGlbHierarchy() {
     // 부모(이동 10,0,0) -> 자식(Z축 90도 회전, 이동 1,0,0). 자식의 점 (1,0,0) 은 월드 (10,1,0)+... 아래에서 계산
-    amr::Array<char> b = TriBin16();
+    simul::Array<char> b = TriBin16();
     char js[2048];
     snprintf(js, sizeof(js),
         "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,"
@@ -218,9 +218,9 @@ void testGlbHierarchy() {
         "{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],"
         "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],"
         "\"buffers\":[{\"byteLength\":%d}]}", static_cast<int>(b.size()));
-    amr::Array<char> glb = testglb::MakeGlb(js, b);
+    simul::Array<char> glb = testglb::MakeGlb(js, b);
     Scene s;
-    amr::String err;
+    simul::String err;
     check(LoadGlbFromMemory(&glb[0], glb.size(), &s, &err), "hierarchy loads");
     check(s.nodes.size() == 2 && s.nodes[1].parent == 0 && s.nodes[0].children.size() == 1, "parent/child links");
     // 삼각형 (0,0,0),(1,0,0),(0,1,0) 을 Z 90도 회전 -> (0,0,0),(0,1,0),(-1,0,0), 이동 (11,0,0) -> x∈[10,11], y∈[0,1]
@@ -237,22 +237,22 @@ void testGlbHierarchy() {
 
 void testGlbErrors() {
     Scene s;
-    amr::String err;
+    simul::String err;
     check(!LoadGlbFromMemory(NULL, 0, &s, &err) && !err.empty(), "null data");
     const char junk[] = "this is definitely not a glb file";
     check(!LoadGlbFromMemory(junk, sizeof(junk), &s, &err), "garbage rejected");
     check(!LoadGlbFromMemory(junk, sizeof(junk), &s, NULL), "garbage rejected without error pointer");
 
     // Draco 필수 확장
-    amr::Array<char> bin = TriBin16();
-    amr::Array<char> glb = testglb::MakeGlb(
+    simul::Array<char> bin = TriBin16();
+    simul::Array<char> glb = testglb::MakeGlb(
         TriJson("5123", "", "", bin.size(), "", 3, "\"extensionsRequired\":[\"KHR_draco_mesh_compression\"],\"extensionsUsed\":[\"KHR_draco_mesh_compression\"],"),
         bin);
     check(!LoadGlbFromMemory(&glb[0], glb.size(), &s, &err), "draco rejected");
     check(s.nodes.empty() && s.meshes.empty(), "scene cleared after failure");
 
     // 인덱스가 정점 범위를 벗어남 (정점 3개, 인덱스 7)
-    amr::Array<char> b2 = TriBin16();
+    simul::Array<char> b2 = TriBin16();
     b2[36 + 4] = 7;
     glb = testglb::MakeGlb(TriJson("5123", "", "", b2.size()), b2);
     check(!LoadGlbFromMemory(&glb[0], glb.size(), &s, &err), "out of range index rejected");
@@ -272,7 +272,7 @@ void testGlbErrors() {
 
     // 바이트 하나씩 망가뜨려도 죽지 않아야 한다 (결과는 성공/실패 무관)
     for (size_t i = 0; i < glb.size(); i++) {
-        amr::Array<char> c = glb;
+        simul::Array<char> c = glb;
         c[i] = static_cast<char>(c[i] ^ 0xFF);
         Scene t;
         LoadGlbFromMemory(&c[0], c.size(), &t, &err);

@@ -21,34 +21,34 @@ if(WIN32 AND NOT DEFINED LAPACK_LIBRARIES)
 endif()
 if(TARGET lapack AND TARGET f2c)
     message(STATUS "LAPACK: clapack (vcpkg)")
-    set(AMR_LAPACK_LIBS lapack f2c)
+    set(SIMUL_LAPACK_LIBS lapack f2c)
 elseif(WIN32 AND NOT DEFINED LAPACK_LIBRARIES)
     message(FATAL_ERROR "clapack 를 찾을 수 없습니다.\n"
         "  vcpkg install clapack:x64-windows 후 vcpkg 툴체인을 지정하거나 (run.bat 이 해 줍니다),\n"
         "  -DLAPACK_LIBRARIES=\"<lapack>;<blas>\" 로 직접 지정하세요")
 else()
     find_package(LAPACK REQUIRED)
-    set(AMR_LAPACK_LIBS ${LAPACK_LIBRARIES})
+    set(SIMUL_LAPACK_LIBS ${LAPACK_LIBRARIES})
 endif()
 
 # ---- tinyxml2: CURDF(URDF) 와 CMesh(COLLADA .dae) 의 XML 파싱 (zlib 라이선스)
 #   기본: 시스템에 있으면 그것을 쓰고(Ubuntu: sudo apt install libtinyxml2-dev), 없으면
 #         third_party/tinyxml2 (포함본, Windows 기본)를 함께 빌드한다.
-option(AMR_USE_BUNDLED_TINYXML2 "시스템 tinyxml2 대신 third_party/tinyxml2 를 빌드" OFF)
-if(NOT AMR_USE_BUNDLED_TINYXML2)
+option(SIMUL_USE_BUNDLED_TINYXML2 "시스템 tinyxml2 대신 third_party/tinyxml2 를 빌드" OFF)
+if(NOT SIMUL_USE_BUNDLED_TINYXML2)
     find_path(TINYXML2_INCLUDE_DIR NAMES tinyxml2.h)
     find_library(TINYXML2_LIBRARY NAMES tinyxml2)
     if(NOT TINYXML2_INCLUDE_DIR OR NOT TINYXML2_LIBRARY)
         message(STATUS "시스템 tinyxml2 를 찾지 못해 포함본(third_party/tinyxml2)을 사용합니다")
-        set(AMR_USE_BUNDLED_TINYXML2 ON)
+        set(SIMUL_USE_BUNDLED_TINYXML2 ON)
     endif()
 endif()
-if(AMR_USE_BUNDLED_TINYXML2)
-    add_library(amr_tinyxml2 STATIC ${CMAKE_SOURCE_DIR}/third_party/tinyxml2/tinyxml2.cpp)
-    target_include_directories(amr_tinyxml2 SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/third_party/tinyxml2)
-    set_target_properties(amr_tinyxml2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(SIMUL_USE_BUNDLED_TINYXML2)
+    add_library(simul_tinyxml2 STATIC ${CMAKE_SOURCE_DIR}/third_party/tinyxml2/tinyxml2.cpp)
+    target_include_directories(simul_tinyxml2 SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/third_party/tinyxml2)
+    set_target_properties(simul_tinyxml2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
     set(TINYXML2_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/third_party/tinyxml2)
-    set(TINYXML2_LIBRARY amr_tinyxml2)
+    set(TINYXML2_LIBRARY simul_tinyxml2)
 endif()
 
 # ---- cgltf: CMesh 의 GLB/glTF 파싱 (MIT 라이선스, third_party/cgltf 에 포함)
@@ -57,6 +57,6 @@ target_include_directories(Core SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/cgltf
     ${TINYXML2_INCLUDE_DIR})
 
-target_link_libraries(Core PUBLIC ${AMR_LAPACK_LIBS} ${TINYXML2_LIBRARY})
+target_link_libraries(Core PUBLIC ${SIMUL_LAPACK_LIBS} ${TINYXML2_LIBRARY})
 
-amr_set_warnings(Core)
+simul_set_warnings(Core)

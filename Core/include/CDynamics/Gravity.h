@@ -12,7 +12,7 @@
 // 좌표계: 로봇의 루트 링크 좌표계. 중력 벡터도 이 좌표계로 준다.
 //   AMR 이 기울어져 있으면 중력 방향이 루트 링크 기준으로 달라지므로, IMU 등으로 구한 중력 방향을
 //   루트 링크 좌표계로 바꿔서 넘기면 된다 (기본값은 아래쪽 -Z).
-namespace amr {
+namespace simul {
 namespace dynamics {
 
 const double kStandardGravity = 9.80665;  // m/s^2
@@ -24,7 +24,7 @@ struct Gravity {
     Gravity(double gx, double gy, double gz) : x(gx), y(gy), z(gz) {}
 };
 
-typedef amr::Map<amr::String, double> JointTorques;  // 관절 이름 -> 토크(회전 관절 N·m) 또는 힘(이동 관절 N)
+typedef simul::Map<simul::String, double> JointTorques;  // 관절 이름 -> 토크(회전 관절 N·m) 또는 힘(이동 관절 N)
 
 // 정지 상태(속도와 가속도가 0)에서 각 관절이 중력을 버티려고 내야 하는 토크.
 //   운동방정식 M(q) q'' + C(q, q') + g(q) = tau 의 g(q) 이다. 즉 g(q) = dU/dq (U 는 중력 위치에너지)이고,
@@ -39,7 +39,7 @@ JointTorques GravityTorques(const urdf::Robot& robot, const urdf::JointValues& q
 // ---- 관절마다 따로 보기
 // GravityTorques 는 모터가 내야 할 토크(구동 관절만, mimic 은 원본에 합산)이고, 아래는 "모든 관절이 각자 받는 하중"이다.
 struct JointLoad {
-    amr::String name;
+    simul::String name;
     bool movable;  // 회전/이동 관절인가 (fixed 등은 false)
     bool mimic;    // mimic 관절인가
     // 움직이는 관절만 의미 있음: 자기 좌표(axis 방향 회전, 이동)의 + 방향 기준 토크(N·m) 또는 힘(N).
@@ -59,18 +59,18 @@ struct JointLoad {
 };
 
 // robot.joints 와 같은 순서로 모든 관절(fixed, mimic 포함)의 하중을 돌려준다.
-amr::Array<JointLoad> GravityLoads(const urdf::Robot& robot, const urdf::JointValues& q, const Gravity& g = Gravity(),
+simul::Array<JointLoad> GravityLoads(const urdf::Robot& robot, const urdf::JointValues& q, const Gravity& g = Gravity(),
                                     bool clampToLimits = true);
 
 // 한 관절의 torque 에 링크마다 얼마씩 기여했는지. 그 관절 아래쪽(자식 쪽)에 있는 질량 있는 링크만 나오고,
 // value 의 합이 GravityLoads 의 그 관절 torque 와 같다. 관절이 없거나 움직이지 않는 관절이면 빈 목록.
 struct LinkContribution {
-    amr::String link;
+    simul::String link;
     double value;  // N·m 또는 N
     LinkContribution() : value(0) {}
 };
-amr::Array<LinkContribution> GravityContributions(const urdf::Robot& robot, const urdf::JointValues& q,
-                                                   const amr::String& jointName, const Gravity& g = Gravity(),
+simul::Array<LinkContribution> GravityContributions(const urdf::Robot& robot, const urdf::JointValues& q,
+                                                   const simul::String& jointName, const Gravity& g = Gravity(),
                                                    bool clampToLimits = true);
 
 // 로봇 전체의 질량중심(루트 링크 좌표계)과 총 질량. 질량이 있는 링크가 없으면 false.
@@ -79,6 +79,6 @@ bool CenterOfMass(const urdf::Robot& robot, const urdf::JointValues& q, double o
                   bool clampToLimits = true);
 
 }  // namespace dynamics
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CDYNAMICS_GRAVITY_H

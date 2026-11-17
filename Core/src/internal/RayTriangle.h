@@ -5,7 +5,7 @@
 
 // 광선 o + t*d 와 삼각형(p0, p1, p2)의 교차 (Moller-Trumbore, 양면). 맞으면 true 와 t (0 <= t). 평행/퇴화/NaN 은 false.
 // RaycastTriangles(벌크)와 TriangleBvh 가 같은 판정을 쓰도록 한곳에 둔다.
-namespace amr {
+namespace simul {
 namespace detail {
 
 inline bool RayTriangle(const double o[3], const double d[3], const float* p0, const float* p1, const float* p2, double* tOut) {
@@ -17,7 +17,7 @@ inline bool RayTriangle(const double o[3], const double d[3], const float* p0, c
     }
     const double p[3] = {d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]};
     const double det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
-    if (!(amr::Abs(det) > 1e-18)) return false;  // 광선과 평행하거나 퇴화 (NaN 도 여기서 걸러진다)
+    if (!(simul::Abs(det) > 1e-18)) return false;  // 광선과 평행하거나 퇴화 (NaN 도 여기서 걸러진다)
     const double inv = 1.0 / det;
     const double s[3] = {o[0] - a[0], o[1] - a[1], o[2] - a[2]};
     const double u = (s[0] * p[0] + s[1] * p[1] + s[2] * p[2]) * inv;
@@ -32,6 +32,6 @@ inline bool RayTriangle(const double o[3], const double d[3], const float* p0, c
 }
 
 }  // namespace detail
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_INTERNAL_RAYTRIANGLE_H

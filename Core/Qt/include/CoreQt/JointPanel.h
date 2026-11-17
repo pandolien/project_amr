@@ -17,17 +17,17 @@ class JointPanel : public QWidget {
 public:
     explicit JointPanel(QWidget* parent = nullptr);
 
-    void SetRobot(const amr::urdf::Robot& robot);   // 슬라이더를 새로 만든다 (모두 0 으로)
-    amr::urdf::JointValues Values() const;          // 관절 이름 -> rad/m
+    void SetRobot(const simul::urdf::Robot& robot);   // 슬라이더를 새로 만든다 (모두 0 으로)
+    simul::urdf::JointValues Values() const;          // 관절 이름 -> rad/m
     void SetValue(const QString& jointName, double value);  // rad/m 로 지정
     // 슬라이더의 표시만 바꾼다 (시그널을 내지 않는다). 시뮬레이션처럼 프로그램이 값을 계속 바꿀 때 쓴다.
     // 사용자가 지금 잡고 있는 슬라이더는 건드리지 않는다. 슬라이더 눈금 때문에 값이 조금 반올림되어 보인다.
-    void ShowValues(const amr::urdf::JointValues& q);
+    void ShowValues(const simul::urdf::JointValues& q);
     bool IsEmpty() const { return rows_.empty(); }
 
     // 관절별 토크(회전 N·m, 이동 N)를 슬라이더 아래에 표시한다. 관절의 effort 한계를 넘으면 빨갛게 보인다.
-    // 이름 -> 값 (amr::dynamics::JointTorques 와 같은 형식). 비어 있으면 표시를 지운다.
-    void SetTorques(const amr::Map<amr::String, double>& torques);
+    // 이름 -> 값 (simul::dynamics::JointTorques 와 같은 형식). 비어 있으면 표시를 지운다.
+    void SetTorques(const simul::Map<simul::String, double>& torques);
 
 signals:
     void valuesChanged();
@@ -39,7 +39,7 @@ private slots:
 
 private:
     struct Row {
-        amr::String name;
+        simul::String name;
         bool angular;
         double lower, upper;   // rad 또는 m
         QSlider* slider;
@@ -52,7 +52,7 @@ private:
     double valueOf(const Row& r) const;
     void updateLabel(Row& r);
 
-    amr::Array<Row> rows_;
+    simul::Array<Row> rows_;
     QWidget* body_;
 };
 

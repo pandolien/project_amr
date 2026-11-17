@@ -3,7 +3,7 @@
 #include "CBase/Math.h"
 #include "RayTriangle.h"
 
-namespace amr {
+namespace simul {
 
 bool RaycastTriangles(const float* positions, size_t vertexCount, const uint32_t* indices, size_t indexCount,
                       const dhVector& origin, const dhVector& dir, float tMax, float* tHit, size_t* triangle, size_t stride) {
@@ -30,4 +30,4 @@ bool RaycastTriangles(const float* positions, size_t vertexCount, const uint32_t
     return found;
 }
 
-}  // namespace amr
+}  // namespace simul

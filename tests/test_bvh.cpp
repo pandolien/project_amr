@@ -7,7 +7,7 @@
 #include "CCollision/Bvh.h"
 #include "CCollision/MeshRaycast.h"
 
-using namespace amr;
+using namespace simul;
 
 namespace {
 

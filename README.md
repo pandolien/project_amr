@@ -1,4 +1,4 @@
-# project_amr
+# Project Simul
 
 AMR(이동 로봇) 위에 로봇암을 연결하여 통합 제어하는 시스템.
 
@@ -15,7 +15,7 @@ AMR(이동 로봇) 위에 로봇암을 연결하여 통합 제어하는 시스�
 ## 디렉토리 구조
 
 ```
-project_amr/
+project_simul/
 ├── CMakeLists.txt        # 전체 빌드
 ├── main.cpp              # 메인 시스템
 ├── Data/Object/          # 오브젝트 관련 자료
@@ -24,13 +24,13 @@ project_amr/
 │   ├── include/          # CMat, 3d, CMesh, CURDF, CCollision, CDynamics, CSimul, CSock
 │   ├── src/              # 위 모듈의 구현
 │   └── Qt/               # CoreQt: 재사용 가능한 범용 Qt5 위젯 (별도 타겟)
-├── src/                  # 프로젝트 생성 파일 (amr_main에 포함)
+├── src/                  # 프로젝트 생성 파일 (simul_main에 포함)
 ├── include/              # 알고리즘 헤더
 ├── tests/
 └── build/                # 빌드 산출물 (bin, lib 포함, git 제외)
 ```
 
-의존 방향: `CoreQt -> Core`, `amr_main -> Core` (역방향 금지, Core는 Qt를 참조하지 않음)
+의존 방향: `CoreQt -> Core`, `simul_main -> Core` (역방향 금지, Core는 Qt를 참조하지 않음)
 
 | 모듈 | 역할 | 의존 |
 |---|---|---|
@@ -51,7 +51,7 @@ CBase 사용상 주의:
 - `Map`/`Set` 은 정렬된 배열이라 넣거나 지우면 이전에 얻은 반복자가 무효가 되고 넣기는 O(n) 입니다. 항목이 많으면(예: 메시 정점 합치기) `HashMap`(키에 `==` 와 `size_t Hash() const` 필요)을 씁니다.
 - `Array::clear()` 는 원소를 `T()` 로 되돌립니다. 비운 뒤 이전 원소에 대한 참조를 쓰면 안 됩니다.
 - 숫자 파싱(`ParseDouble` 등)은 로케일과 무관하게 항상 `.` 을 소수점으로 읽습니다.
-- Qt 와의 변환은 `CoreQt/QtString.h` 의 `amrqt::ToQ` / `FromQ` 를 씁니다 (UTF-8).
+- Qt 와의 변환은 `CoreQt/QtString.h` 의 `simulqt::ToQ` / `FromQ` 를 씁니다 (UTF-8).
 
 헤더는 `#include "CMat/CMat.h"` 형태로 사용합니다.
 `Core/src` 아래에 `.cpp`를 추가하면 CMake가 자동으로 인식합니다.
@@ -65,18 +65,18 @@ CBase 사용상 주의:
 | 사람에게 보이는 곳 (화면, 콘솔, 명령행) | 각도는 **deg** (이동 관절은 m 그대로) |
 
 - 자세는 `dhPose`(`3d/dhPose.h`)로 주고받습니다. 전송 형식은 7개 값 `x, y, z, qx, qy, qz, qw` 이고, `ToArray` 는 쿼터니언을 정규화하고 `w >= 0` 으로 맞춥니다(`q` 와 `-q` 는 같은 회전). `FromArray` 는 NaN/무한대와 길이 0 쿼터니언을 거부하고 정규화합니다.
-- degree 변환은 사람과 맞닿는 경계에서만 합니다: `amr::units::RadToDeg/DegToRad`, 화면용 방향 `RpyDegFromQuat`(roll/pitch/yaw, URDF rpy 규약), 관절은 `Joint::ToDisplay/FromDisplay`(각도 관절만 변환), `DisplayUnit()`, `TorqueUnit()`.
+- degree 변환은 사람과 맞닿는 경계에서만 합니다: `simul::units::RadToDeg/DegToRad`, 화면용 방향 `RpyDegFromQuat`(roll/pitch/yaw, URDF rpy 규약), 관절은 `Joint::ToDisplay/FromDisplay`(각도 관절만 변환), `DisplayUnit()`, `TorqueUnit()`.
 - 주의: `dhQuat` 의 생성자 순서는 `(x, y, z, w)` 이고 멤버 선언 순서는 `w, x, y, z` 입니다. `dhQuat(1, 0, 0, 0)` 은 항등이 아니라 X축 180도 회전입니다.
 - 중력/동역학은 double 로 계산합니다 (입력인 `dhMat`, `Robot` 값은 float 이므로 입력 정밀도는 float 입니다).
 
-## 3D 뷰어 (amr_main)
+## 3D 뷰어 (simul_main)
 
 ```bash
 ./run.sh -- Data/Object/samples/arm.urdf        # 예제 로봇 팔 (관절 슬라이더 포함)
-./build/bin/amr_main 모델.glb                    # GLB / glTF / STL / OBJ / DAE 도 열림
-./build/bin/amr_main robot.urdf --joint joint1=30 --package my_pkg=/path/to/my_pkg
-./build/bin/amr_main --info robot.urdf          # 창 없이 파일 정보만 출력
-./build/bin/amr_main robot.urdf --shot a.png    # 화면을 PNG 로 저장하고 종료
+./build/bin/simul_main 모델.glb                    # GLB / glTF / STL / OBJ / DAE 도 열림
+./build/bin/simul_main robot.urdf --joint joint1=30 --package my_pkg=/path/to/my_pkg
+./build/bin/simul_main --info robot.urdf          # 창 없이 파일 정보만 출력
+./build/bin/simul_main robot.urdf --shot a.png    # 화면을 PNG 로 저장하고 종료
 ```
 
 - 인자 없이 실행하면 빈 창이 뜨고, **파일 > 열기 (Ctrl+O)** 나 파일을 창에 끌어다 놓아서 열 수 있습니다.
@@ -84,7 +84,7 @@ CBase 사용상 주의:
 - URDF 를 열면 오른쪽에 관절 슬라이더가 생깁니다 (revolute/continuous 는 도, prismatic 은 m, limit 범위 안에서).
 - 좌표계는 Z-up 입니다. GLB(Y-up)는 열 때 Z-up 으로 돌려서 보여줍니다. OBJ 에 법선이 없으면 평평한(flat) 음영으로 그립니다.
 - OpenGL 2.1 이상이면 동작합니다 (`ModelViewer`, `JointPanel` 은 `Core/Qt`, 재사용 가능).
-- Qt 없이 빌드(`-DAMR_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 5 를 찾거나(`CMAKE_PREFIX_PATH`) vcpkg 로 설치한 뒤 창 모드로 빌드합니다 (`--no-qt` 로 끔). vcpkg 의 Qt 는 5.15 대입니다 (5.12 이상이면 동작).
+- Qt 없이 빌드(`-DSIMUL_BUILD_QT=OFF`)하면 창 대신 파일 정보만 출력합니다. Windows 의 `run.bat` 은 Qt 5 를 찾거나(`CMAKE_PREFIX_PATH`) vcpkg 로 설치한 뒤 창 모드로 빌드합니다 (`--no-qt` 로 끔). vcpkg 의 Qt 는 5.15 대입니다 (5.12 이상이면 동작).
 - **물체 선택과 좌표계**: 화면에서 물체를 **왼쪽 클릭**하면 그 링크(정적 모델이면 모델 전체)가 선택되어 밝게 강조되고, 구조 트리의 같은 링크도 함께 선택됩니다. 선택한 것에는 **좌표계**(가운데 구 + X 빨강 / Y 초록 / Z 파랑 화살표)가 붙고, 아래 상태바에 위치(m), RPY(degree), 쿼터니언이 나옵니다(루트 링크 기준). 빈 곳을 클릭하면 선택이 풀리고, 관절을 움직이면 좌표계도 따라갑니다. `보기 > 선택 좌표계` / `G` 로 켜고 끕니다. 클릭 판정은 삼각형 단위(`CCollision/MeshRaycast.h`)라서 상자가 아니라 실제 모양에 맞습니다. 좌표계 모양은 `Data/Object/gizmo/axes.obj`(+`axes.mtl`)이며, 직접 고치거나 `python3 tools/make_gizmo_obj.py` 로 다시 만들 수 있습니다(화살표 끝까지 길이 1, 화면에서 항상 같은 크기로 보이게 뷰어가 크기를 곱합니다). 확인용으로 `--click x,y` 는 3D 화면의 그 픽셀을 클릭한 것처럼 처리합니다.
 - **오브젝트 이동**: 정적 모델이나 로봇의 루트 링크(베이스)를 선택한 상태에서 좌표계 **화살표를 끌면** 그 축 방향으로만 움직입니다(화살표 위에서 누르면 카메라가 아니라 물체가 움직입니다). 로봇은 전체가 AMR 위치처럼 같이 움직이고, 충돌 박스와 좌표계도 따라옵니다. 위치는 월드 기준 m 이며 상태바에 나옵니다. 팔 중간 링크는 관절에 묶여 있어서 이동되지 않고 관절 슬라이더로만 움직입니다(끌어서 움직이려면 IK 가 필요합니다). 관절 값, 충돌 검사, 중력 계산은 로봇 자신의 좌표계(루트 기준)에서 하므로 이동의 영향을 받지 않습니다. `보기 > 오브젝트 위치 초기화`로 되돌리고, `--move x,y,z` 로 시작 위치를 정하며, `--drag x0,y0,x1,y1` 은 확인용으로 마우스 드래그를 흉내 냅니다. 회전 이동은 아직 없습니다.
 - **중력 낙하**: 이동으로 들어 올린 물체(정적 모델, 로봇 전체)는 놓으면 **바닥(z = 0 인 격자 평면)까지 떨어집니다**. 바닥에 닿으면 조금 튕기다 멈추고(`CDynamics/FreeFall.h` 의 `FallBody`, 등가속도 식을 그대로 써서 낙하 시간이 sqrt(2h/g) 와 맞습니다), 가장 낮은 점은 보이는 모양의 꼭짓점으로 잡습니다. 화살표를 끄는 동안에는 떨어지지 않고, 놓는 순간부터 떨어집니다. 중력은 `보기 > 중력 방향...` 의 수직(z) 성분만 쓰고(위로 향하거나 0 이면 떨어지지 않음), 회전과 수평 이동은 아직 없으며, 이미 바닥 아래에 있는 물체는 건드리지 않습니다. `보기 > 중력 낙하` 로 끄고 켜며(`--no-fall` 은 처음부터 끔), `--settle` 은 확인용으로 낙하가 끝날 때까지 진행한 뒤 위치를 출력합니다.
@@ -103,16 +103,16 @@ CBase 사용상 주의:
 ./run.sh --no-qt      # Qt 없이 (qtbase5-dev 설치도 생략)
 ./run.sh --no-install # 설치하지 않고 부족한 패키지 목록만 안내
 ./run.sh --clean      # build/ 를 비우고 처음부터
-./run.sh -- 인자들     # amr_main 에 넘길 인자
+./run.sh -- 인자들     # simul_main 에 넘길 인자
 ```
 
 ```bat
 run.bat               :: Windows: CMake/Git(winget), Visual Studio 확인, vcpkg+clapack 설치 -> 빌드 -> 실행
-run.bat --test        :: 같은 옵션: --test --no-qt --no-install --clean --debug, -- 뒤는 amr_main 인자
+run.bat --test        :: 같은 옵션: --test --no-qt --no-install --clean --debug, -- 뒤는 simul_main 인자
 ```
 
 - 이미 모두 설치되어 있으면 설치 단계는 건너뛰고 바로 빌드/실행합니다. 설치는 첫 실행에서만 시간이 걸립니다.
-- 빌드가 끝나면 `amr_main`(3D 뷰어)을 실행합니다. 인자를 넘기려면 `./run.sh -- 파일.urdf`.
+- 빌드가 끝나면 `simul_main`(3D 뷰어)을 실행합니다. 인자를 넘기려면 `./run.sh -- 파일.urdf`.
 - `run.bat` 은 Visual Studio Build Tools 가 없으면 설치 여부를 물어보고(수 GB), 설치 후에는 새 터미널에서 다시 실행해야 합니다.
   vcpkg 는 `VCPKG_ROOT` 가 있으면 그것을, 없으면 프로젝트 안 `.vcpkg/` 에 받아 사용합니다. Qt 는 기본으로 켜져 있고, 직접 설치한 Qt 5 가 있으면 `CMAKE_PREFIX_PATH`(또는 `QT_DIR`)에 그 폴더를 지정하세요. 없으면 vcpkg 로 설치할지 물어봅니다 (Release 전용 + OpenSSL 제외로 20~40분, 수 GB). 창 없이 콘솔 모드만 쓰려면 `--no-qt`.
 - `run.bat` 은 아직 실제 Windows 에서 실행해 보지 못했습니다 (아래 Windows 빌드 절은 MinGW 로만 검증).
@@ -125,12 +125,12 @@ sudo apt install build-essential cmake qtbase5-dev liblapack-dev libtinyxml2-dev
 cmake -S . -B build
 cmake --build build -j
 
-./build/bin/amr_main
+./build/bin/simul_main
 ```
 
-Qt 없이 빌드: `cmake -S . -B build -DAMR_BUILD_QT=OFF`
+Qt 없이 빌드: `cmake -S . -B build -DSIMUL_BUILD_QT=OFF`
 
-테스트: `cmake -S . -B build -DAMR_BUILD_TESTS=ON -DAMR_BUILD_QT=OFF && cmake --build build --target test_3d test_cmat test_cmesh test_cmesh_formats test_curdf && (cd build && ctest)`
+테스트: `cmake -S . -B build -DSIMUL_BUILD_TESTS=ON -DSIMUL_BUILD_QT=OFF && cmake --build build --target test_3d test_cmat test_cmesh test_cmesh_formats test_curdf && (cd build && ctest)`
 
 ## Windows 빌드
 
@@ -141,7 +141,7 @@ Linux 와 같은 소스·CMake 로 빌드됩니다 (MSVC 2019+ 또는 MinGW-w64,
 vcpkg install clapack:x64-windows
 
 cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake ^
-      -DAMR_BUILD_QT=OFF -DAMR_BUILD_TESTS=ON
+      -DSIMUL_BUILD_QT=OFF -DSIMUL_BUILD_TESTS=ON
 cmake --build build --config Release
 cd build && ctest -C Release
 ```
@@ -149,7 +149,7 @@ cd build && ctest -C Release
 - **LAPACK**: `CMat` 은 LAPACK 의 `dgesvd_` 를 직접 호출합니다 (LAPACKE 불필요). Windows 에서는 vcpkg 의 `clapack`
   (f2c 로 변환한 LAPACK, 정적 라이브러리)의 CMake 설정(`lapack`, `f2c` 타깃)을 직접 사용합니다 (vcpkg 의 `find_package(LAPACK)` 는 `x64-windows` 에서 Fortran 이 필요한 `lapack-reference` 를 가리키기 때문). 참고: vcpkg 의 `openblas` 는 BLAS 만 들어 있고 LAPACK 은 없습니다.
   다른 LAPACK 을 쓰려면 `-DLAPACK_LIBRARIES="<lapack>;<blas>"`.
-- **tinyxml2**: 시스템에 없으면 `third_party/tinyxml2`(포함본)를 자동으로 빌드합니다 (`-DAMR_USE_BUNDLED_TINYXML2=ON` 으로 강제 가능).
+- **tinyxml2**: 시스템에 없으면 `third_party/tinyxml2`(포함본)를 자동으로 빌드합니다 (`-DSIMUL_USE_BUNDLED_TINYXML2=ON` 으로 강제 가능).
 - 산출물: Visual Studio 같은 멀티 구성 생성기는 `build/bin/<Config>/` 아래에 생기고, `ctest` 에는 `-C <Config>` 가 필요합니다.
 - 소스는 UTF-8 이며 MSVC 에는 `/utf-8` 을 자동으로 붙입니다.
 - 파일 경로는 ANSI 코드 페이지 기준으로 열립니다. 한글처럼 코드 페이지 밖 문자가 들어간 경로의 모델 파일은 열리지 않을 수 있습니다.
@@ -162,18 +162,18 @@ cd build && ctest -C Release
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
 
-amr::Scene scene;
+simul::Scene scene;
 std::string err;
-if (!amr::LoadMesh("robot.glb", &scene, &err)) { /* err 에 원인 */ }   // 확장자로 형식 선택
+if (!simul::LoadMesh("robot.glb", &scene, &err)) { /* err 에 원인 */ }   // 확장자로 형식 선택
 
-amr::urdf::Robot robot;
-amr::urdf::LoadUrdf("robot.urdf", &robot, &err);
+simul::urdf::Robot robot;
+simul::urdf::LoadUrdf("robot.urdf", &robot, &err);
 
-amr::urdf::JointValues q;  q["joint1"] = 0.5f;               // rad (prismatic 은 m)
+simul::urdf::JointValues q;  q["joint1"] = 0.5f;               // rad (prismatic 은 m)
 std::vector<dhMat> T = robot.LinkTransforms(q);               // link 별 월드 변환
 
-amr::urdf::RobotMeshes meshes;
-amr::urdf::LoadRobotMeshes(robot, amr::urdf::LoadOptions(), &meshes);  // visual 메시 (scale/축 변환 적용됨)
+simul::urdf::RobotMeshes meshes;
+simul::urdf::LoadRobotMeshes(robot, simul::urdf::LoadOptions(), &meshes);  // visual 메시 (scale/축 변환 적용됨)
 // 그릴 때: 월드 변환 = T[visual.link] * visual.local * (scene 노드의 WorldTransforms())
 ```
 
@@ -223,7 +223,7 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 - 설정은 URDF 에 적습니다 (Gazebo 형식). `<gazebo reference="링크"><sensor type="ray">` 안의 `<pose>`(링크 기준 자세), `<ray><scan><horizontal|vertical><samples/min_angle/max_angle>`(방위각 광선 수와 범위, 수직 채널 수와 고각), `<range><min/max>`, `<noise><stddev>` 를 읽습니다 (`type` 은 ray, gpu_ray, lidar, gpu_lidar. 카메라 등 다른 센서는 건너뜀). 수직 `samples` 가 1 이면 2D, 늘리면 3D 입니다. 파일을 열면 설정을 읽어 두고(여러 개면 첫 번째), 왼쪽 구조 트리에서 라이다가 달린 링크를 마우스 오른쪽 버튼으로 누르면 "레이저 표시 (3D 화면)" 와 "그래프 표시" 가 따로 켜고 끌 수 있는 메뉴로 나옵니다. 레이저는 3D 화면의 광선과 맞은 점, 그래프는 오른쪽 도크이며 둘 중 하나만 켜도 됩니다. 값이 잘못되면(샘플 0, 범위 min>=max, 없는 링크 등) 읽기가 실패합니다. 명령행 `--lidar 링크`, `--lidar-channels` 는 URDF 에 없을 때나 덮어쓸 때 씁니다.
 - 그래프: 스캔 표시를 켜면(위) 오른쪽에 "라이다" 도크가 생기고(`CoreQt/LidarPlot.h`, QPainter 만 사용), 위에서 본 지도(맞은 점, 멀수록 진하게, 센서 방향 표시)와 방위각-거리 그래프가 스캔할 때마다 갱신됩니다. 슬라이더로 기둥을 움직이면 그래프도 같이 바뀝니다.
 - 3D 예제: `Data/Object/samples/lidar_room_3d.urdf` 는 같은 방에 수직 채널 16 개(고각 -20~+15 도), 방위각 360 개(광선 5760 개)짜리 3D 라이다를 단 것입니다. 아래를 보는 채널이 낮은 상자와 바닥을 잡고, 그래프 도크는 고각 0 에 가장 가까운 채널을 그립니다. `tests/test_csensor.cpp` 의 `testLidarRoom3dExample` 이 검증합니다.
-- 예제: `Data/Object/samples/lidar_room.urdf` 는 8×6 m 방(벽, 상자, 원기둥, 라이다 높이 아래의 낮은 상자)과 그 안을 x, y 로 미끄러지고 회전하는 라이다 기둥입니다. `amr_main Data/Object/samples/lidar_room.urdf --joint x_slide=-0.5 --joint yaw=-20 --lidar-csv scan.csv` (라이다 설정은 이 URDF 의 `<gazebo>` 에 있습니다) 로 스캔을 CSV 로 저장하고, `python3 tools/plot_lidar_scan.py scan.csv out.png --room-example --sensor=-0.5,0,-20` 으로 위에서 본 지도와 방위각-거리 그래프를 그립니다 (matplotlib 필요). 정답 거리는 `tests/test_csensor.cpp` 의 `testLidarRoomExample` 이 검증합니다.
+- 예제: `Data/Object/samples/lidar_room.urdf` 는 8×6 m 방(벽, 상자, 원기둥, 라이다 높이 아래의 낮은 상자)과 그 안을 x, y 로 미끄러지고 회전하는 라이다 기둥입니다. `simul_main Data/Object/samples/lidar_room.urdf --joint x_slide=-0.5 --joint yaw=-20 --lidar-csv scan.csv` (라이다 설정은 이 URDF 의 `<gazebo>` 에 있습니다) 로 스캔을 CSV 로 저장하고, `python3 tools/plot_lidar_scan.py scan.csv out.png --room-example --sensor=-0.5,0,-20` 으로 위에서 본 지도와 방위각-거리 그래프를 그립니다 (matplotlib 필요). 정답 거리는 `tests/test_csensor.cpp` 의 `testLidarRoomExample` 이 검증합니다.
 - 아직 없는 것: 정적 모델(장애물)과 로봇을 한 화면에 같이 여는 것, 스캔 도중 센서가 움직이는 효과, 반사 강도.
 
 ## 충돌 감지 (CCollision)
@@ -239,16 +239,16 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 | `CCollision/RobotCollision.h` | URDF `<collision>` 도형 모으기(`BuildCollisionModel`), 링크별 월드 AABB(`ComputeLinkAabbs`), 도형별 월드 OBB(`ComputeShapeObbs`), 자기충돌(`FindSelfCollisions`: AABB 만, `CheckSelfCollisions`: AABB -> OBB 2단계) |
 
 ```cpp
-amr::CollisionModelOptions opt;           // opt.fallbackToVisual = true 면 <collision> 이 없는 링크는 <visual> 로 대신함
-amr::RobotCollisionModel model;
-amr::BuildCollisionModel(robot, opt, &model);          // 메시는 이때 한 번만 읽는다
+simul::CollisionModelOptions opt;           // opt.fallbackToVisual = true 면 <collision> 이 없는 링크는 <visual> 로 대신함
+simul::RobotCollisionModel model;
+simul::BuildCollisionModel(robot, opt, &model);          // 메시는 이때 한 번만 읽는다
 
-amr::SelfCollisionReport rep = amr::CheckSelfCollisions(robot, model, q);   // q: 관절 값
+simul::SelfCollisionReport rep = simul::CheckSelfCollisions(robot, model, q);   // q: 관절 값
 rep.aabbCandidates;   // 1단계: 링크 AABB 가 겹친 쌍 (링크 인덱스)
 rep.collisions;       // 2단계: 그중 도형 OBB 까지 겹친 쌍
 rep.shapePairs;       // 그 원인이 된 도형 쌍 (model.shapes 인덱스)
 rep.linkAabbs, rep.shapeObbs;                   // 그릴 때 쓰는 상자들
-// 장애물(AABB 목록)과의 충돌 후보: amr::FindOverlappingPairs(rep.linkAabbs, obstacles) -> (링크, 장애물) 쌍
+// 장애물(AABB 목록)과의 충돌 후보: simul::FindOverlappingPairs(rep.linkAabbs, obstacles) -> (링크, 장애물) 쌍
 ```
 
 - 면이 닿기만 해도 겹침으로 봅니다 (닫힌 구간). float 입력이라 정확히 닿는 경우는 반올림 영향을 받으므로 여유가 필요하면 `Inflated()` 나 `SelfCollisionOptions::margin`(두 단계 모두 적용)을 씁니다. OBB SAT 는 double 로 계산하고 반올림 때문에 겹침을 놓치지 않도록 아주 작은 여유를 둡니다.
@@ -260,21 +260,21 @@ rep.linkAabbs, rep.shapeObbs;                   // 그릴 때 쓰는 상자들
 
 ## 중력 / 동역학 (CDynamics)
 
-`CDynamics/Gravity.h` (`amr::dynamics`), 계산은 double, 단위는 SI 입니다.
+`CDynamics/Gravity.h` (`simul::dynamics`), 계산은 double, 단위는 SI 입니다.
 
 ```cpp
-amr::dynamics::Gravity g;                                   // 기본 (0, 0, -9.80665) m/s^2, 루트 링크 좌표계
-amr::dynamics::JointTorques t = amr::dynamics::GravityTorques(robot, q, g);   // 관절 이름 -> N*m (이동 관절은 N)
+simul::dynamics::Gravity g;                                   // 기본 (0, 0, -9.80665) m/s^2, 루트 링크 좌표계
+simul::dynamics::JointTorques t = simul::dynamics::GravityTorques(robot, q, g);   // 관절 이름 -> N*m (이동 관절은 N)
 double com[3], mass;
-amr::dynamics::CenterOfMass(robot, q, com, &mass);          // 로봇 전체 질량중심 (AMR 전도 여부 확인 등에 사용)
+simul::dynamics::CenterOfMass(robot, q, com, &mass);          // 로봇 전체 질량중심 (AMR 전도 여부 확인 등에 사용)
 
 // 모든 관절(fixed, mimic 포함)이 각자 받는 하중. robot.joints 와 같은 순서
-std::vector<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, g);
+std::vector<simul::dynamics::JointLoad> loads = simul::dynamics::GravityLoads(robot, q, g);
 //   loads[i].torque  : 움직이는 관절의 자기 몫 토크/힘 (mimic 도 합치지 않은 자기 몫)
 //   loads[i].force / .moment : 그 관절이 아래쪽 링크 전체를 버티려고 전달하는 힘(N)과 모멘트(N·m), 루트 링크 좌표계
 //                              (fixed 관절이면 체결부가 받는 하중)
 // 한 관절의 토크에 링크마다 얼마씩 기여했는지 (합 = 그 관절의 torque)
-std::vector<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContributions(robot, q, "shoulder_pitch", g);
+std::vector<simul::dynamics::LinkContribution> parts = simul::dynamics::GravityContributions(robot, q, "shoulder_pitch", g);
 ```
 
 - `GravityTorques` 는 정지 상태에서 각 관절이 중력을 버티려고 내야 하는 토크, 즉 운동방정식 `M q'' + C + g(q) = tau` 의 `g(q) = dU/dq` 입니다. 부호는 관절 좌표(axis 방향 회전, 이동)의 + 방향 기준입니다. 수평으로 뻗은 팔이 +y 축 관절에 달려 있으면 처지는 방향이 +y 회전이므로 음수가 나옵니다.

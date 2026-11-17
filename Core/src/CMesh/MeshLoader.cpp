@@ -2,10 +2,10 @@
 
 #include "FileUtil.h"
 
-namespace amr {
+namespace simul {
 
-bool LoadMesh(const amr::String& path, Scene* out, amr::String* error) {
-    const amr::String ext = detail::LowerExtension(path);
+bool LoadMesh(const simul::String& path, Scene* out, simul::String* error) {
+    const simul::String ext = detail::LowerExtension(path);
     if (ext == "glb" || ext == "gltf") return LoadGlb(path, out, error);
     if (ext == "stl") return LoadStl(path, out, error);
     if (ext == "obj") return LoadObj(path, out, error);
@@ -15,4 +15,4 @@ bool LoadMesh(const amr::String& path, Scene* out, amr::String* error) {
     return false;
 }
 
-}  // namespace amr
+}  // namespace simul

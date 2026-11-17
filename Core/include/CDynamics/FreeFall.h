@@ -1,7 +1,7 @@
 #ifndef CORE_CDYNAMICS_FREEFALL_H
 #define CORE_CDYNAMICS_FREEFALL_H
 
-namespace amr {
+namespace simul {
 namespace dynamics {
 
 // 바닥(높이 0 인 수평면) 위에서 중력을 받아 떨어지는 물체 하나의 수직 운동 (회전 없음).
@@ -22,6 +22,6 @@ struct FallBody {
 };
 
 }  // namespace dynamics
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CDYNAMICS_FREEFALL_H

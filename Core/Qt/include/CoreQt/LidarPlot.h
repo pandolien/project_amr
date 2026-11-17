@@ -12,14 +12,14 @@ class LidarPlot : public QWidget {
 public:
     explicit LidarPlot(QWidget* parent = nullptr);
     // origin: 센서 원점(월드), heading: 센서 +x 가 월드 xy 평면에서 향하는 각 (rad)
-    void SetScan(const amr::sensor::LidarScan& scan, const dhVector& origin, float heading);
+    void SetScan(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);
     QSize sizeHint() const override { return QSize(420, 520); }
 
 protected:
     void paintEvent(QPaintEvent* e) override;
 
 private:
-    amr::sensor::LidarScan scan_;
+    simul::sensor::LidarScan scan_;
     dhVector origin_;
     float heading_;
     bool has_;

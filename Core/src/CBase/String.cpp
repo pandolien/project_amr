@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-namespace amr {
+namespace simul {
 
 const size_t String::npos;
 
@@ -321,4 +321,4 @@ String ToString(long long v) { return Format("%lld", v); }
 String ToString(unsigned long long v) { return Format("%llu", v); }
 String ToString(double v) { return Format("%g", v); }
 
-}  // namespace amr
+}  // namespace simul

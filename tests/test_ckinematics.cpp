@@ -6,9 +6,9 @@
 #include "CKinematics/IK.h"
 #include "CURDF/Urdf.h"
 
-using namespace amr;
-using namespace amr::kinematics;
-typedef amr::urdf::JointValues JointValues;
+using namespace simul;
+using namespace simul::kinematics;
+typedef simul::urdf::JointValues JointValues;
 
 namespace {
 

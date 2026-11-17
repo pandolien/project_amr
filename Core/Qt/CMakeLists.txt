@@ -7,4 +7,4 @@ file(GLOB_RECURSE CORE_QT_HEADERS CONFIGURE_DEPENDS include/*.h)
 add_library(CoreQt STATIC ${CORE_QT_SOURCES} ${CORE_QT_HEADERS})
 target_include_directories(CoreQt PUBLIC include)   # #include "CoreQt/ModelViewer.h"
 target_link_libraries(CoreQt PUBLIC Qt5::Core Qt5::Gui Qt5::Widgets Core)
-amr_set_warnings(CoreQt)
+simul_set_warnings(CoreQt)

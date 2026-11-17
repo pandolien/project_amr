@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -207,4 +207,4 @@ bool Lines::Next(String* line) {
     return true;
 }
 
-}  // namespace amr
+}  // namespace simul

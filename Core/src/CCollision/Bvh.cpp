@@ -4,7 +4,7 @@
 #include "CBase/Util.h"
 #include "RayTriangle.h"
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -287,4 +287,4 @@ bool TriangleBvh::Raycast(const dhVector& origin, const dhVector& dir, float tMa
     return found;
 }
 
-}  // namespace amr
+}  // namespace simul

@@ -12,11 +12,11 @@
 // 로 마스터를 따라가므로 가상일의 원리로 마스터에 합쳐진다. 계산은 모두 double, 단위는 SI (rad, m, kg, N, N·m, 초).
 // 좌표계는 루트 링크 좌표계이고 중력 벡터도 그 좌표계로 준다 (Gravity 와 같다).
 // 필요한 정보: 링크 <inertial> 의 mass, 질량중심(origin), 관성 텐서. 없는 링크는 질량 0 으로 본다.
-namespace amr {
+namespace simul {
 namespace dynamics {
 
 // 구동 관절의 이름 (Robot::ActuatedJoints 순서)
-amr::Array<amr::String> ActuatedJointNames(const urdf::Robot& robot);
+simul::Array<simul::String> ActuatedJointNames(const urdf::Robot& robot);
 
 // 역동역학 (재귀 뉴턴-오일러, RNEA): 주어진 관절 값 q, 속도 qd, 가속도 qdd 를 만들려면 각 구동 관절이 내야 하는 토크/힘
 //   = M(q) qdd + C(q, qd) qd + g(q).  qd, qdd 에 없는 관절은 0. 감쇠와 마찰은 포함하지 않는다.
@@ -26,8 +26,8 @@ JointTorques InverseDynamics(const urdf::Robot& robot, const urdf::JointValues& 
 
 // 질량 행렬 M(q) (구동 관절 기준, 대칭 양의 정부호). m 은 n x n 행 우선.
 struct MassMatrix {
-    amr::Array<amr::String> joints;
-    amr::Array<double> m;
+    simul::Array<simul::String> joints;
+    simul::Array<double> m;
     size_t n() const { return joints.size(); }
     double At(size_t i, size_t j) const { return m[i * joints.size() + j]; }
 };
@@ -57,7 +57,7 @@ public:
     void SetOptions(const DynamicsOptions& o) { options_ = o; }
     void SetTorques(const JointTorques& tau) { tau_ = tau; }
     // 사용자가 관절 값을 직접 바꿨다: 그 관절의 속도는 0 으로 한다 (limit 안으로 제한)
-    void SetValue(const amr::String& joint, double value);
+    void SetValue(const simul::String& joint, double value);
     void Step(double dt);  // dt 초만큼 진행. 내부에서 1/500 초 이하로 나눈다
     urdf::JointValues Values() const;     // 구동 관절 값 (mimic 은 포함하지 않음. Robot 이 계산한다)
     JointTorques Velocities() const;
@@ -66,11 +66,11 @@ public:
     double TotalEnergy() const { return KineticEnergy() + PotentialEnergy(); }
 
 private:
-    void derivative(const amr::Array<double>& q, const amr::Array<double>& qd, amr::Array<double>* dq, amr::Array<double>* dqd) const;
-    urdf::JointValues toValues(const amr::Array<double>& q) const;
+    void derivative(const simul::Array<double>& q, const simul::Array<double>& qd, simul::Array<double>* dq, simul::Array<double>* dqd) const;
+    urdf::JointValues toValues(const simul::Array<double>& q) const;
     urdf::Robot robot_;
-    amr::Array<int> act_;
-    amr::Array<double> q_, qd_;
+    simul::Array<int> act_;
+    simul::Array<double> q_, qd_;
     Gravity gravity_;
     DynamicsOptions options_;
     JointTorques tau_;
@@ -78,6 +78,6 @@ private:
 };
 
 }  // namespace dynamics
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CDYNAMICS_DYNAMICS_H

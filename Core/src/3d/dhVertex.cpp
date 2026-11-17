@@ -54,7 +54,7 @@ float dhVertex::distance(const dhVertex* vt) const {
     float xx = x - vt->x;
     float yy = y - vt->y;
     float zz = z - vt->z;
-    return amr::Sqrt(xx * xx + yy * yy + zz * zz);
+    return simul::Sqrt(xx * xx + yy * yy + zz * zz);
 }
 
 float dhVertex::at(int i) const {

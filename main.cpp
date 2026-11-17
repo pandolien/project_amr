@@ -1,5 +1,5 @@
-// AMR + 로봇 팔 시스템 진입점.
-//   amr_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
+// Project Simul (AMR + 로봇 팔) 진입점.
+//   simul_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
 #include "CBase/File.h"
 #include "CSensor/Lidar.h"
@@ -32,31 +32,31 @@ void InitConsole() {
 }
 
 struct Options {
-    amr::String file;
+    simul::String file;
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
     bool obb;                  // OBB 충돌 박스를 처음부터 표시
     bool torque;               // 관절별 중력 토크를 출력 (--info 와 같이)
     double gravity[3];         // 중력 가속도 (m/s^2, 루트 링크 좌표계)
-    amr::String shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
-    amr::String shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
-    amr::String select;        // 시작할 때 선택(강조)할 링크 이름
+    simul::String shot;          // 비어 있지 않으면 3D 화면을 PNG 로 저장하고 종료
+    simul::String shotWindow;    // 비어 있지 않으면 창 전체(패널 포함)를 PNG 로 저장하고 종료
+    simul::String select;        // 시작할 때 선택(강조)할 링크 이름
     int dragX0, dragY0, dragX1, dragY1;  // --drag: 눌렀다가 끌고 떼는 마우스 동작 (-1 이면 안 함)
     bool motorsOff;            // --motors-off: 처음부터 모터를 끈다 (관절이 중력에 처짐)
     double simulate;           // --simulate 초: 모터를 끄고 그 시간만큼 시뮬레이션한 뒤 관절 값을 출력 (확인용, 실시간이 아님)
     bool noFall;               // --no-fall: 중력 낙하를 끈다
     bool settle;               // --settle: 낙하가 끝날 때까지 진행한 뒤 위치를 출력 (확인용)
-    amr::String lidarLink;     // --lidar: 2D 라이다를 달 링크 이름 (비어 있으면 없음)
+    simul::String lidarLink;     // --lidar: 2D 라이다를 달 링크 이름 (비어 있으면 없음)
     float lidarMount[3];       //   그 링크 좌표계에서의 센서 위치 (m)
-    amr::String lidarCsv;      // --lidar-csv: 스캔 결과를 CSV 로 저장할 파일
+    simul::String lidarCsv;      // --lidar-csv: 스캔 결과를 CSV 로 저장할 파일
     int lidarChannels;         // --lidar-channels: 수직 채널 수 (1 이면 2D)
     float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
-    amr::Array<amr::Pair<amr::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
-    amr::Array<amr::Pair<amr::String, amr::String> > packages;    // --package 이름=폴더
+    simul::Array<simul::Pair<simul::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
+    simul::Array<simul::Pair<simul::String, simul::String> > packages;    // --package 이름=폴더
     int width, height;
     Options() : shading(2), info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
@@ -64,7 +64,7 @@ struct Options {
         lidarElev[0] = lidarElev[1] = 0;
         gravity[0] = 0;
         gravity[1] = 0;
-        gravity[2] = -amr::dynamics::kStandardGravity;
+        gravity[2] = -simul::dynamics::kStandardGravity;
     }
 };
 
@@ -99,9 +99,9 @@ void PrintUsage(const char* exe) {
         exe);
 }
 
-bool SplitPair(const amr::String& s, amr::String* a, amr::String* b) {
+bool SplitPair(const simul::String& s, simul::String* a, simul::String* b) {
     const size_t eq = s.find('=');
-    if (eq == amr::String::npos || eq == 0) return false;
+    if (eq == simul::String::npos || eq == 0) return false;
     *a = s.substr(0, eq);
     *b = s.substr(eq + 1);
     return true;
@@ -110,7 +110,7 @@ bool SplitPair(const amr::String& s, amr::String* a, amr::String* b) {
 // 0: 계속, 1: 정상 종료(도움말), 2: 인자 오류
 int ParseArgs(int argc, char** argv, Options* o) {
     for (int i = 1; i < argc; i++) {
-        const amr::String a = argv[i];
+        const simul::String a = argv[i];
         if (a == "-h" || a == "--help") { PrintUsage(argv[0]); return 1; }
         if (a == "--info") { o->info = true; continue; }
         if (a == "--aabb") { o->aabb = true; continue; }
@@ -136,10 +136,10 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--no-fall") { o->noFall = true; continue; }
         if (a == "--settle") { o->settle = true; continue; }
         if (a == "--lidar" && hasNext) {
-            const amr::String spec = argv[++i];
+            const simul::String spec = argv[++i];
             const size_t comma = spec.find(',');
             o->lidarLink = spec.substr(0, comma);
-            if (comma != amr::String::npos &&
+            if (comma != simul::String::npos &&
                 sscanf(spec.c_str() + comma + 1, "%f,%f,%f", &o->lidarMount[0], &o->lidarMount[1], &o->lidarMount[2]) != 3) {
                 fprintf(stderr, "--lidar 는 링크이름 또는 링크이름,x,y,z 형식입니다\n");
                 return false;
@@ -154,7 +154,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (a == "--shading" && hasNext) {
-            const amr::String v = argv[++i];
+            const simul::String v = argv[++i];
             if (v == "lambert") o->shading = 0;
             else if (v == "phong") o->shading = 1;
             else if (v == "pbr") o->shading = 2;
@@ -172,15 +172,15 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (a == "--joint" && hasNext) {
-            amr::String n, v;
+            simul::String n, v;
             if (!SplitPair(argv[++i], &n, &v)) { fprintf(stderr, "--joint 은 이름=값 형식입니다\n"); return 2; }
-            o->joints.push_back(amr::MakePair(n, atof(v.c_str())));
+            o->joints.push_back(simul::MakePair(n, atof(v.c_str())));
             continue;
         }
         if (a == "--package" && hasNext) {
-            amr::String n, v;
+            simul::String n, v;
             if (!SplitPair(argv[++i], &n, &v)) { fprintf(stderr, "--package 는 이름=폴더 형식입니다\n"); return 2; }
-            o->packages.push_back(amr::MakePair(n, v));
+            o->packages.push_back(simul::MakePair(n, v));
             continue;
         }
         if (a == "--size" && hasNext) {
@@ -196,17 +196,17 @@ int ParseArgs(int argc, char** argv, Options* o) {
     return 0;
 }
 
-amr::String LowerExt(const amr::String& p) {
+simul::String LowerExt(const simul::String& p) {
     const size_t dot = p.find_last_of('.');
-    if (dot == amr::String::npos) return amr::String();
-    amr::String e = p.substr(dot + 1);
+    if (dot == simul::String::npos) return simul::String();
+    simul::String e = p.substr(dot + 1);
     for (size_t i = 0; i < e.size(); i++) if (e[i] >= 'A' && e[i] <= 'Z') e[i] = static_cast<char>(e[i] - 'A' + 'a');
     return e;
 }
 
 // --joint 로 받은 값(각도 관절은 degree, 이동 관절은 m)을 내부 값(rad, m)으로 바꾼다
-amr::urdf::JointValues JointValuesFromOptions(const amr::urdf::Robot& robot, const Options& o) {
-    amr::urdf::JointValues q;
+simul::urdf::JointValues JointValuesFromOptions(const simul::urdf::Robot& robot, const Options& o) {
+    simul::urdf::JointValues q;
     for (size_t i = 0; i < o.joints.size(); i++) {
         const int ji = robot.FindJoint(o.joints[i].first);
         if (ji < 0) { fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
@@ -216,29 +216,29 @@ amr::urdf::JointValues JointValuesFromOptions(const amr::urdf::Robot& robot, con
 }
 
 // 링크별 AABB 와 겹치는 링크 쌍(AABB 후보 -> OBB 로 확인한 충돌)을 출력한다 (--joint 로 준 자세 기준)
-void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr::urdf::LoadOptions& load) {
-    const amr::urdf::JointValues q = JointValuesFromOptions(robot, o);
-    amr::CollisionModelOptions copt;
+void PrintCollisions(const simul::urdf::Robot& robot, const Options& o, const simul::urdf::LoadOptions& load) {
+    const simul::urdf::JointValues q = JointValuesFromOptions(robot, o);
+    simul::CollisionModelOptions copt;
     copt.load = load;
     copt.fallbackToVisual = true;
-    amr::RobotCollisionModel model;
-    amr::BuildCollisionModel(robot, copt, &model);
+    simul::RobotCollisionModel model;
+    simul::BuildCollisionModel(robot, copt, &model);
     for (size_t i = 0; i < model.warnings.size(); i++) printf("경고: %s\n", model.warnings[i].c_str());
     size_t fromVisual = 0;
     for (size_t i = 0; i < model.shapes.size(); i++) if (model.shapes[i].fromVisual) fromVisual++;
     printf("AABB 충돌 검사: 도형 %zu개 (visual 로 대체한 것 %zu개)\n", model.shapes.size(), fromVisual);
-    const amr::SelfCollisionReport rep = amr::CheckSelfCollisions(robot, model, q);
+    const simul::SelfCollisionReport rep = simul::CheckSelfCollisions(robot, model, q);
     for (size_t i = 0; i < rep.linkAabbs.size(); i++) {
         if (rep.linkAabbs[i].IsEmpty()) continue;
-        const amr::Aabb& b = rep.linkAabbs[i];
+        const simul::Aabb& b = rep.linkAabbs[i];
         printf("  link '%s': (%.3f, %.3f, %.3f) ~ (%.3f, %.3f, %.3f)\n", robot.links[i].name.c_str(), static_cast<double>(b.lo.x),
                     static_cast<double>(b.lo.y), static_cast<double>(b.lo.z), static_cast<double>(b.hi.x), static_cast<double>(b.hi.y),
                     static_cast<double>(b.hi.z));
     }
-    const struct { const char* label; const amr::Array<amr::CollisionPair>* pairs; } lists[2] = {
+    const struct { const char* label; const simul::Array<simul::CollisionPair>* pairs; } lists[2] = {
         {"AABB 겹침 후보", &rep.aabbCandidates}, {"OBB 충돌", &rep.collisions}};
     for (int k = 0; k < 2; k++) {
-        const amr::Array<amr::CollisionPair>& pairs = *lists[k].pairs;
+        const simul::Array<simul::CollisionPair>& pairs = *lists[k].pairs;
         printf("%s %zu건", lists[k].label, pairs.size());
         for (size_t i = 0; i < pairs.size(); i++)
             printf("%s %s <-> %s", i == 0 ? ":" : ",", robot.links[static_cast<size_t>(pairs[i].a)].name.c_str(),
@@ -250,54 +250,54 @@ void PrintCollisions(const amr::urdf::Robot& robot, const Options& o, const amr:
 // 관절별 중력 하중 (--joint 로 준 자세, --gravity 방향 기준). 모든 관절을 따로 보여준다.
 //   구동 관절: 모터가 내야 할 토크 (mimic 이 달려 있으면 합산된 값), 링크별 기여 내역
 //   mimic 관절: 자기 몫 (원본 관절에 합산됨), fixed 등: 체결부가 받는 힘/모멘트
-void PrintTorques(const amr::urdf::Robot& robot, const Options& o) {
-    const amr::urdf::JointValues q = JointValuesFromOptions(robot, o);
-    const amr::dynamics::Gravity g(o.gravity[0], o.gravity[1], o.gravity[2]);
-    const amr::dynamics::JointTorques motor = amr::dynamics::GravityTorques(robot, q, g);
-    const amr::Array<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, g);
+void PrintTorques(const simul::urdf::Robot& robot, const Options& o) {
+    const simul::urdf::JointValues q = JointValuesFromOptions(robot, o);
+    const simul::dynamics::Gravity g(o.gravity[0], o.gravity[1], o.gravity[2]);
+    const simul::dynamics::JointTorques motor = simul::dynamics::GravityTorques(robot, q, g);
+    const simul::Array<simul::dynamics::JointLoad> loads = simul::dynamics::GravityLoads(robot, q, g);
     printf("중력 하중: g = (%.4f, %.4f, %.4f) m/s^2 (루트 링크 좌표계)\n", g.x, g.y, g.z);
     double com[3], mass = 0;
-    if (amr::dynamics::CenterOfMass(robot, q, com, &mass))
+    if (simul::dynamics::CenterOfMass(robot, q, com, &mass))
         printf("  전체 질량 %.4f kg, 질량중심 (%.4f, %.4f, %.4f) m\n", mass, com[0], com[1], com[2]);
     else
         printf("  (<inertial> 질량이 있는 링크가 없습니다)\n");
     for (size_t i = 0; i < robot.joints.size(); i++) {
-        const amr::urdf::Joint& j = robot.joints[i];
-        const amr::dynamics::JointLoad& l = loads[i];
+        const simul::urdf::Joint& j = robot.joints[i];
+        const simul::dynamics::JointLoad& l = loads[i];
         if (!j.IsMovable()) {
-            const double f = amr::Sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
-            const double m = amr::Sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
+            const double f = simul::Sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
+            const double m = simul::Sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
             printf("  %-16s (fixed)  체결 하중: 힘 %.4f N, 모멘트 %.4f N*m\n", j.name.c_str(), f, m);
             continue;
         }
-        const amr::urdf::JointValues::const_iterator qi = q.find(j.name);
+        const simul::urdf::JointValues::const_iterator qi = q.find(j.name);
         const double shown = j.ToDisplay(qi == q.end() ? 0.0 : static_cast<double>(qi->second));
         if (j.hasMimic) {
             printf("  %-16s (mimic %s)  자기 몫 %.4f %s  (원본 관절에 합산됨)\n", j.name.c_str(), j.mimicJoint.c_str(), l.torque, j.TorqueUnit());
         } else {
             const double tau = motor.find(j.name)->second;
             printf("  %-16s %9.3f %-3s  토크 %10.4f %s", j.name.c_str(), shown, j.DisplayUnit(), tau, j.TorqueUnit());
-            if (j.effort > 0.0f) printf("  (한계 %g%s)", static_cast<double>(j.effort), amr::Abs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
+            if (j.effort > 0.0f) printf("  (한계 %g%s)", static_cast<double>(j.effort), simul::Abs(tau) > static_cast<double>(j.effort) ? ", 초과!" : "");
             printf("\n");
         }
-        const amr::Array<amr::dynamics::LinkContribution> parts = amr::dynamics::GravityContributions(robot, q, j.name, g);
+        const simul::Array<simul::dynamics::LinkContribution> parts = simul::dynamics::GravityContributions(robot, q, j.name, g);
         for (size_t k = 0; k < parts.size(); k++) printf("      <- %-14s %10.4f %s\n", parts[k].link.c_str(), parts[k].value, j.TorqueUnit());
     }
 }
 
 // 창 없이 파일 정보를 출력한다. 성공하면 0.
 int PrintInfo(const Options& o) {
-    if (o.file.empty()) { PrintUsage("amr_main"); return 2; }
-    amr::String err;
+    if (o.file.empty()) { PrintUsage("simul_main"); return 2; }
+    simul::String err;
     if (LowerExt(o.file) == "urdf") {
-        amr::urdf::Robot robot;
-        if (!amr::urdf::LoadUrdf(o.file, &robot, &err)) { fprintf(stderr, "URDF 읽기 실패: %s\n", err.c_str()); return 1; }
+        simul::urdf::Robot robot;
+        if (!simul::urdf::LoadUrdf(o.file, &robot, &err)) { fprintf(stderr, "URDF 읽기 실패: %s\n", err.c_str()); return 1; }
         printf("로봇 '%s': link %zu개, joint %zu개 (구동 %zu개), 루트 link '%s'\n", robot.name.c_str(), robot.links.size(),
                     robot.joints.size(), robot.ActuatedJoints().size(), robot.links[static_cast<size_t>(robot.root)].name.c_str());
-        amr::urdf::LoadOptions opt;
+        simul::urdf::LoadOptions opt;
         for (size_t i = 0; i < o.packages.size(); i++) opt.packagePaths.push_back(o.packages[i]);
-        amr::urdf::RobotMeshes meshes;
-        const bool ok = amr::urdf::LoadRobotMeshes(robot, opt, &meshes);
+        simul::urdf::RobotMeshes meshes;
+        const bool ok = simul::urdf::LoadRobotMeshes(robot, opt, &meshes);
         size_t tris = 0;
         for (size_t i = 0; i < meshes.visuals.size(); i++) tris += meshes.visuals[i].scene.TriangleCount();
         printf("visual %zu개 읽음, 삼각형 %zu개\n", meshes.visuals.size(), tris);
@@ -307,8 +307,8 @@ int PrintInfo(const Options& o) {
         if (o.torque) PrintTorques(robot, o);
         return ok ? 0 : 1;
     }
-    amr::Scene scene;
-    if (!amr::LoadMesh(o.file, &scene, &err)) { fprintf(stderr, "읽기 실패: %s\n", err.c_str()); return 1; }
+    simul::Scene scene;
+    if (!simul::LoadMesh(o.file, &scene, &err)) { fprintf(stderr, "읽기 실패: %s\n", err.c_str()); return 1; }
     dhVector mn, mx;
     scene.ComputeBounds(&mn, &mx);
     printf("메시 %zu개, 노드 %zu개, 삼각형 %zu개, 재질 %zu개\n", scene.meshes.size(), scene.nodes.size(), scene.TriangleCount(),
@@ -321,7 +321,7 @@ int PrintInfo(const Options& o) {
 
 }  // namespace
 
-#ifdef AMR_HAS_QT
+#ifdef SIMUL_HAS_QT
 
 #include <QAction>
 #include <QApplication>
@@ -360,13 +360,13 @@ namespace {
 class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(const Options& o) : QMainWindow(nullptr), cli_(o), gravity_(o.gravity[0], o.gravity[1], o.gravity[2]) {
-        setWindowTitle("AMR RobotArm Viewer");
+        setWindowTitle("Project Simul");
         resize(o.width, o.height);
         setAcceptDrops(true);
 
         viewer_ = new ModelViewer(this);
         for (size_t i = 0; i < o.packages.size(); i++)
-            viewer_->LoadOptions().packagePaths.push_back(amr::MakePair(o.packages[i].first, o.packages[i].second));
+            viewer_->LoadOptions().packagePaths.push_back(simul::MakePair(o.packages[i].first, o.packages[i].second));
         setCentralWidget(viewer_);
 
         tree_ = new StructurePanel;
@@ -386,12 +386,12 @@ public:
         });
         QObject::connect(viewer_, &ModelViewer::objectMoved, this, [this]() { updateSelectionLabel(); });
         // 팔 링크를 끌어서(IK) 관절 값이 바뀌면 슬라이더와 토크 표시를 따라 갱신하고, 모터가 꺼져 있으면 시뮬레이션도 그 값에서 다시 시작한다
-        QObject::connect(viewer_, &ModelViewer::jointValuesDragged, this, [this](const amr::urdf::JointValues& q) {
+        QObject::connect(viewer_, &ModelViewer::jointValuesDragged, this, [this](const simul::urdf::JointValues& q) {
             panel_->ShowValues(q);
             if (motorsOff_) {
-                const amr::Array<int> act = viewer_->Robot().ActuatedJoints();
+                const simul::Array<int> act = viewer_->Robot().ActuatedJoints();
                 for (size_t i = 0; i < act.size(); i++) {
-                    const amr::String& n = viewer_->Robot().joints[static_cast<size_t>(act[i])].name;
+                    const simul::String& n = viewer_->Robot().joints[static_cast<size_t>(act[i])].name;
                     sim_.SetValue(n, q.at(n));
                 }
             }
@@ -406,7 +406,7 @@ public:
         addDockWidget(Qt::RightDockWidgetArea, dock_);
         dock_->hide();
         QObject::connect(panel_, &JointPanel::valueEdited, this, [this](const QString& name, double value) {
-            if (motorsOff_) sim_.SetValue(amrqt::FromQ(name), value);  // 손으로 옮긴 관절은 속도를 0 으로 다시 시작
+            if (motorsOff_) sim_.SetValue(simulqt::FromQ(name), value);  // 손으로 옮긴 관절은 속도를 0 으로 다시 시작
         });
         QObject::connect(panel_, &JointPanel::valuesChanged, this, [this]() {
             viewer_->SetJointValues(panel_->Values());
@@ -468,7 +468,7 @@ public:
                 gz = p[2].toDouble(&c);
             }
             if (a && b && c) {
-                gravity_ = amr::dynamics::Gravity(gx, gy, gz);
+                gravity_ = simul::dynamics::Gravity(gx, gy, gz);
                 viewer_->SetGravity(gx, gy, gz);
                 sim_.SetGravity(gravity_);
                 updateTorques();
@@ -580,7 +580,7 @@ public:
         for (size_t i = 0; i < o.joints.size(); i++) {
             const int ji = viewer_->Robot().FindJoint(o.joints[i].first);
             if (ji < 0) { fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
-            panel_->SetValue(amrqt::ToQ(o.joints[i].first), viewer_->Robot().joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
+            panel_->SetValue(simulqt::ToQ(o.joints[i].first), viewer_->Robot().joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
         }
     }
 
@@ -601,7 +601,7 @@ public:
         showLidar(false);
         lidarSpec_ = LidarSpec();
         if (!viewer_->HasRobot()) return;
-        const amr::urdf::Robot& robot = viewer_->Robot();
+        const simul::urdf::Robot& robot = viewer_->Robot();
         LidarSpec sp;
         sp.mount = dhMat::Trans(o.lidarMount[0], o.lidarMount[1], o.lidarMount[2]);
         if (!o.lidarLink.empty()) {  // 명령행
@@ -611,11 +611,11 @@ public:
             sp.settings.elevationMin = static_cast<float>(dhRad(o.lidarElev[0]));
             sp.settings.elevationMax = static_cast<float>(dhRad(o.lidarElev[1]));
         } else if (!robot.lidars.empty()) {  // URDF
-            const amr::urdf::LidarDef& d = robot.lidars[0];
+            const simul::urdf::LidarDef& d = robot.lidars[0];
             if (robot.lidars.size() > 1) fprintf(stderr, "알림: 라이다가 %d 개 있어 첫 번째('%s')만 씁니다\n", static_cast<int>(robot.lidars.size()), d.name.c_str());
             sp.link = robot.FindLink(d.link);
             if (sp.link < 0) return;
-            amr::sensor::LidarSettings& ls = sp.settings;
+            simul::sensor::LidarSettings& ls = sp.settings;
             ls.angleMin = d.hMin;
             ls.angleMax = d.hMax;
             ls.angleIncrement = d.hSamples > 1 ? (d.hMax - d.hMin) / static_cast<float>(d.hSamples - 1) : 1.0f;
@@ -667,7 +667,7 @@ public:
             QTimer* t = new QTimer(this);
             QObject::connect(t, &QTimer::timeout, this, [this]() {
                 if (!viewer_->LidarEnabled() || !lidarDock_->isVisible()) return;
-                const amr::sensor::LidarScan& sc = viewer_->ScanLidar();
+                const simul::sensor::LidarScan& sc = viewer_->ScanLidar();
                 lidarPlot_->SetScan(sc, viewer_->LidarOrigin(), viewer_->LidarHeading());
             });
             t->start(100);
@@ -705,13 +705,13 @@ public:
     void runSimulation(double seconds) {
         if (!viewer_->HasRobot() || !motorsOff_) return;
         for (double t = 0; t < seconds - 1e-9; t += 1.0 / 60.0) stepSimulation(1.0 / 60.0);
-        const amr::urdf::JointValues q = sim_.Values();
-        const amr::urdf::Robot& robot = viewer_->Robot();
+        const simul::urdf::JointValues q = sim_.Values();
+        const simul::urdf::Robot& robot = viewer_->Robot();
         printf("시뮬레이션 %.2f 초 후 (모터 꺼짐, 중력 %.3f, %.3f, %.3f):\n", seconds, gravity_.x, gravity_.y, gravity_.z);
-        const amr::Array<int> act = robot.ActuatedJoints();
+        const simul::Array<int> act = robot.ActuatedJoints();
         for (size_t i = 0; i < act.size(); i++) {
-            const amr::urdf::Joint& j = robot.joints[static_cast<size_t>(act[i])];
-            const amr::urdf::JointValues::const_iterator it = q.find(j.name);
+            const simul::urdf::Joint& j = robot.joints[static_cast<size_t>(act[i])];
+            const simul::urdf::JointValues::const_iterator it = q.find(j.name);
             if (it == q.end()) continue;
             printf("  %-18s %9.3f %s\n", j.name.c_str(), j.ToDisplay(static_cast<double>(it->second)), j.DisplayUnit());
         }
@@ -748,7 +748,7 @@ private:
         if (!motorsOff_ || !viewer_->HasRobot()) return;
         sim_.Reset(viewer_->Robot(), panel_->Values());
         sim_.SetGravity(gravity_);
-        amr::dynamics::DynamicsOptions opt;
+        simul::dynamics::DynamicsOptions opt;
         opt.defaultDamping = 0.2;  // URDF 에 감쇠가 없는 관절도 영원히 흔들리지 않도록 약한 점성 감쇠를 준다
         sim_.SetOptions(opt);
     }
@@ -756,7 +756,7 @@ private:
     void stepSimulation(double dt) {
         if (!sim_.IsReady()) return;
         sim_.Step(dt);
-        const amr::urdf::JointValues q = sim_.Values();
+        const simul::urdf::JointValues q = sim_.Values();
         viewer_->SetJointValues(q);
         panel_->ShowValues(q);
         updateTorques(q);
@@ -766,8 +766,8 @@ private:
     // 좌표계 OBJ 를 찾아서 뷰어에 넣는다: 소스의 Data 폴더(개발 중), 실행 파일 옆 Data 폴더(배포) 순서
     void loadGizmo() {
         QStringList dirs;
-#ifdef AMR_DATA_DIR
-        dirs << QString::fromUtf8(AMR_DATA_DIR);
+#ifdef SIMUL_DATA_DIR
+        dirs << QString::fromUtf8(SIMUL_DATA_DIR);
 #endif
         dirs << QCoreApplication::applicationDirPath() + "/Data" << QCoreApplication::applicationDirPath() + "/../Data";
         for (int i = 0; i < dirs.size(); i++) {
@@ -789,9 +789,9 @@ private:
         }
         QString name = QString::fromUtf8("모델");
         if (viewer_->SelectedLink() >= 0 && static_cast<size_t>(viewer_->SelectedLink()) < viewer_->Robot().links.size())
-            name = amrqt::ToQ(viewer_->Robot().links[static_cast<size_t>(viewer_->SelectedLink())].name);
+            name = simulqt::ToQ(viewer_->Robot().links[static_cast<size_t>(viewer_->SelectedLink())].name);
         const dhPose pose = dhPose::FromMat(f).Normalized();
-        const amr::units::RpyDeg r = amr::units::RpyDegFromQuat(pose.orientation);
+        const simul::units::RpyDeg r = simul::units::RpyDegFromQuat(pose.orientation);
         statusBar()->showMessage(QString::fromUtf8("선택 %1 | 위치 %2, %3, %4 m | RPY %5°, %6°, %7° | 쿼터니언 %8, %9, %10, %11  | %12")
                                      .arg(name)
                                      .arg(static_cast<double>(pose.position.x), 0, 'f', 3).arg(static_cast<double>(pose.position.y), 0, 'f', 3).arg(static_cast<double>(pose.position.z), 0, 'f', 3)
@@ -803,35 +803,35 @@ private:
 
     // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
     void updateTorques() { updateTorques(panel_->Values()); }
-    void updateTorques(const amr::urdf::JointValues& q) {
+    void updateTorques(const simul::urdf::JointValues& q) {
         if (!viewer_->HasRobot()) return;
-        const amr::urdf::Robot& robot = viewer_->Robot();
-        const amr::dynamics::JointTorques motor = amr::dynamics::GravityTorques(robot, q, gravity_);
+        const simul::urdf::Robot& robot = viewer_->Robot();
+        const simul::dynamics::JointTorques motor = simul::dynamics::GravityTorques(robot, q, gravity_);
         panel_->SetTorques(motor);
         dock_->setWindowTitle(QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5));
 
-        const amr::Array<amr::dynamics::JointLoad> loads = amr::dynamics::GravityLoads(robot, q, gravity_);
-        amr::Map<amr::String, amr::Pair<QString, bool> > notes;
+        const simul::Array<simul::dynamics::JointLoad> loads = simul::dynamics::GravityLoads(robot, q, gravity_);
+        simul::Map<simul::String, simul::Pair<QString, bool> > notes;
         for (size_t i = 0; i < robot.joints.size(); i++) {
-            const amr::urdf::Joint& j = robot.joints[i];
-            const amr::dynamics::JointLoad& l = loads[i];
+            const simul::urdf::Joint& j = robot.joints[i];
+            const simul::dynamics::JointLoad& l = loads[i];
             QString text;
             bool warn = false;
             if (!j.IsMovable()) {
-                const double f = amr::Sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
-                const double m = amr::Sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
+                const double f = simul::Sqrt(l.force[0] * l.force[0] + l.force[1] * l.force[1] + l.force[2] * l.force[2]);
+                const double m = simul::Sqrt(l.moment[0] * l.moment[0] + l.moment[1] * l.moment[1] + l.moment[2] * l.moment[2]);
                 text = QString::fromUtf8("체결 하중 힘 %1 N, 모멘트 %2 N·m").arg(f, 0, 'f', 2).arg(m, 0, 'f', 2);
             } else if (j.hasMimic) {
-                text = QString::fromUtf8("자기 몫 %1 %2 (원본 %3 에 합산)").arg(l.torque, 0, 'f', 3).arg(j.TorqueUnit(), amrqt::ToQ(j.mimicJoint));
+                text = QString::fromUtf8("자기 몫 %1 %2 (원본 %3 에 합산)").arg(l.torque, 0, 'f', 3).arg(j.TorqueUnit(), simulqt::ToQ(j.mimicJoint));
             } else {
                 const double tau = motor.find(j.name)->second;
                 text = QString::fromUtf8("모터 %1 %2").arg(tau, 0, 'f', 3).arg(j.TorqueUnit());
-                if (j.effort > 0.0f && amr::Abs(tau) > static_cast<double>(j.effort)) {
+                if (j.effort > 0.0f && simul::Abs(tau) > static_cast<double>(j.effort)) {
                     text += QString::fromUtf8("  (한계 %1 초과)").arg(static_cast<double>(j.effort), 0, 'g', 4);
                     warn = true;
                 }
             }
-            notes[j.name] = amr::MakePair(text, warn);
+            notes[j.name] = simul::MakePair(text, warn);
         }
         tree_->SetJointNotes(notes);
     }
@@ -873,13 +873,13 @@ private:
         infoMessage_ = msg;
         statusBar()->showMessage(msg);
         updateSelectionLabel();
-        setWindowTitle(QString("AMR RobotArm Viewer - ") + path);
+        setWindowTitle(QString("Project Simul - ") + path);
     }
 
     Options cli_;  // 명령행 옵션 (파일을 새로 열 때도 쓴다)
     struct LidarSpec {
         int link;
-        amr::sensor::LidarSettings settings;
+        simul::sensor::LidarSettings settings;
         dhMat mount;
         bool fromUrdf;
         LidarSpec() : link(-1), fromUrdf(false) {}
@@ -893,13 +893,13 @@ private:
     StructurePanel* tree_;
     QDockWidget* treeDock_;
     QLabel* collisionLabel_;
-    amr::dynamics::Simulator sim_;
+    simul::dynamics::Simulator sim_;
     QTimer* simTimer_;
     QElapsedTimer simClock_;
     bool motorsOff_;
     bool simManual_;   // --simulate: 타이머 없이 runSimulation 으로만 진행
     QString infoMessage_;   // 선택이 없을 때 상태바에 보이는 파일 정보
-    amr::dynamics::Gravity gravity_;
+    simul::dynamics::Gravity gravity_;
 };
 
 }  // namespace
@@ -930,13 +930,13 @@ int main(int argc, char** argv) {
         }
     }
     if (!o.shot.empty() || !o.shotWindow.empty()) {
-        const amr::String shot = o.shot, shotWindow = o.shotWindow;
+        const simul::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
         MainWindow* win = &w;
         const int cx = o.clickX, cy = o.clickY;
         const bool settle = o.settle;
         const double simSeconds = o.simulate;
-        const amr::String lidarCsv = o.lidarCsv;
+        const simul::String lidarCsv = o.lidarCsv;
         const int d0x = o.dragX0, d0y = o.dragY0, d1x = o.dragX1, d1y = o.dragY1;
         QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle, simSeconds, lidarCsv]() {
             bool ok = true;
@@ -962,9 +962,9 @@ int main(int argc, char** argv) {
                 dhMat sel;
                 if (v->SelectedLink() >= 0 && v->SelectedFrame(&sel)) {  // 팔 링크를 끌었다면 IK 로 옮겨진 링크 위치와 관절 값
                     printf("선택 링크 %d 원점 %.4f, %.4f, %.4f m\n", v->SelectedLink(), static_cast<double>(sel.v[12]), static_cast<double>(sel.v[13]), static_cast<double>(sel.v[14]));
-                    const amr::Array<int> act = v->Robot().ActuatedJoints();
+                    const simul::Array<int> act = v->Robot().ActuatedJoints();
                     for (size_t i = 0; i < act.size(); i++) {
-                        const amr::urdf::Joint& j = v->Robot().joints[static_cast<size_t>(act[i])];
+                        const simul::urdf::Joint& j = v->Robot().joints[static_cast<size_t>(act[i])];
                         printf("  %s = %.3f %s\n", j.name.c_str(), j.ToDisplay(static_cast<double>(v->Robot().EffectiveJointValue(v->CurrentJointValues(), act[i]))), j.DisplayUnit());
                     }
                 }
@@ -980,7 +980,7 @@ int main(int argc, char** argv) {
                 v->repaint();
             }
             if (v->LidarEnabled()) {  // 확인용: 스캔 요약
-                const amr::sensor::LidarScan& sc = v->ScanLidar();
+                const simul::sensor::LidarScan& sc = v->ScanLidar();
                 size_t hits = 0;
                 float lo = 1e30f, hi = 0;
                 for (size_t i = 0; i < sc.size(); i++)
@@ -993,19 +993,19 @@ int main(int argc, char** argv) {
                 if (hits) printf(", 거리 %.3f ~ %.3f m", static_cast<double>(lo), static_cast<double>(hi));
                 printf("\n");
                 if (!lidarCsv.empty()) {
-                    amr::String csv = "index,channel,azimuth_deg,elevation_deg,hit,range_m,x,y,z,link\n";
+                    simul::String csv = "index,channel,azimuth_deg,elevation_deg,hit,range_m,x,y,z,link\n";
                     for (size_t i = 0; i < sc.size(); i++) {
                         const bool hit = sc.IsHit(i);
-                        csv += amr::Format("%zu,%zu,%.4f,%.4f,%d,", i, sc.Channel(i), dhDeg(static_cast<double>(sc.Angle(i))),
+                        csv += simul::Format("%zu,%zu,%.4f,%.4f,%d,", i, sc.Channel(i), dhDeg(static_cast<double>(sc.Angle(i))),
                                            dhDeg(static_cast<double>(sc.Elevation(sc.Channel(i)))), hit ? 1 : 0);
                         if (hit)
-                            csv += amr::Format("%.5f,%.5f,%.5f,%.5f,%s\n", static_cast<double>(sc.ranges[i]), static_cast<double>(sc.points[i].x),
+                            csv += simul::Format("%.5f,%.5f,%.5f,%.5f,%s\n", static_cast<double>(sc.ranges[i]), static_cast<double>(sc.points[i].x),
                                                static_cast<double>(sc.points[i].y), static_cast<double>(sc.points[i].z),
                                                v->Robot().links[static_cast<size_t>(sc.targetIds[i])].name.c_str());
                         else
                             csv += "inf,,,,\n";
                     }
-                    if (amr::WriteFileText(lidarCsv, csv)) printf("스캔을 저장했습니다: %s\n", lidarCsv.c_str());
+                    if (simul::WriteFileText(lidarCsv, csv)) printf("스캔을 저장했습니다: %s\n", lidarCsv.c_str());
                     else fprintf(stderr, "스캔 저장 실패: %s\n", lidarCsv.c_str());
                 }
             }
@@ -1043,7 +1043,7 @@ int main(int argc, char** argv) {
     if (pr == 2) return 2;
     if (o.file.empty()) {
         PrintUsage(argv[0]);
-        printf("\n(이 빌드는 Qt 없이 만들어져 3D 창이 없습니다. -DAMR_BUILD_QT=ON 으로 다시 빌드하세요.)\n");
+        printf("\n(이 빌드는 Qt 없이 만들어져 3D 창이 없습니다. -DSIMUL_BUILD_QT=ON 으로 다시 빌드하세요.)\n");
         return 0;
     }
     return PrintInfo(o);

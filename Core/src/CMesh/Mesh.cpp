@@ -2,7 +2,7 @@
 
 #include "CBase/Math.h"
 
-namespace amr {
+namespace simul {
 
 void Primitive::ComputeNormals() {
     const size_t n = VertexCount();
@@ -24,7 +24,7 @@ void Primitive::ComputeNormals() {
     }
     for (size_t i = 0; i < n; i++) {
         float* nv = &normals[i * 3];
-        const float len = amr::Sqrt(nv[0] * nv[0] + nv[1] * nv[1] + nv[2] * nv[2]);
+        const float len = simul::Sqrt(nv[0] * nv[0] + nv[1] * nv[1] + nv[2] * nv[2]);
         if (len > 1e-12f) {
             nv[0] /= len;
             nv[1] /= len;
@@ -58,10 +58,10 @@ void Scene::Clear() {
     warnings.clear();
 }
 
-amr::Array<dhMat> Scene::WorldTransforms() const {
-    amr::Array<dhMat> world(nodes.size());
-    amr::Array<char> done(nodes.size(), 0);
-    amr::Array<int> stack;
+simul::Array<dhMat> Scene::WorldTransforms() const {
+    simul::Array<dhMat> world(nodes.size());
+    simul::Array<char> done(nodes.size(), 0);
+    simul::Array<int> stack;
     for (size_t r = 0; r < roots.size(); r++) {
         const int root = roots[r];
         if (root < 0 || static_cast<size_t>(root) >= nodes.size() || done[static_cast<size_t>(root)]) continue;
@@ -96,7 +96,7 @@ void Scene::ApplyRootTransform(const dhMat& t) {
 }
 
 bool Scene::ComputeBounds(dhVector* outMin, dhVector* outMax) const {
-    const amr::Array<dhMat> world = WorldTransforms();
+    const simul::Array<dhMat> world = WorldTransforms();
     bool any = false;
     dhVector lo, hi;
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -104,7 +104,7 @@ bool Scene::ComputeBounds(dhVector* outMin, dhVector* outMax) const {
         if (mi < 0 || static_cast<size_t>(mi) >= meshes.size()) continue;
         const Mesh& mesh = meshes[static_cast<size_t>(mi)];
         for (size_t p = 0; p < mesh.primitives.size(); p++) {
-            const amr::Array<float>& pos = mesh.primitives[p].positions;
+            const simul::Array<float>& pos = mesh.primitives[p].positions;
             for (size_t v = 0; v + 2 < pos.size(); v += 3) {
                 const dhVector w = world[i] * dhVector(pos[v], pos[v + 1], pos[v + 2]);
                 if (!any) {
@@ -165,4 +165,4 @@ bool Scene::IsValid() const {
     return true;
 }
 
-}  // namespace amr
+}  // namespace simul

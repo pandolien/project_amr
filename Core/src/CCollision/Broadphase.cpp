@@ -2,7 +2,7 @@
 
 #include "CBase/Util.h"
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -24,9 +24,9 @@ bool OverlapsYZ(const Aabb& p, const Aabb& q) {
 }
 
 // items 를 lo.x 순으로 훑으며 겹치는 쌍을 모은다. crossOnly 이면 서로 다른 집합끼리만 쌍으로 인정한다.
-amr::Array<CollisionPair> Sweep(amr::Array<Item>* items, bool crossOnly) {
-    amr::Array<CollisionPair> out;
-    amr::Sort(items->begin(), items->end(), ItemLess);
+simul::Array<CollisionPair> Sweep(simul::Array<Item>* items, bool crossOnly) {
+    simul::Array<CollisionPair> out;
+    simul::Sort(items->begin(), items->end(), ItemLess);
     const size_t n = items->size();
     for (size_t i = 0; i < n; i++) {
         const Item& p = (*items)[i];
@@ -43,14 +43,14 @@ amr::Array<CollisionPair> Sweep(amr::Array<Item>* items, bool crossOnly) {
             }
         }
     }
-    amr::Sort(out.begin(), out.end());
+    simul::Sort(out.begin(), out.end());
     return out;
 }
 
 }  // namespace
 
-amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& boxes) {
-    amr::Array<Item> items;
+simul::Array<CollisionPair> FindOverlappingPairs(const simul::Array<Aabb>& boxes) {
+    simul::Array<Item> items;
     items.reserve(boxes.size());
     for (size_t i = 0; i < boxes.size(); i++) {
         if (boxes[i].IsEmpty()) continue;
@@ -60,8 +60,8 @@ amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& boxes) {
     return Sweep(&items, false);
 }
 
-amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& setA, const amr::Array<Aabb>& setB) {
-    amr::Array<Item> items;
+simul::Array<CollisionPair> FindOverlappingPairs(const simul::Array<Aabb>& setA, const simul::Array<Aabb>& setB) {
+    simul::Array<Item> items;
     items.reserve(setA.size() + setB.size());
     for (size_t i = 0; i < setA.size(); i++) {
         if (setA[i].IsEmpty()) continue;
@@ -76,12 +76,12 @@ amr::Array<CollisionPair> FindOverlappingPairs(const amr::Array<Aabb>& setA, con
     return Sweep(&items, true);
 }
 
-amr::Array<CollisionPair> FindOverlappingPairsBruteForce(const amr::Array<Aabb>& boxes) {
-    amr::Array<CollisionPair> out;
+simul::Array<CollisionPair> FindOverlappingPairsBruteForce(const simul::Array<Aabb>& boxes) {
+    simul::Array<CollisionPair> out;
     for (size_t i = 0; i < boxes.size(); i++)
         for (size_t j = i + 1; j < boxes.size(); j++)
             if (boxes[i].Overlaps(boxes[j])) out.push_back(CollisionPair(static_cast<int>(i), static_cast<int>(j)));
     return out;
 }
 
-}  // namespace amr
+}  // namespace simul

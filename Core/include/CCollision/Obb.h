@@ -13,7 +13,7 @@
 //   - 기본 생성은 "빈 상자" 이다 (half 가 음수). 빈 상자는 어떤 것과도 겹치지 않는다.
 //   - 면이 닿기만 해도 겹친 것으로 본다. 판정은 double 로 계산하고, 반올림 오차 때문에
 //     겹침을 놓치지 않도록 아주 작은 여유(1e-6 상대값)를 둔다.
-namespace amr {
+namespace simul {
 
 struct Obb {
     dhVector center;
@@ -41,6 +41,6 @@ struct Obb {
     bool Overlaps(const Obb& o) const;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CCOLLISION_OBB_H

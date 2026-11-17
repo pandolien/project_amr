@@ -6,7 +6,7 @@
 
 #include "CBase/Util.h"
 
-namespace amr {
+namespace simul {
 
 // 크기가 변하는 배열 (vector 대체). 원소 타입은 기본 생성과 복사/이동 대입이 가능해야 한다.
 // 반복자는 포인터이고, 원소가 옮겨지는 연산(push_back 등)을 하면 이전 포인터는 무효가 된다.
@@ -189,6 +189,6 @@ bool operator==(const Array<T>& a, const Array<T>& b) {
 }
 template <class T> bool operator!=(const Array<T>& a, const Array<T>& b) { return !(a == b); }
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_ARRAY_H

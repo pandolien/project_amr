@@ -8,7 +8,7 @@
 #include "FileUtil.h"
 #include "VertexKey.h"
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -16,17 +16,17 @@ typedef detail::VertexKey Key;  // (위치, uv, 법선) 인덱스, 없으면 -1
 
 struct Group {
     Primitive prim;
-    amr::HashMap<Key, uint32_t> dedup;
+    simul::HashMap<Key, uint32_t> dedup;
 };
 
 // "3", "3/1", "3//2", "3/1/2" -> 0 기반 인덱스 (음수는 현재 개수 기준 상대값). 실패 시 false.
-bool ParseFaceVertex(const amr::String& tok, size_t nv, size_t nt, size_t nn, Key* key) {
+bool ParseFaceVertex(const simul::String& tok, size_t nv, size_t nt, size_t nn, Key* key) {
     int vals[3] = {0, 0, 0};
     bool has[3] = {false, false, false};
     size_t part = 0, start = 0;
     for (size_t i = 0; i <= tok.size() && part < 3; i++) {
         if (i == tok.size() || tok[i] == '/') {
-            const amr::String s = tok.substr(start, i - start);
+            const simul::String s = tok.substr(start, i - start);
             if (!s.empty()) {
                 char* end = NULL;
                 const long long v = strtoll(s.c_str(), &end, 10);
@@ -54,17 +54,17 @@ bool ParseFaceVertex(const amr::String& tok, size_t nv, size_t nt, size_t nn, Ke
     return true;
 }
 
-void ParseMtl(const amr::String& text, Scene* scene, amr::Map<amr::String, int>* matIndex) {
+void ParseMtl(const simul::String& text, Scene* scene, simul::Map<simul::String, int>* matIndex) {
     Lines in(text);
-    amr::String line;
+    simul::String line;
     Material* cur = NULL;
     while (in.Next(&line)) {
         Tokens ls(line);
-        amr::String key;
+        simul::String key;
         if (!ls.Next(&key)) continue;
         if (key == "newmtl") {
-            const amr::String name = ls.Rest();
-            amr::Map<amr::String, int>::iterator it = matIndex->find(name);
+            const simul::String name = ls.Rest();
+            simul::Map<simul::String, int>::iterator it = matIndex->find(name);
             cur = it != matIndex->end() ? &scene->materials[static_cast<size_t>(it->second)] : NULL;
         } else if (!cur) {
             continue;
@@ -87,33 +87,33 @@ void ParseMtl(const amr::String& text, Scene* scene, amr::Map<amr::String, int>*
     }
 }
 
-bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl, Scene* out, amr::String* error) {
-    amr::Array<float> pos, uv, nor;
-    amr::Array<Group> groups;
-    amr::Array<amr::String> groupMat;           // groups 와 같은 순서의 재질 이름 ("" = 없음)
-    amr::Map<amr::String, size_t> groupByMat;
-    amr::Array<amr::String> mtllibs;
-    amr::String objName;
+bool ParseObj(const simul::String& text, const simul::String& baseDir, bool loadMtl, Scene* out, simul::String* error) {
+    simul::Array<float> pos, uv, nor;
+    simul::Array<Group> groups;
+    simul::Array<simul::String> groupMat;           // groups 와 같은 순서의 재질 이름 ("" = 없음)
+    simul::Map<simul::String, size_t> groupByMat;
+    simul::Array<simul::String> mtllibs;
+    simul::String objName;
 
-    const amr::String noMat;
+    const simul::String noMat;
     groupByMat[noMat] = static_cast<size_t>(-1);  // 지연 생성 표시
     size_t current = static_cast<size_t>(-1);
-    amr::String currentMat;
+    simul::String currentMat;
 
     Lines in(text);
-    amr::String line;
+    simul::String line;
     size_t lineNo = 0;
     size_t faceNo = 0;
     while (in.Next(&line)) {
         lineNo++;
         if (line.empty() || line[0] == '#') continue;
         Tokens ls(line);
-        amr::String key;
+        simul::String key;
         if (!ls.Next(&key)) continue;
         if (key == "v") {
             float x, y, z;
             if (!(ls.NextFloat(&x) && ls.NextFloat(&y) && ls.NextFloat(&z))) {
-                detail::SetError(error, "OBJ " + amr::ToString(lineNo) + "번째 줄: v 좌표가 올바르지 않습니다");
+                detail::SetError(error, "OBJ " + simul::ToString(lineNo) + "번째 줄: v 좌표가 올바르지 않습니다");
                 return false;
             }
             pos.push_back(x); pos.push_back(y); pos.push_back(z);
@@ -130,18 +130,18 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
                 objName = ls.Rest();
             }
         } else if (key == "mtllib") {
-            const amr::String rest = ls.Rest();
+            const simul::String rest = ls.Rest();
             if (!rest.empty()) mtllibs.push_back(rest);
         } else if (key == "usemtl") {
             currentMat = ls.Rest();
             current = static_cast<size_t>(-1);
         } else if (key == "f") {
-            amr::Array<Key> verts;
-            amr::String tok;
+            simul::Array<Key> verts;
+            simul::String tok;
             while (ls.Next(&tok)) {
                 Key k;
                 if (!ParseFaceVertex(tok, pos.size() / 3, uv.size() / 2, nor.size() / 3, &k)) {
-                    detail::SetError(error, "OBJ " + amr::ToString(lineNo) + "번째 줄: 면의 인덱스가 올바르지 않습니다 (" + tok + ")");
+                    detail::SetError(error, "OBJ " + simul::ToString(lineNo) + "번째 줄: 면의 인덱스가 올바르지 않습니다 (" + tok + ")");
                     return false;
                 }
                 verts.push_back(k);
@@ -152,7 +152,7 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
             faceNo++;
             for (size_t i = 0; i < verts.size(); i++) if (verts[i][2] < 0) verts[i][2] = -static_cast<int>(faceNo % 1000000000u) - 2;
             if (current == static_cast<size_t>(-1)) {
-                amr::Map<amr::String, size_t>::iterator it = groupByMat.find(currentMat);
+                simul::Map<simul::String, size_t>::iterator it = groupByMat.find(currentMat);
                 if (it == groupByMat.end() || it->second == static_cast<size_t>(-1)) {
                     groups.push_back(Group());
                     groupMat.push_back(currentMat);
@@ -163,7 +163,7 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
                 }
             }
             Group& g = groups[current];
-            amr::Array<uint32_t> ids;
+            simul::Array<uint32_t> ids;
             for (size_t i = 0; i < verts.size(); i++) {
                 const Key& k = verts[i];
                 const uint32_t* found = g.dedup.Find(k);
@@ -193,7 +193,7 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
     }
 
     out->Clear();
-    amr::Map<amr::String, int> matIndex;
+    simul::Map<simul::String, int> matIndex;
     Mesh mesh;
     mesh.name = objName.empty() ? "obj" : objName;
     for (size_t gi = 0; gi < groups.size(); gi++) {
@@ -206,12 +206,12 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
         }
         if (p.uvs.size() != p.VertexCount() * 2) p.uvs.clear();
         if (!groupMat[gi].empty()) {
-            amr::Map<amr::String, int>::iterator it = matIndex.find(groupMat[gi]);
+            simul::Map<simul::String, int>::iterator it = matIndex.find(groupMat[gi]);
             if (it == matIndex.end()) {
                 Material m;
                 m.name = groupMat[gi];
                 out->materials.push_back(m);
-                it = matIndex.insert(amr::MakePair(groupMat[gi], static_cast<int>(out->materials.size() - 1))).first;
+                it = matIndex.insert(simul::MakePair(groupMat[gi], static_cast<int>(out->materials.size() - 1))).first;
             }
             p.material = it->second;
         }
@@ -230,13 +230,13 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
             out->warnings.push_back("mtllib 은 파일 경로로 읽을 때만 적용됩니다");
         } else {
             for (size_t i = 0; i < mtllibs.size(); i++) {
-                amr::Array<char> bytes;
-                amr::String ignored;
+                simul::Array<char> bytes;
+                simul::String ignored;
                 if (!detail::ReadFileBytes(detail::JoinPath(baseDir, mtllibs[i]), &bytes, &ignored)) {
                     out->warnings.push_back("MTL 파일을 읽을 수 없습니다: " + mtllibs[i]);
                     continue;
                 }
-                ParseMtl(amr::String(bytes.begin(), bytes.end()), out, &matIndex);
+                ParseMtl(simul::String(bytes.begin(), bytes.end()), out, &matIndex);
             }
         }
     }
@@ -250,22 +250,22 @@ bool ParseObj(const amr::String& text, const amr::String& baseDir, bool loadMtl,
 
 }  // namespace
 
-bool LoadObjFromString(const amr::String& text, Scene* out, amr::String* error) {
+bool LoadObjFromString(const simul::String& text, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
-    const bool ok = ParseObj(text, amr::String(), false, out, error);
+    const bool ok = ParseObj(text, simul::String(), false, out, error);
     if (!ok) out->Clear();
     return ok;
 }
 
-bool LoadObj(const amr::String& path, Scene* out, amr::String* error) {
+bool LoadObj(const simul::String& path, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
-    amr::Array<char> bytes;
+    simul::Array<char> bytes;
     if (!detail::ReadFileBytes(path, &bytes, error)) return false;
-    const bool ok = ParseObj(amr::String(bytes.begin(), bytes.end()), detail::DirName(path), true, out, error);
+    const bool ok = ParseObj(simul::String(bytes.begin(), bytes.end()), detail::DirName(path), true, out, error);
     if (!ok) out->Clear();
     return ok;
 }
 
-}  // namespace amr
+}  // namespace simul

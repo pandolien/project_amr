@@ -18,9 +18,9 @@ namespace tu {
 const double kPi = 3.14159265358979323846;
 
 // 임시 폴더 아래 경로. 구분자는 항상 '/' (Windows API 도 허용한다)
-inline amr::String Tmp(const amr::String& name) {
+inline simul::String Tmp(const simul::String& name) {
     const char* keys[] = {"TMPDIR", "TEMP", "TMP"};
-    amr::String base;
+    simul::String base;
     for (size_t i = 0; i < 3 && base.empty(); i++) {
         const char* v = getenv(keys[i]);
         if (v && *v) base = v;
@@ -31,7 +31,7 @@ inline amr::String Tmp(const amr::String& name) {
     return base + name;
 }
 
-inline void MkDir(const amr::String& path) {  // 이미 있으면 무시
+inline void MkDir(const simul::String& path) {  // 이미 있으면 무시
 #ifdef _WIN32
     _mkdir(path.c_str());
 #else
@@ -39,7 +39,7 @@ inline void MkDir(const amr::String& path) {  // 이미 있으면 무시
 #endif
 }
 
-inline void RmDir(const amr::String& path) {  // 비어 있을 때만 지워진다
+inline void RmDir(const simul::String& path) {  // 비어 있을 때만 지워진다
 #ifdef _WIN32
     _rmdir(path.c_str());
 #else

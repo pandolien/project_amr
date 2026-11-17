@@ -5,7 +5,7 @@
 
 // C++ 표준 라이브러리(std)를 쓰지 않는 이 프로젝트의 기본 도구: Pair, Min/Max/Swap/Move, Sort/Unique, UniquePtr.
 // 이름과 동작은 std 의 같은 이름과 최대한 같게 맞췄다 (Min, Max, Swap, Move, Pair, MakePair, Sort, Unique).
-namespace amr {
+namespace simul {
 
 template <class T> struct RemoveRef { typedef T Type; };
 template <class T> struct RemoveRef<T&> { typedef T Type; };
@@ -135,6 +135,6 @@ private:
     T* p_;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_UTIL_H

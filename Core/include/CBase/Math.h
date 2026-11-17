@@ -6,7 +6,7 @@
 
 // 수학 함수 (sqrt 등 대체). float 과 double 중 인자 타입에 맞는 것이 불리고, 결과 타입도 같다.
 // C 라이브러리(math.h)의 함수를 그대로 감싼 것이다.
-namespace amr {
+namespace simul {
 
 const float kFloatMax = FLT_MAX;
 const double kDoubleMax = DBL_MAX;
@@ -59,6 +59,6 @@ inline float NanFloat() {
     return zero / zero;
 }
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_MATH_H

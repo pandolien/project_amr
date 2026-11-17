@@ -3,7 +3,7 @@
 #include <float.h>
 #include <math.h>
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -151,4 +151,4 @@ bool Aabb::Raycast(const dhVector& origin, const dhVector& dir, float tMax, floa
     return true;
 }
 
-}  // namespace amr
+}  // namespace simul

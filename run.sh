@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 필요한 패키지를 확인/설치하고, 빌드한 뒤 실행한다 (Ubuntu 20.04 기준, apt 사용).
 #
-# 사용법: ./run.sh [옵션] [-- amr_main 에 넘길 인자...]
+# 사용법: ./run.sh [옵션] [-- simul_main 에 넘길 인자...]
 #   --test        실행 대신 테스트(ctest)만 돌린다
 #   --no-qt       Qt(CoreQt)를 빌드하지 않는다 (qtbase5-dev 설치도 건너뜀)
 #   --no-install  패키지를 설치하지 않는다 (없으면 목록만 알려주고 종료)
@@ -89,7 +89,7 @@ if [ "$DO_CLEAN" = 1 ]; then
 fi
 
 log "구성: Qt=$USE_QT, $BUILD_TYPE"
-cmake -S "$ROOT" -B "$BUILD" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -DAMR_BUILD_QT="$USE_QT" -DAMR_BUILD_TESTS=ON
+cmake -S "$ROOT" -B "$BUILD" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -DSIMUL_BUILD_QT="$USE_QT" -DSIMUL_BUILD_TESTS=ON
 
 JOBS="$(nproc 2>/dev/null || echo 2)"
 log "빌드 (-j$JOBS)"
@@ -102,12 +102,12 @@ if [ "$DO_TEST" = 1 ]; then
     exit $?
 fi
 
-APP="$BUILD/bin/amr_main"
+APP="$BUILD/bin/simul_main"
 if [ -x "$APP" ]; then
     log "실행: $APP ${APP_ARGS[*]:-}"
     exec "$APP" "${APP_ARGS[@]+"${APP_ARGS[@]}"}"
 fi
 
-# main.cpp 가 아직 비어 있으면 amr_main 이 만들어지지 않는다 -> 테스트로 대신 확인
-log "실행할 프로그램(amr_main)이 아직 없습니다 (main.cpp 가 비어 있음). 대신 테스트를 실행합니다."
+# main.cpp 가 아직 비어 있으면 simul_main 이 만들어지지 않는다 -> 테스트로 대신 확인
+log "실행할 프로그램(simul_main)이 아직 없습니다 (main.cpp 가 비어 있음). 대신 테스트를 실행합니다."
 (cd "$BUILD" && ctest --output-on-failure)

@@ -8,8 +8,8 @@
 #include "TestGlb.h"
 #include "TestUtil.h"
 
-using namespace amr;
-using namespace amr::urdf;
+using namespace simul;
+using namespace simul::urdf;
 
 namespace {
 
@@ -22,7 +22,7 @@ void check(bool ok, const char* what) {
     }
 }
 
-bool nearly(double a, double b, double eps = 1e-4) { return amr::Abs(a - b) <= eps; }
+bool nearly(double a, double b, double eps = 1e-4) { return simul::Abs(a - b) <= eps; }
 
 bool posIs(const dhMat& m, double x, double y, double z) {
     return nearly(m.v[12], x) && nearly(m.v[13], y) && nearly(m.v[14], z);
@@ -55,7 +55,7 @@ const char* kArm =
 
 void testParse() {
     Robot r;
-    amr::String err;
+    simul::String err;
     check(LoadUrdfFromString(kArm, &r, &err), "arm loads");
     check(r.name == "arm" && r.links.size() == 6 && r.joints.size() == 5, "counts");
     check(r.root >= 0 && r.links[static_cast<size_t>(r.root)].name == "base", "root is base");
@@ -66,10 +66,10 @@ void testParse() {
     const Joint j2 = r.joints[static_cast<size_t>(r.FindJoint("j2"))];
     check(nearly(j2.axis.y, 1) && nearly(j2.axis.x, 0), "axis normalized");
     check(r.FindLink("nope") == -1 && r.FindJoint("nope") == -1, "find missing");
-    const amr::Array<int> act = r.ActuatedJoints();
+    const simul::Array<int> act = r.ActuatedJoints();
     check(act.size() == 3, "actuated = j1 j2 j3 (not fixed, not mimic)");
     // order: 부모 joint 가 자식 joint 보다 먼저 와야 한다
-    amr::Array<bool> seen(r.links.size(), false);
+    simul::Array<bool> seen(r.links.size(), false);
     seen[static_cast<size_t>(r.root)] = true;
     bool ordered = true;
     for (size_t k = 0; k < r.order.size(); k++) {
@@ -82,11 +82,11 @@ void testParse() {
 
 void testKinematics() {
     Robot r;
-    amr::String err;
+    simul::String err;
     check(LoadUrdfFromString(kArm, &r, &err), "arm loads (fk)");
     const int l1 = r.FindLink("l1"), l2 = r.FindLink("l2"), l3 = r.FindLink("l3"), tool = r.FindLink("tool"), fin = r.FindLink("finger");
 
-    amr::Array<dhMat> T = r.LinkTransforms(JointValues());
+    simul::Array<dhMat> T = r.LinkTransforms(JointValues());
     check(posIs(T[static_cast<size_t>(l1)], 0, 0, 0.5), "zero pose l1");
     check(posIs(T[static_cast<size_t>(l3)], 2, 0, 0.5), "zero pose l3");
     check(posIs(T[static_cast<size_t>(tool)], 2, 0, 0.6), "zero pose tool");
@@ -129,14 +129,14 @@ void testKinematics() {
 
 void testRpyConvention() {
     // rpy=(r=90, p=0, y=180): R = Rz(180) Rx(90). z 축 -> +Y, y 축 -> +Z, x 축 -> -X (roll/yaw 를 바꾸면 결과가 달라진다)
-    const amr::String u =
+    const simul::String u =
         "<robot name=\"r\"><link name=\"a\"/><link name=\"b\"/>"
         "<joint name=\"j\" type=\"fixed\"><parent link=\"a\"/><child link=\"b\"/>"
         "<origin xyz=\"1 2 3\" rpy=\"1.5707963 0 3.1415926\"/></joint></robot>";
     Robot r;
-    amr::String err;
+    simul::String err;
     check(LoadUrdfFromString(u, &r, &err), "rpy robot");
-    const amr::Array<dhMat> T = r.LinkTransforms(JointValues());
+    const simul::Array<dhMat> T = r.LinkTransforms(JointValues());
     double o[3];
     apply(T[1], 0, 0, 1, o);
     check(nearly(o[0], 1) && nearly(o[1], 3) && nearly(o[2], 3), "z axis -> +Y (plus translation)");
@@ -146,11 +146,11 @@ void testRpyConvention() {
     check(nearly(o[0], 0) && nearly(o[1], 2) && nearly(o[2], 3), "x axis -> -X");
 }
 
-amr::String Wrap(const amr::String& body) { return "<robot name=\"t\">" + body + "</robot>"; }
+simul::String Wrap(const simul::String& body) { return "<robot name=\"t\">" + body + "</robot>"; }
 
-void expectFail(const amr::String& xml, const char* what) {
+void expectFail(const simul::String& xml, const char* what) {
     Robot r;
-    amr::String err;
+    simul::String err;
     const bool ok = LoadUrdfFromString(xml, &r, &err);
     if (ok || err.empty() || !r.links.empty()) {
         printf("FAIL: %s (ok=%d err='%s')\n", what, ok ? 1 : 0, err.c_str());
@@ -199,14 +199,14 @@ void testErrors() {
 
     // 경고만 나는 경우: revolute 에 limit 이 없음
     Robot r;
-    amr::String err;
+    simul::String err;
     check(LoadUrdfFromString(Wrap("<link name=\"a\"/><link name=\"b\"/><joint name=\"j\" type=\"revolute\"><parent link=\"a\"/><child link=\"b\"/></joint>"), &r, &err),
           "missing limit is lenient");
     check(!r.warnings.empty(), "missing limit warns");
     // 기본값: axis = Z (프로젝트 규약. URDF 규격은 X 이므로 경고를 남긴다)
     check(nearly(r.joints[0].axis.z, 1) && nearly(r.joints[0].axis.x, 0), "default axis is Z");
     bool axisWarn = false;
-    for (size_t i = 0; i < r.warnings.size(); i++) axisWarn = axisWarn || r.warnings[i].find("axis") != amr::String::npos;
+    for (size_t i = 0; i < r.warnings.size(); i++) axisWarn = axisWarn || r.warnings[i].find("axis") != simul::String::npos;
     check(axisWarn, "missing axis on a movable joint warns");
     check(LoadUrdfFromString(Wrap("<link name=\"a\"/><link name=\"b\"/><joint name=\"j\" type=\"fixed\"><parent link=\"a\"/><child link=\"b\"/></joint>"), &r, &err) && r.warnings.empty(),
           "fixed joint without axis does not warn");
@@ -215,31 +215,31 @@ void testErrors() {
               nearly(r.links[0].visuals[0].geometry.scale[2], 0.001),
           "single-number mesh scale");
 
-    check(!LoadUrdf(tu::Tmp("amr_no_such.urdf"), &r, &err) && !err.empty(), "missing file");
+    check(!LoadUrdf(tu::Tmp("simul_no_such.urdf"), &r, &err) && !err.empty(), "missing file");
 
     // 모든 접두 길이로 잘라도 죽지 않고, 성공하면 구조가 일관된다
-    const amr::String good = kArm;
+    const simul::String good = kArm;
     for (size_t n = 0; n < good.size(); n += 2) {
         Robot t;
         if (LoadUrdfFromString(good.substr(0, n), &t, &err) && t.order.size() != t.joints.size()) check(false, "prefix produced inconsistent robot");
     }
     for (size_t i = 0; i < good.size(); i += 3) {
-        amr::String c = good;
+        simul::String c = good;
         c[i] = static_cast<char>(c[i] ^ 0x21);
         Robot t;
         if (LoadUrdfFromString(c, &t, &err) && t.order.size() != t.joints.size()) check(false, "corruption produced inconsistent robot");
     }
 }
 
-amr::Array<amr::String> g_files;  // 만든 파일 (마지막에 지운다)
+simul::Array<simul::String> g_files;  // 만든 파일 (마지막에 지운다)
 
-void writeFile(const amr::String& path, const amr::String& s) {
+void writeFile(const simul::String& path, const simul::String& s) {
     g_files.push_back(path);
-    amr::WriteFileBytes(path, s.data(), s.size());
+    simul::WriteFileBytes(path, s.data(), s.size());
 }
 
 void testMeshes() {
-    const amr::String root = tu::Tmp("amr_urdf_test");
+    const simul::String root = tu::Tmp("simul_urdf_test");
     tu::MkDir(root);
     tu::MkDir(root + "/mypkg");
     tu::MkDir(root + "/mypkg/urdf");
@@ -249,16 +249,16 @@ void testMeshes() {
     writeFile(root + "/mypkg/meshes/tri.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
     // GLB: 삼각형 (0,0,0),(1,0,0),(0,1,0) -> Y-up 변환 후 y 가 z 로
     {
-        amr::Array<char> b;
+        simul::Array<char> b;
         const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
         for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);
-        const amr::String js =
+        const simul::String js =
             "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
             "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],"
             "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}],"
             "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}";
-        const amr::Array<char> glb = testglb::MakeGlb(js, b);
-        writeFile(root + "/mypkg/meshes/tri.glb", amr::String(glb.begin(), glb.end()));
+        const simul::Array<char> glb = testglb::MakeGlb(js, b);
+        writeFile(root + "/mypkg/meshes/tri.glb", simul::String(glb.begin(), glb.end()));
     }
     writeFile(root + "/mypkg/urdf/robot.urdf",
         "<robot name=\"m\"><link name=\"base\">"
@@ -271,7 +271,7 @@ void testMeshes() {
         "</link></robot>");
 
     Robot r;
-    amr::String err;
+    simul::String err;
     check(LoadUrdf(root + "/mypkg/urdf/robot.urdf", &r, &err), "file urdf loads");
     check(r.baseDir == root + "/mypkg/urdf", "baseDir recorded");
 
@@ -297,11 +297,11 @@ void testMeshes() {
         check(rm2.visuals[1].scene.ComputeBounds(&mn, &mx) && nearly(mx.y, 1) && nearly(mx.z, 0), "glb untouched when conversion off");
 
     // 경로 해석
-    amr::String path;
+    simul::String path;
     check(ResolveMeshPath("package://mypkg/meshes/tri.obj", tu::Tmp("zzz_no_such_dir/a/b"), opt, &path) == false, "not found from unrelated dir");
     check(ResolveMeshPath("package://mypkg/meshes/tri.obj", root + "/other", opt, &path), "found via ancestor/pkg/sub");
     LoadOptions withPkg;
-    withPkg.packagePaths.push_back(amr::MakePair(amr::String("mypkg"), root + "/mypkg"));
+    withPkg.packagePaths.push_back(simul::MakePair(simul::String("mypkg"), root + "/mypkg"));
     check(ResolveMeshPath("package://mypkg/meshes/tri.obj", root + "/other", withPkg, &path) && path == root + "/mypkg/meshes/tri.obj",
           "packagePaths mapping");
     LoadOptions withDir;
@@ -337,7 +337,7 @@ void testMeshes() {
 
 void testDynamicsAndUnits() {
     Robot r;
-    amr::String err;
+    simul::String err;
     check(LoadUrdfFromString(
               "<robot name='d'><link name='a'/><link name='b'/><link name='c'/>"
               "<joint name='j1' type='revolute'><parent link='a'/><child link='b'/><axis xyz='0 0 1'/>"
@@ -360,16 +360,16 @@ void testDynamicsAndUnits() {
     check(j1.IsAngular() && !j2.IsAngular(), "IsAngular");
     check(nearly(j1.ToDisplay(3.14159265358979 / 2), 90.0, 1e-9) && nearly(j1.FromDisplay(180.0), 3.14159265358979, 1e-9), "angular joint: rad <-> deg");
     check(nearly(j2.ToDisplay(0.25), 0.25) && nearly(j2.FromDisplay(0.25), 0.25), "prismatic joint: m unchanged");
-    check(amr::String(j1.DisplayUnit()) == "deg" && amr::String(j2.DisplayUnit()) == "m", "display units");
-    check(amr::String(j1.TorqueUnit()) == "N*m" && amr::String(j2.TorqueUnit()) == "N", "torque units");
+    check(simul::String(j1.DisplayUnit()) == "deg" && simul::String(j2.DisplayUnit()) == "m", "display units");
+    check(simul::String(j1.TorqueUnit()) == "N*m" && simul::String(j2.TorqueUnit()) == "N", "torque units");
 }
 
 void testLidarSensor() {
     const char* base = "<robot name='s'><link name='a'/><link name='b'/>"
                        "<joint name='j' type='fixed'><parent link='a'/><child link='b'/></joint>";
     Robot r;
-    amr::String err;
-    check(LoadUrdfFromString(amr::String(base) +
+    simul::String err;
+    check(LoadUrdfFromString(simul::String(base) +
               "<gazebo reference='b'><sensor type='gpu_ray' name='scan'><pose>0.1 0.2 0.3 0 0 1.5707963</pose><ray><scan>"
               "<horizontal><samples>181</samples><min_angle>-1.5707963</min_angle><max_angle>1.5707963</max_angle></horizontal>"
               "<vertical><samples>8</samples><min_angle>-0.2</min_angle><max_angle>0.2</max_angle></vertical></scan>"
@@ -387,20 +387,20 @@ void testLidarSensor() {
         check(nearly(ex.x, 0.1, 1e-3) && nearly(ex.y, 1.2, 1e-3), "sensor pose yaw");
     }
     // 기본값: 센서에 scan 이 없어도 읽힌다
-    check(LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err) && r.lidars.size() == 1 &&
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err) && r.lidars.size() == 1 &&
               r.lidars[0].name == "a" && r.lidars[0].vSamples == 1, "defaults");
     // 라이다가 없는 로봇
-    check(LoadUrdfFromString(amr::String(base) + "</robot>", &r, &err) && r.lidars.empty(), "no lidar");
+    check(LoadUrdfFromString(simul::String(base) + "</robot>", &r, &err) && r.lidars.empty(), "no lidar");
     // 잘못된 값은 거부
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='zz'><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err), "unknown link rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err), "missing reference rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'/></gazebo></robot>", &r, &err), "missing <ray> rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><samples>0</samples></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "samples 0 rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><samples>2.5</samples></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "fractional samples rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><min_angle>1</min_angle><max_angle>0</max_angle></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "max < min rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><range><min>5</min><max>1</max></range></ray></sensor></gazebo></robot>", &r, &err), "bad range rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><noise><stddev>-1</stddev></noise></ray></sensor></gazebo></robot>", &r, &err), "negative noise rejected");
-    check(!LoadUrdfFromString(amr::String(base) + "<gazebo reference='a'><sensor type='ray'><pose>1 2 3</pose><ray/></sensor></gazebo></robot>", &r, &err), "short pose rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='zz'><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err), "unknown link rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo><sensor type='ray'><ray/></sensor></gazebo></robot>", &r, &err), "missing reference rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'/></gazebo></robot>", &r, &err), "missing <ray> rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><samples>0</samples></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "samples 0 rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><samples>2.5</samples></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "fractional samples rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><scan><horizontal><min_angle>1</min_angle><max_angle>0</max_angle></horizontal></scan></ray></sensor></gazebo></robot>", &r, &err), "max < min rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><range><min>5</min><max>1</max></range></ray></sensor></gazebo></robot>", &r, &err), "bad range rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><ray><noise><stddev>-1</stddev></noise></ray></sensor></gazebo></robot>", &r, &err), "negative noise rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='ray'><pose>1 2 3</pose><ray/></sensor></gazebo></robot>", &r, &err), "short pose rejected");
 }
 
 int main() {

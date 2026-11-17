@@ -14,7 +14,7 @@
 // 광선 방향: 방위각 theta (센서 +x 에서 +z 둘레로 반시계), 고각 phi (xy 평면에서 위로)
 //     d = (cos(phi) cos(theta), cos(phi) sin(theta), sin(phi))
 // 2D 라이다 = 수직 채널이 1개(phi = 0), 3D 라이다 = 수직 채널이 여러 개. 단위는 m, rad (ROS LaserScan 과 같은 각도 규약).
-namespace amr {
+namespace simul {
 namespace sensor {
 
 struct LidarSettings {
@@ -93,6 +93,6 @@ private:
 };
 
 }  // namespace sensor
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CSENSOR_LIDAR_H

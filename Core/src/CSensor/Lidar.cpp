@@ -5,7 +5,7 @@
 #include "CBase/Math.h"
 #include "CCollision/MeshRaycast.h"
 
-namespace amr {
+namespace simul {
 namespace sensor {
 
 void LidarTarget::ComputeBounds() {
@@ -95,7 +95,7 @@ void Lidar::Scan(const dhMat& sensorPose, const LidarTarget* targets, size_t tar
     if (n == 0) return;
 
     // 광선마다 센서 좌표의 방향 (cos(phi) cos(theta), cos(phi) sin(theta), sin(phi)) 을 한 번만 계산해 둔다.
-    amr::Array<float> dirs(n * 3, 0.0f);
+    simul::Array<float> dirs(n * 3, 0.0f);
     for (size_t ch = 0; ch < nCh; ch++) {
         const float phi = ChannelElevation(ch);
         const float cp = Cos(phi), sp = Sin(phi);
@@ -120,7 +120,7 @@ void Lidar::Scan(const dhMat& sensorPose, const LidarTarget* targets, size_t tar
         const bool useBvh = tg.bvh && !tg.bvh->empty();  // BVH 가 있으면 평면 가속과 경계 상자 대신 이것을 쓴다
         const uint32_t* triIdx = tg.indices;
         size_t triCount = tg.indexCount;
-        amr::Array<uint32_t> near;
+        simul::Array<uint32_t> near;
         if (planar && !useBvh) {
             // 평면(점 o, 법선 nrm = 센서의 z 축)의 한쪽에만 있는 삼각형은 어떤 광선도 맞출 수 없으므로,
             // 평면을 가로지르는 삼각형만 남긴다 (한 번에 O(정점 + 삼각형)).
@@ -191,4 +191,4 @@ void Lidar::Scan(const dhMat& sensorPose, const LidarTarget* targets, size_t tar
 }
 
 }  // namespace sensor
-}  // namespace amr
+}  // namespace simul

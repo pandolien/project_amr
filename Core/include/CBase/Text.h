@@ -7,7 +7,7 @@
 #include "CBase/String.h"
 
 // 텍스트 읽기 도구 (istringstream, getline, strtod 대체). 숫자 읽기는 로케일(소수점 기호 설정)과 무관하게 항상 '.' 이다.
-namespace amr {
+namespace simul {
 
 // s 에서 실수 하나를 읽는다 (앞의 공백은 건너뜀). 읽었으면 true 와 읽은 끝 위치(*end). "nan", "inf", "-inf" 도 읽는다.
 // 십진수가 아니거나 비어 있으면 false (이때 *end 는 s).
@@ -48,6 +48,6 @@ private:
     size_t pos_;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_TEXT_H

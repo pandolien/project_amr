@@ -15,23 +15,23 @@
 using tinyxml2::XMLDocument;
 using tinyxml2::XMLElement;
 
-namespace amr {
+namespace simul {
 
 namespace {
 
 const int kMaxDepth = 64;
 
 struct Ctx {
-    amr::Map<amr::String, XMLElement*> ids;       // id -> 요소
-    amr::Map<amr::String, int> materialIndex;     // collada material id -> Scene::materials
-    amr::Map<amr::String, int> meshCache;         // geometry + 재질 바인딩 -> Scene::meshes
+    simul::Map<simul::String, XMLElement*> ids;       // id -> 요소
+    simul::Map<simul::String, int> materialIndex;     // collada material id -> Scene::materials
+    simul::Map<simul::String, int> meshCache;         // geometry + 재질 바인딩 -> Scene::meshes
     Scene* scene;
-    amr::String error;
+    simul::String error;
 };
 
-typedef amr::Map<amr::String, amr::String> Binding;  // symbol -> material id
+typedef simul::Map<simul::String, simul::String> Binding;  // symbol -> material id
 
-void CollectIds(XMLElement* e, amr::Map<amr::String, XMLElement*>* ids, int depth) {
+void CollectIds(XMLElement* e, simul::Map<simul::String, XMLElement*>* ids, int depth) {
     if (depth > 512) return;
     const char* id = e->Attribute("id");
     if (id && ids->find(id) == ids->end()) (*ids)[id] = e;
@@ -40,19 +40,19 @@ void CollectIds(XMLElement* e, amr::Map<amr::String, XMLElement*>* ids, int dept
 
 XMLElement* Child(XMLElement* e, const char* name) { return e ? e->FirstChildElement(name) : NULL; }
 
-amr::String UrlId(const char* url) {
-    if (!url) return amr::String();
-    return url[0] == '#' ? amr::String(url + 1) : amr::String(url);
+simul::String UrlId(const char* url) {
+    if (!url) return simul::String();
+    return url[0] == '#' ? simul::String(url + 1) : simul::String(url);
 }
 
 XMLElement* Lookup(Ctx* c, const char* url, const char* expectName) {
-    amr::Map<amr::String, XMLElement*>::iterator it = c->ids.find(UrlId(url));
+    simul::Map<simul::String, XMLElement*>::iterator it = c->ids.find(UrlId(url));
     if (it == c->ids.end()) return NULL;
-    if (expectName && amr::String(it->second->Name()) != expectName) return NULL;
+    if (expectName && simul::String(it->second->Name()) != expectName) return NULL;
     return it->second;
 }
 
-bool ReadFloats(const char* text, size_t expected, amr::Array<float>* out) {
+bool ReadFloats(const char* text, size_t expected, simul::Array<float>* out) {
     out->clear();
     if (!text) return expected == 0;
     const char* p = text;
@@ -61,7 +61,7 @@ bool ReadFloats(const char* text, size_t expected, amr::Array<float>* out) {
     return out->size() == expected;
 }
 
-bool ReadInts(const char* text, amr::Array<int>* out) {
+bool ReadInts(const char* text, simul::Array<int>* out) {
     out->clear();
     if (!text) return true;
     const char* p = text;
@@ -75,7 +75,7 @@ bool ReadInts(const char* text, amr::Array<int>* out) {
 }
 
 struct Source {
-    amr::Array<float> data;
+    simul::Array<float> data;
     int stride;
     int offset;
     int count;
@@ -112,7 +112,7 @@ typedef detail::VertexKey Key;
 
 // <triangles>/<polylist>/<polygons> 하나를 Primitive 로 만든다. 반환: 1 성공, 0 건너뜀, -1 오류
 int BuildPrimitive(Ctx* c, XMLElement* prim, Primitive* out) {
-    const amr::String kind = prim->Name();
+    const simul::String kind = prim->Name();
     InputRef vertex, normal, texcoord;
     int stride = 1;
     int bestSet = 1 << 30;
@@ -122,14 +122,14 @@ int BuildPrimitive(Ctx* c, XMLElement* prim, Primitive* out) {
         const int off = in->IntAttribute("offset", 0);
         if (off < 0 || off > 64) { c->error = "COLLADA input offset 이 올바르지 않습니다"; return -1; }
         if (off + 1 > stride) stride = off + 1;
-        const amr::String s = sem;
+        const simul::String s = sem;
         XMLElement* src = Lookup(c, in->Attribute("source"), NULL);
         if (s == "VERTEX") {
             XMLElement* verts = src;
-            if (!verts || amr::String(verts->Name()) != "vertices") { c->error = "VERTEX input 이 vertices 를 가리키지 않습니다"; return -1; }
+            if (!verts || simul::String(verts->Name()) != "vertices") { c->error = "VERTEX input 이 vertices 를 가리키지 않습니다"; return -1; }
             for (XMLElement* vi = verts->FirstChildElement("input"); vi; vi = vi->NextSiblingElement("input")) {
                 const char* vs = vi->Attribute("semantic");
-                if (vs && amr::String(vs) == "POSITION") {
+                if (vs && simul::String(vs) == "POSITION") {
                     if (!LoadSource(c, Lookup(c, vi->Attribute("source"), "source"), &vertex.src) || vertex.src.stride < 3) {
                         c->error = "POSITION 소스를 읽을 수 없습니다";
                         return -1;
@@ -150,8 +150,8 @@ int BuildPrimitive(Ctx* c, XMLElement* prim, Primitive* out) {
     if (!vertex.present) { c->error = "COLLADA primitive 에 VERTEX/POSITION 이 없습니다"; return -1; }
 
     // 다각형 목록 (각각 정점 튜플 순서열)
-    amr::Array<int> flat;
-    amr::Array<int> vcount;  // 다각형별 정점 수
+    simul::Array<int> flat;
+    simul::Array<int> vcount;  // 다각형별 정점 수
     if (kind == "triangles") {
         if (!ReadInts(Child(prim, "p") ? Child(prim, "p")->GetText() : NULL, &flat)) { c->error = "p 배열이 올바르지 않습니다"; return -1; }
         const int cnt = prim->IntAttribute("count", 0);
@@ -165,19 +165,19 @@ int BuildPrimitive(Ctx* c, XMLElement* prim, Primitive* out) {
         }
     } else {  // polygons: p 가 여러 개, 각각 다각형 하나
         for (XMLElement* p = prim->FirstChildElement("p"); p; p = p->NextSiblingElement("p")) {
-            amr::Array<int> one;
+            simul::Array<int> one;
             if (!ReadInts(p->GetText(), &one) || one.size() % static_cast<size_t>(stride) != 0) { c->error = "polygons 의 p 가 올바르지 않습니다"; return -1; }
             vcount.push_back(static_cast<int>(one.size() / static_cast<size_t>(stride)));
             flat.insert(flat.end(), one.begin(), one.end());
         }
     }
 
-    amr::HashMap<Key, uint32_t> dedup;
+    simul::HashMap<Key, uint32_t> dedup;
     size_t cursor = 0;
     for (size_t poly = 0; poly < vcount.size(); poly++) {
         const size_t nv = static_cast<size_t>(vcount[poly]);
         if (cursor + nv * static_cast<size_t>(stride) > flat.size()) { c->error = "vcount 합이 p 데이터보다 큽니다"; return -1; }
-        amr::Array<uint32_t> ids;
+        simul::Array<uint32_t> ids;
         for (size_t i = 0; i < nv; i++, cursor += static_cast<size_t>(stride)) {
             Key k;
             k[0] = flat[cursor + static_cast<size_t>(vertex.offset)];
@@ -215,8 +215,8 @@ int BuildPrimitive(Ctx* c, XMLElement* prim, Primitive* out) {
     return 1;
 }
 
-int MaterialFromId(Ctx* c, const amr::String& matId) {
-    amr::Map<amr::String, int>::iterator it = c->materialIndex.find(matId);
+int MaterialFromId(Ctx* c, const simul::String& matId) {
+    simul::Map<simul::String, int>::iterator it = c->materialIndex.find(matId);
     if (it != c->materialIndex.end()) return it->second;
     Material m;
     m.name = matId;
@@ -230,7 +230,7 @@ int MaterialFromId(Ctx* c, const amr::String& matId) {
             if (!sh) continue;
             XMLElement* col = Child(Child(sh, "diffuse"), "color");
             if (!col) col = Child(Child(sh, "emission"), "color");
-            amr::Array<float> v;
+            simul::Array<float> v;
             if (col && ReadFloats(col->GetText(), 4, &v)) m.baseColor = Color(v[0], v[1], v[2], v[3]);
             XMLElement* tr = Child(Child(sh, "transparency"), "float");
             float t;
@@ -246,9 +246,9 @@ int MaterialFromId(Ctx* c, const amr::String& matId) {
 
 // geometry + 재질 바인딩으로 Scene::meshes 항목을 만든다. 반환: 인덱스, 실패 -1
 int MeshForGeometry(Ctx* c, XMLElement* geom, const Binding& binding) {
-    amr::String key = geom->Attribute("id") ? geom->Attribute("id") : "";
+    simul::String key = geom->Attribute("id") ? geom->Attribute("id") : "";
     for (Binding::const_iterator it = binding.begin(); it != binding.end(); ++it) key += "|" + it->first + "=" + it->second;
-    amr::Map<amr::String, int>::iterator cached = c->meshCache.find(key);
+    simul::Map<simul::String, int>::iterator cached = c->meshCache.find(key);
     if (cached != c->meshCache.end()) return cached->second;
 
     XMLElement* meshEl = Child(geom, "mesh");
@@ -276,7 +276,7 @@ int MeshForGeometry(Ctx* c, XMLElement* geom, const Binding& binding) {
     static const char* const kSkipped[4] = {"lines", "linestrips", "trifans", "tristrips"};
     for (int si = 0; si < 4; si++) {
         const char* skip = kSkipped[si];
-        if (meshEl->FirstChildElement(skip)) c->scene->warnings.push_back(amr::String("지원하지 않는 요소를 건너뛰었습니다: ") + skip);
+        if (meshEl->FirstChildElement(skip)) c->scene->warnings.push_back(simul::String("지원하지 않는 요소를 건너뛰었습니다: ") + skip);
     }
     if (mesh.primitives.empty()) return -1;
     c->scene->meshes.push_back(mesh);
@@ -288,8 +288,8 @@ int MeshForGeometry(Ctx* c, XMLElement* geom, const Binding& binding) {
 dhMat Compose(XMLElement* node, Scene* scene) {
     dhMat m;
     for (XMLElement* e = node->FirstChildElement(); e; e = e->NextSiblingElement()) {
-        const amr::String n = e->Name();
-        amr::Array<float> v;
+        const simul::String n = e->Name();
+        simul::Array<float> v;
         if (n == "matrix") {
             if (ReadFloats(e->GetText(), 16, &v)) {
                 dhMat t;  // COLLADA 는 행 우선 -> dhMat 은 열 우선
@@ -302,7 +302,7 @@ dhMat Compose(XMLElement* node, Scene* scene) {
         } else if (n == "rotate") {
             if (ReadFloats(e->GetText(), 4, &v)) {
                 dhVector axis(v[0], v[1], v[2]);
-                const float len = amr::Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                const float len = simul::Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
                 if (len > 1e-8f) {
                     axis = dhVector(v[0] / len, v[1] / len, v[2] / len);
                     m = m * dhMat::Quat(static_cast<float>(dhRad(v[3])), axis);
@@ -380,14 +380,14 @@ bool BuildNode(Ctx* c, XMLElement* node, int parent, int depth) {
     return true;
 }
 
-bool ParseDae(const char* xml, size_t size, Scene* out, amr::String* error) {
+bool ParseDae(const char* xml, size_t size, Scene* out, simul::String* error) {
     XMLDocument doc;
     if (doc.Parse(xml, size) != tinyxml2::XML_SUCCESS) {
-        detail::SetError(error, amr::String("XML 파싱 실패: ") + (doc.ErrorStr() ? doc.ErrorStr() : ""));
+        detail::SetError(error, simul::String("XML 파싱 실패: ") + (doc.ErrorStr() ? doc.ErrorStr() : ""));
         return false;
     }
     XMLElement* root = doc.RootElement();
-    if (!root || amr::String(root->Name()) != "COLLADA") {
+    if (!root || simul::String(root->Name()) != "COLLADA") {
         detail::SetError(error, "COLLADA 파일이 아닙니다");
         return false;
     }
@@ -397,7 +397,7 @@ bool ParseDae(const char* xml, size_t size, Scene* out, amr::String* error) {
     CollectIds(root, &c.ids, 0);
 
     float unit = 1.0f;
-    amr::String up = "Y_UP";  // COLLADA 기본값
+    simul::String up = "Y_UP";  // COLLADA 기본값
     XMLElement* asset = Child(root, "asset");
     if (asset) {
         XMLElement* u = Child(asset, "unit");
@@ -454,7 +454,7 @@ bool ParseDae(const char* xml, size_t size, Scene* out, amr::String* error) {
 
 }  // namespace
 
-bool LoadDaeFromString(const amr::String& xml, Scene* out, amr::String* error) {
+bool LoadDaeFromString(const simul::String& xml, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
     if (xml.empty()) {
@@ -466,16 +466,16 @@ bool LoadDaeFromString(const amr::String& xml, Scene* out, amr::String* error) {
     return ok;
 }
 
-bool LoadDae(const amr::String& path, Scene* out, amr::String* error) {
+bool LoadDae(const simul::String& path, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
-    amr::Array<char> bytes;
+    simul::Array<char> bytes;
     if (!detail::ReadFileBytes(path, &bytes, error)) return false;
     if (bytes.empty()) {
         detail::SetError(error, "빈 파일입니다: " + path);
         return false;
     }
-    return LoadDaeFromString(amr::String(bytes.begin(), bytes.end()), out, error);
+    return LoadDaeFromString(simul::String(bytes.begin(), bytes.end()), out, error);
 }
 
-}  // namespace amr
+}  // namespace simul

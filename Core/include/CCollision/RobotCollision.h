@@ -15,7 +15,7 @@
 // 로봇의 충돌 검사 (AABB 단계). URDF 의 <collision> 도형을 읽어 링크마다 월드 AABB 를 만들고,
 // 서로 겹치는 링크 쌍을 찾는다. AABB 는 실제 모양보다 크므로 "겹침 후보" 이다 (거짓 양성은 있어도
 // 거짓 음성은 없다). 정확한 판정이 필요하면 이후 단계(OBB, GJK 등)에서 후보만 다시 검사한다.
-namespace amr {
+namespace simul {
 
 // ---- 기본 AABB 계산
 
@@ -46,8 +46,8 @@ struct CollisionShape {
 };
 
 struct RobotCollisionModel {
-    amr::Array<CollisionShape> shapes;
-    amr::Array<amr::String> warnings;  // 읽지 못한 메시 등
+    simul::Array<CollisionShape> shapes;
+    simul::Array<simul::String> warnings;  // 읽지 못한 메시 등
 };
 
 struct CollisionModelOptions {
@@ -63,11 +63,11 @@ struct CollisionModelOptions {
 bool BuildCollisionModel(const urdf::Robot& robot, const CollisionModelOptions& opt, RobotCollisionModel* out);
 
 // 관절 값 q 에서 링크별 월드 AABB (robot.links 와 같은 순서). 충돌 도형이 없는 링크는 빈 상자.
-amr::Array<Aabb> ComputeLinkAabbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
+simul::Array<Aabb> ComputeLinkAabbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
                                    bool clampToLimits = true);
 
 // 도형별 월드 OBB (model.shapes 와 같은 순서)
-amr::Array<Obb> ComputeShapeObbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
+simul::Array<Obb> ComputeShapeObbs(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
                                   bool clampToLimits = true);
 
 struct SelfCollisionOptions {
@@ -76,21 +76,21 @@ struct SelfCollisionOptions {
     // 이 거리(m) 안으로 가까워진 쌍도 후보로 본다 (0 이면 겹칠 때만)
     float margin;
     // 검사에서 뺄 링크 이름 쌍 (순서 무관). 항상 겹쳐 있는 구조 등을 허용할 때 쓴다.
-    amr::Array<amr::Pair<amr::String, amr::String> > ignoredPairs;
+    simul::Array<simul::Pair<simul::String, simul::String> > ignoredPairs;
     SelfCollisionOptions() : ignoreAdjacent(true), margin(0.0f) {}
 };
 
 // 링크 AABB 끼리 겹치는 쌍 (Robot::links 인덱스, a < b). AABB 단계만 거친 "후보" 이다.
-amr::Array<CollisionPair> FindSelfCollisions(const urdf::Robot& robot, const amr::Array<Aabb>& linkAabbs,
+simul::Array<CollisionPair> FindSelfCollisions(const urdf::Robot& robot, const simul::Array<Aabb>& linkAabbs,
                                               const SelfCollisionOptions& opt = SelfCollisionOptions());
 
 struct SelfCollisionReport {
-    amr::Array<Aabb> linkAabbs;                // 링크별 월드 AABB (robot.links 와 같은 순서)
-    amr::Array<Obb> shapeObbs;                 // 도형별 월드 OBB (model.shapes 와 같은 순서)
-    amr::Array<CollisionPair> aabbCandidates;  // 1단계: 링크 AABB 가 겹친 쌍 (a < b)
-    amr::Array<CollisionPair> collisions;      // 2단계: 그중 도형 OBB 까지 겹친 링크 쌍 (a < b)
+    simul::Array<Aabb> linkAabbs;                // 링크별 월드 AABB (robot.links 와 같은 순서)
+    simul::Array<Obb> shapeObbs;                 // 도형별 월드 OBB (model.shapes 와 같은 순서)
+    simul::Array<CollisionPair> aabbCandidates;  // 1단계: 링크 AABB 가 겹친 쌍 (a < b)
+    simul::Array<CollisionPair> collisions;      // 2단계: 그중 도형 OBB 까지 겹친 링크 쌍 (a < b)
     // collisions 의 근거가 된 도형 쌍 (model.shapes 인덱스. 첫째는 collisions 의 a 링크, 둘째는 b 링크의 도형)
-    amr::Array<CollisionPair> shapePairs;
+    simul::Array<CollisionPair> shapePairs;
 };
 
 // 2단계 자기충돌 검사: (1) 링크 AABB 로 후보를 거르고 (2) 후보 링크의 도형끼리 OBB 로 다시 검사한다.
@@ -98,6 +98,6 @@ struct SelfCollisionReport {
 SelfCollisionReport CheckSelfCollisions(const urdf::Robot& robot, const RobotCollisionModel& model, const urdf::JointValues& q,
                                         const SelfCollisionOptions& opt = SelfCollisionOptions(), bool clampToLimits = true);
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CCOLLISION_ROBOTCOLLISION_H

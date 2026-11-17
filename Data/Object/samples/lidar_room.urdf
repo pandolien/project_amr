@@ -8,7 +8,7 @@
   기둥:   x_slide, y_slide (방 안에서 이동, m), yaw (회전, 도) 관절로 움직인다. 위에 라이다(lidar_link, 높이 1.05 m).
           낮은 상자는 라이다 평면(z = 1.05) 아래라서 수평 2D 스캔에는 잡히지 않는다 (3D 채널을 아래로 향하게 하면 잡힌다).
 
-  실행:   amr_main Data/Object/samples/lidar_room.urdf   (라이다 설정은 아래 <gazebo> 에 있다)
+  실행:   simul_main Data/Object/samples/lidar_room.urdf   (라이다 설정은 아래 <gazebo> 에 있다)
           3D:   아래 vertical 의 samples/min_angle/max_angle 를 고치거나  ... --lidar lidar_link --lidar-channels 16,-15,15
           스캔을 파일로: ... --lidar-csv scan.csv --shot out.png
 -->

@@ -197,17 +197,17 @@ void ModelViewer::Clear() {
     }
     items_.clear();
     hasRobot_ = false;
-    robot_ = amr::urdf::Robot();
+    robot_ = simul::urdf::Robot();
     linkT_.clear();
     q_.clear();
-    colModel_ = amr::RobotCollisionModel();
-    report_ = amr::SelfCollisionReport();
+    colModel_ = simul::RobotCollisionModel();
+    report_ = simul::SelfCollisionReport();
     selectedLink_ = -1;
     selectedModel_ = false;
     objectPos_ = dhVector(0, 0, 0);
     fallVel_ = 0;
     minZValid_ = false;
-    scene_ = amr::Scene();
+    scene_ = simul::Scene();
     hasScene_ = false;
     warnings_.clear();
     triangleCount_ = 0;
@@ -216,17 +216,17 @@ void ModelViewer::Clear() {
     update();
 }
 
-void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst) {
+void ModelViewer::addScene(const simul::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst) {
     ItemList& out = dst ? *dst : items_;
-    const amr::Array<dhMat> world = scene.WorldTransforms();
+    const simul::Array<dhMat> world = scene.WorldTransforms();
     for (size_t n = 0; n < scene.nodes.size(); n++) {
-        const amr::SceneNode& node = scene.nodes[n];
+        const simul::SceneNode& node = scene.nodes[n];
         if (node.mesh < 0 || static_cast<size_t>(node.mesh) >= scene.meshes.size()) continue;
-        const amr::Mesh& mesh = scene.meshes[static_cast<size_t>(node.mesh)];
+        const simul::Mesh& mesh = scene.meshes[static_cast<size_t>(node.mesh)];
         for (size_t p = 0; p < mesh.primitives.size(); p++) {
-            const amr::Primitive& prim = mesh.primitives[p];
+            const simul::Primitive& prim = mesh.primitives[p];
             if (prim.indices.empty() || prim.normals.size() != prim.positions.size()) continue;
-            amr::UniquePtr<Item> it(new Item);
+            simul::UniquePtr<Item> it(new Item);
             const size_t nv = prim.VertexCount();
             it->data.resize(nv * 6);
             for (size_t v = 0; v < nv; v++) {
@@ -243,7 +243,7 @@ void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local
             if (colorOverride) {
                 for (int k = 0; k < 4; k++) it->color[k] = colorOverride[k];
             } else if (prim.material >= 0 && static_cast<size_t>(prim.material) < scene.materials.size()) {
-                const amr::Material& m = scene.materials[static_cast<size_t>(prim.material)];
+                const simul::Material& m = scene.materials[static_cast<size_t>(prim.material)];
                 it->color[0] = m.baseColor.r; it->color[1] = m.baseColor.g; it->color[2] = m.baseColor.b; it->color[3] = m.baseColor.a;
                 it->metallic = m.metallic;   // glTF 파일의 PBR 재질 값을 그대로 쓴다
                 it->roughness = m.roughness;
@@ -251,14 +251,14 @@ void ModelViewer::addScene(const amr::Scene& scene, int link, const dhMat& local
                 for (int k = 0; k < 4; k++) it->color[k] = kDefaultColor[k];
             }
             if (&out == &items_) triangleCount_ += prim.TriangleCount();
-            out.push_back(amr::Move(it));
+            out.push_back(simul::Move(it));
         }
     }
     if (&out == &items_)
-        for (size_t i = 0; i < scene.warnings.size(); i++) warnings_ << amrqt::ToQ(scene.warnings[i]);
+        for (size_t i = 0; i < scene.warnings.size(); i++) warnings_ << simulqt::ToQ(scene.warnings[i]);
 }
 
-void ModelViewer::SetScene(const amr::Scene& scene) {
+void ModelViewer::SetScene(const simul::Scene& scene) {
     Clear();
     scene_ = scene;
     hasScene_ = true;
@@ -269,24 +269,24 @@ void ModelViewer::SetScene(const amr::Scene& scene) {
     emit modelChanged();
 }
 
-void ModelViewer::SetRobot(const amr::urdf::Robot& robot, const amr::urdf::RobotMeshes& meshes) {
+void ModelViewer::SetRobot(const simul::urdf::Robot& robot, const simul::urdf::RobotMeshes& meshes) {
     Clear();
     robot_ = robot;
     hasRobot_ = true;
-    linkT_ = robot_.LinkTransforms(amr::urdf::JointValues());
+    linkT_ = robot_.LinkTransforms(simul::urdf::JointValues());
     for (size_t i = 0; i < meshes.visuals.size(); i++) {
-        const amr::urdf::LinkVisual& lv = meshes.visuals[i];
+        const simul::urdf::LinkVisual& lv = meshes.visuals[i];
         float color[4];
         if (lv.hasColor) { color[0] = lv.color.r; color[1] = lv.color.g; color[2] = lv.color.b; color[3] = lv.color.a; }
         addScene(lv.scene, lv.link, lv.local, lv.hasColor ? color : nullptr);
     }
-    for (size_t i = 0; i < meshes.warnings.size(); i++) warnings_ << amrqt::ToQ(meshes.warnings[i]);
-    for (size_t i = 0; i < robot_.warnings.size(); i++) warnings_ << amrqt::ToQ(robot_.warnings[i]);
-    amr::CollisionModelOptions copt;
+    for (size_t i = 0; i < meshes.warnings.size(); i++) warnings_ << simulqt::ToQ(meshes.warnings[i]);
+    for (size_t i = 0; i < robot_.warnings.size(); i++) warnings_ << simulqt::ToQ(robot_.warnings[i]);
+    simul::CollisionModelOptions copt;
     copt.load = options_;
     copt.fallbackToVisual = true;  // <collision> 이 없는 URDF 도 박스를 볼 수 있게 한다
-    amr::BuildCollisionModel(robot_, copt, &colModel_);
-    for (size_t i = 0; i < colModel_.warnings.size(); i++) warnings_ << amrqt::ToQ(colModel_.warnings[i]);
+    simul::BuildCollisionModel(robot_, copt, &colModel_);
+    for (size_t i = 0; i < colModel_.warnings.size(); i++) warnings_ << simulqt::ToQ(colModel_.warnings[i]);
     recomputeCollisions();
     buffersDirty_ = true;
     updateBounds();
@@ -294,7 +294,7 @@ void ModelViewer::SetRobot(const amr::urdf::Robot& robot, const amr::urdf::Robot
     emit modelChanged();
 }
 
-void ModelViewer::SetJointValues(const amr::urdf::JointValues& q) {
+void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;
     linkT_ = robot_.LinkTransforms(q);
@@ -304,9 +304,9 @@ void ModelViewer::SetJointValues(const amr::urdf::JointValues& q) {
 }
 
 void ModelViewer::recomputeCollisions() {
-    const amr::Array<amr::CollisionPair> before = report_.collisions;
-    const amr::Array<amr::CollisionPair> beforeCand = report_.aabbCandidates;
-    report_ = amr::CheckSelfCollisions(robot_, colModel_, q_);
+    const simul::Array<simul::CollisionPair> before = report_.collisions;
+    const simul::Array<simul::CollisionPair> beforeCand = report_.aabbCandidates;
+    report_ = simul::CheckSelfCollisions(robot_, colModel_, q_);
     if (!(before == report_.collisions) || !(beforeCand == report_.aabbCandidates)) emit collisionsChanged();
 }
 
@@ -390,7 +390,7 @@ dhVector ModelViewer::ObjectPosition() const { return objectPos_; }
 
 float ModelViewer::objectMinZ() const {
     if (minZValid_) return minZ_;
-    float lo = amr::kFloatMax;
+    float lo = simul::kFloatMax;
     for (size_t i = 0; i < items_.size(); i++) {
         const Item& it = *items_[i];
         dhMat m = it.base;  // 이동량은 빼고 계산한다
@@ -398,10 +398,10 @@ float ModelViewer::objectMinZ() const {
         for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
             float p[3];
             Transform(m, &it.data[v], p);
-            lo = amr::Min(lo, p[2]);
+            lo = simul::Min(lo, p[2]);
         }
     }
-    minZ_ = lo == amr::kFloatMax ? 0.0f : lo;
+    minZ_ = lo == simul::kFloatMax ? 0.0f : lo;
     minZValid_ = true;
     return minZ_;
 }
@@ -420,7 +420,7 @@ bool ModelViewer::StepFall(double dt) {
         fallVel_ = 0;
         return false;
     }
-    amr::dynamics::FallBody b;
+    simul::dynamics::FallBody b;
     b.height = static_cast<double>(ObjectBottom());
     b.velocity = fallVel_;
     if (b.height >= 0.0 && b.height < 1e-5 && b.velocity <= 0.0) {  // 바닥에 놓여 있다 (부동소수점 오차 안쪽)
@@ -446,10 +446,10 @@ double ModelViewer::SimulateFall(double maxSeconds) {
 }
 
 bool ModelViewer::LoadGizmo(const QString& objPath, QString* error) {
-    amr::Scene scene;
-    amr::String err;
-    if (!amr::LoadObj(amrqt::FromQ(objPath), &scene, &err)) {
-        if (error) *error = amrqt::ToQ(err);
+    simul::Scene scene;
+    simul::String err;
+    if (!simul::LoadObj(simulqt::FromQ(objPath), &scene, &err)) {
+        if (error) *error = simulqt::ToQ(err);
         return false;
     }
     if (isValid()) {
@@ -468,45 +468,45 @@ bool ModelViewer::LoadGizmo(const QString& objPath, QString* error) {
     return true;
 }
 
-amr::Array<int> ModelViewer::CollidingLinks() const {
-    amr::Array<int> out;
+simul::Array<int> ModelViewer::CollidingLinks() const {
+    simul::Array<int> out;
     for (size_t i = 0; i < report_.collisions.size(); i++) {
         out.push_back(report_.collisions[i].a);
         out.push_back(report_.collisions[i].b);
     }
-    amr::Sort(out.begin(), out.end());
-    out.erase(amr::Unique(out.begin(), out.end()), out.end());
+    simul::Sort(out.begin(), out.end());
+    out.erase(simul::Unique(out.begin(), out.end()), out.end());
     return out;
 }
 
 QStringList ModelViewer::CollisionDescriptions() const {
     QStringList out;
     for (size_t i = 0; i < report_.collisions.size(); i++) {
-        const amr::CollisionPair& p = report_.collisions[i];
-        out << amrqt::ToQ(robot_.links[static_cast<size_t>(p.a)].name) + QString::fromUtf8(" <-> ") +
-                   amrqt::ToQ(robot_.links[static_cast<size_t>(p.b)].name);
+        const simul::CollisionPair& p = report_.collisions[i];
+        out << simulqt::ToQ(robot_.links[static_cast<size_t>(p.a)].name) + QString::fromUtf8(" <-> ") +
+                   simulqt::ToQ(robot_.links[static_cast<size_t>(p.b)].name);
     }
     return out;
 }
 
 bool ModelViewer::LoadFile(const QString& path, QString* error) {
-    const amr::String p = amrqt::FromQLocal8Bit(path);
+    const simul::String p = simulqt::FromQLocal8Bit(path);
     const QString ext = QFileInfo(path).suffix().toLower();
-    amr::String err;
+    simul::String err;
     if (ext == "urdf") {
-        amr::urdf::Robot robot;
-        if (!amr::urdf::LoadUrdf(p, &robot, &err)) {
-            if (error) *error = amrqt::ToQ(err);
+        simul::urdf::Robot robot;
+        if (!simul::urdf::LoadUrdf(p, &robot, &err)) {
+            if (error) *error = simulqt::ToQ(err);
             return false;
         }
-        amr::urdf::RobotMeshes meshes;
-        amr::urdf::LoadRobotMeshes(robot, options_, &meshes);  // 일부 실패는 경고로 남는다
+        simul::urdf::RobotMeshes meshes;
+        simul::urdf::LoadRobotMeshes(robot, options_, &meshes);  // 일부 실패는 경고로 남는다
         SetRobot(robot, meshes);
         return true;
     }
-    amr::Scene scene;
-    if (!amr::LoadMesh(p, &scene, &err)) {
-        if (error) *error = amrqt::ToQ(err);
+    simul::Scene scene;
+    if (!simul::LoadMesh(p, &scene, &err)) {
+        if (error) *error = simulqt::ToQ(err);
         return false;
     }
     if (ext == "glb" || ext == "gltf") scene.ApplyRootTransform(dhMat::RotX(static_cast<float>(dhRad(90.0))));  // Y-up -> Z-up
@@ -515,7 +515,7 @@ bool ModelViewer::LoadFile(const QString& path, QString* error) {
 }
 
 void ModelViewer::updateBounds() {
-    float mn[3] = {amr::kFloatMax, amr::kFloatMax, amr::kFloatMax};
+    float mn[3] = {simul::kFloatMax, simul::kFloatMax, simul::kFloatMax};
     float mx[3] = {-mn[0], -mn[1], -mn[2]};
     bool any = false;
     for (size_t i = 0; i < items_.size(); i++) {
@@ -525,7 +525,7 @@ void ModelViewer::updateBounds() {
         for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
             float o[3];
             Transform(m, &it.data[v], o);
-            for (int k = 0; k < 3; k++) { mn[k] = amr::Min(mn[k], o[k]); mx[k] = amr::Max(mx[k], o[k]); }
+            for (int k = 0; k < 3; k++) { mn[k] = simul::Min(mn[k], o[k]); mx[k] = simul::Max(mx[k], o[k]); }
             any = true;
         }
     }
@@ -536,15 +536,15 @@ void ModelViewer::updateBounds() {
     } else {
         center_ = QVector3D((mn[0] + mx[0]) * 0.5f, (mn[1] + mx[1]) * 0.5f, (mn[2] + mx[2]) * 0.5f);
         for (int k = 0; k < 3; k++) extent_[k] = mx[k] - mn[k];
-        const float d = amr::Sqrt(extent_[0] * extent_[0] + extent_[1] * extent_[1] + extent_[2] * extent_[2]);
-        radius_ = amr::Max(d * 0.5f, 1e-4f);
+        const float d = simul::Sqrt(extent_[0] * extent_[0] + extent_[1] * extent_[1] + extent_[2] * extent_[2]);
+        radius_ = simul::Max(d * 0.5f, 1e-4f);
     }
     rebuildGrid();
 }
 
 void ModelViewer::rebuildGrid() {
     // 격자 칸은 10의 거듭제곱 (모델 크기의 1/5 이하 중 가장 큰 값)
-    gridCell_ = amr::Pow(10.0f, amr::Floor(amr::Log10(amr::Max(radius_, 1e-4f) * 0.4f)));
+    gridCell_ = simul::Pow(10.0f, simul::Floor(simul::Log10(simul::Max(radius_, 1e-4f) * 0.4f)));
     const int n = 10;
     const float h = gridCell_ * static_cast<float>(n);
     gridData_.clear();
@@ -612,8 +612,8 @@ void ModelViewer::uploadItems(ItemList& list) {
 }
 
 QMatrix4x4 ModelViewer::viewMatrix() const {
-    const float cy = amr::Cos(yaw_ * 3.14159265f / 180.0f), sy = amr::Sin(yaw_ * 3.14159265f / 180.0f);
-    const float cp = amr::Cos(pitch_ * 3.14159265f / 180.0f), sp = amr::Sin(pitch_ * 3.14159265f / 180.0f);
+    const float cy = simul::Cos(yaw_ * 3.14159265f / 180.0f), sy = simul::Sin(yaw_ * 3.14159265f / 180.0f);
+    const float cp = simul::Cos(pitch_ * 3.14159265f / 180.0f), sp = simul::Sin(pitch_ * 3.14159265f / 180.0f);
     const QVector3D eye = target_ + dist_ * QVector3D(cp * cy, cp * sy, sp);
     QMatrix4x4 v;
     v.lookAt(eye, target_, QVector3D(0, 0, 1));  // Z-up
@@ -623,7 +623,7 @@ QMatrix4x4 ModelViewer::viewMatrix() const {
 QMatrix4x4 ModelViewer::projMatrix() const {
     const float aspect = height() > 0 ? static_cast<float>(width()) / static_cast<float>(height()) : 1.0f;
     QMatrix4x4 proj;
-    proj.perspective(45.0f, aspect, amr::Max(dist_ * 0.01f, radius_ * 0.01f * 0.1f), (dist_ + radius_) * 20.0f);
+    proj.perspective(45.0f, aspect, simul::Max(dist_ * 0.01f, radius_ * 0.01f * 0.1f), (dist_ + radius_) * 20.0f);
     return proj;
 }
 
@@ -643,7 +643,7 @@ void ModelViewer::drawBoxEdges(const dhVector c[8], const QVector4D& color) {
     glDrawArrays(GL_LINES, 0, 24);
 }
 
-void ModelViewer::SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount) {
+void ModelViewer::SetLidar(int link, const simul::sensor::LidarSettings& settings, const dhMat& mount) {
     lidarOn_ = true;
     lidarDraw_ = true;
     lidarLink_ = link;
@@ -654,22 +654,22 @@ void ModelViewer::SetLidar(int link, const amr::sensor::LidarSettings& settings,
 
 void ModelViewer::ClearLidar() {
     lidarOn_ = false;
-    lidarScan_ = amr::sensor::LidarScan();
+    lidarScan_ = simul::sensor::LidarScan();
     update();
 }
 
-const amr::sensor::LidarScan& ModelViewer::ScanLidar() {
+const simul::sensor::LidarScan& ModelViewer::ScanLidar() {
     // 센서 자세(월드) = 오브젝트 이동 * 링크 변환 * 마운트
     dhMat pose = dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z);
     if (lidarLink_ >= 0 && static_cast<size_t>(lidarLink_) < linkT_.size()) pose = pose * linkT_[static_cast<size_t>(lidarLink_)];
     pose = pose * lidarMount_;
-    amr::Array<amr::sensor::LidarTarget> targets;
+    simul::Array<simul::sensor::LidarTarget> targets;
     for (size_t i = 0; i < items_.size(); i++) {
         Item& it = *items_[i];
         if (lidarLink_ >= 0 && it.link == lidarLink_) continue;  // 센서가 붙은 링크 자신은 보지 않는다
         if (it.link < 0 && !hasScene_) continue;                  // (로봇이 열려 있으면 gizmo 같은 보조 물체는 items_ 에 없다)
         if (it.data.empty() || it.indices.empty()) continue;
-        amr::sensor::LidarTarget t;
+        simul::sensor::LidarTarget t;
         t.positions = it.data.data();
         t.vertexCount = it.data.size() / 6;
         t.indices = it.indices.data();
@@ -692,9 +692,9 @@ const amr::sensor::LidarScan& ModelViewer::ScanLidar() {
 }
 
 void ModelViewer::drawLidar() {
-    const amr::sensor::LidarScan& scan = ScanLidar();
+    const simul::sensor::LidarScan& scan = ScanLidar();
     emit lidarScanned(scan, lidarOrigin_, lidarHeading_);
-    amr::Array<float> beams, pts;
+    simul::Array<float> beams, pts;
     for (size_t i = 0; i < scan.size(); i++) {
         if (!scan.IsHit(i)) continue;
         beams.push_back(lidarOrigin_.x);
@@ -774,7 +774,7 @@ void ModelViewer::paintGL() {
         }
         if (hasRobot_ && (showBoxes_ || showObbs_)) {
             const size_t nl = robot_.links.size();
-            amr::Array<bool> hit(nl, false), cand(nl, false);
+            simul::Array<bool> hit(nl, false), cand(nl, false);
             for (size_t i = 0; i < report_.collisions.size(); i++) {
                 hit[static_cast<size_t>(report_.collisions[i].a)] = true;
                 hit[static_cast<size_t>(report_.collisions[i].b)] = true;
@@ -787,7 +787,7 @@ void ModelViewer::paintGL() {
             // AABB: 링크마다 하나. 노랑, AABB 후보이면 주황 (OBB 까지 확인되면 아래 OBB 가 빨갛게 나온다)
             if (showBoxes_) {
                 for (size_t i = 0; i < report_.linkAabbs.size() && i < nl; i++) {
-                    const amr::Aabb& b = report_.linkAabbs[i];
+                    const simul::Aabb& b = report_.linkAabbs[i];
                     if (b.IsEmpty()) continue;
                     dhVector c[8];
                     for (int k = 0; k < 8; k++) c[k] = dhVector((k & 1) ? b.hi.x : b.lo.x, (k & 2) ? b.hi.y : b.lo.y, (k & 4) ? b.hi.z : b.lo.z);
@@ -797,7 +797,7 @@ void ModelViewer::paintGL() {
             // OBB: 도형마다 하나. 하늘색, 충돌한 링크의 도형이면 빨강
             if (showObbs_) {
                 for (size_t i = 0; i < report_.shapeObbs.size() && i < colModel_.shapes.size(); i++) {
-                    const amr::Obb& o = report_.shapeObbs[i];
+                    const simul::Obb& o = report_.shapeObbs[i];
                     if (o.IsEmpty()) continue;
                     const int l = colModel_.shapes[i].link;
                     const bool red = l >= 0 && static_cast<size_t>(l) < nl && hit[static_cast<size_t>(l)];
@@ -863,7 +863,7 @@ void ModelViewer::drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& v
     const QMatrix4x4 frame = ToQt(f);
     const QVector3D origin = frame.column(3).toVector3D();
     const QVector3D eye = view.inverted().column(3).toVector3D();
-    const float s = amr::Max((eye - origin).length() * 0.14f, 1e-6f);
+    const float s = simul::Max((eye - origin).length() * 0.14f, 1e-6f);
     glClear(GL_DEPTH_BUFFER_BIT);
     if (!gizmo_.empty()) {
         QMatrix4x4 scaled = frame;
@@ -967,7 +967,7 @@ bool ModelViewer::selectionGizmo(QVector3D* origin, QVector3D axis[3], float* sc
     *origin = frame.column(3).toVector3D();
     for (int i = 0; i < 3; i++) axis[i] = frame.column(i).toVector3D().normalized();
     const QVector3D eye = viewMatrix().inverted().column(3).toVector3D();
-    *scale = amr::Max((eye - *origin).length() * 0.14f, 1e-6f);  // drawSelectionFrame 과 같은 크기
+    *scale = simul::Max((eye - *origin).length() * 0.14f, 1e-6f);  // drawSelectionFrame 과 같은 크기
     return true;
 }
 
@@ -977,7 +977,7 @@ static bool RayAxisParam(const QVector3D& o, const QVector3D& d, const QVector3D
     const float A = QVector3D::dotProduct(d, d), B = QVector3D::dotProduct(d, a);
     const float D = QVector3D::dotProduct(d, w0), E = QVector3D::dotProduct(a, w0);
     const float denom = A - B * B;
-    if (!(amr::Abs(denom) > 1e-9f * amr::Max(A, 1e-12f))) return false;
+    if (!(simul::Abs(denom) > 1e-9f * simul::Max(A, 1e-12f))) return false;
     *u = (A * E - B * D) / denom;
     return true;
 }
@@ -991,9 +991,9 @@ int ModelViewer::hitGizmoAxis(const QPoint& pos, float* uOut) const {
     for (int i = 0; i < 3; i++) {
         float u = 0;
         if (!RayAxisParam(o, d, p, ax[i], &u)) continue;
-        const float uc = amr::Max(0.0f, amr::Min(s, u));
+        const float uc = simul::Max(0.0f, simul::Min(s, u));
         const QVector3D q = p + ax[i] * uc;
-        const float dist = QVector3D::crossProduct(d, q - o).length() / amr::Max(d.length(), 1e-12f);
+        const float dist = QVector3D::crossProduct(d, q - o).length() / simul::Max(d.length(), 1e-12f);
         if (dist < bestDist) {
             bestDist = dist;
             best = i;
@@ -1019,7 +1019,7 @@ int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
         if (!inverted) continue;
         const QVector3D o = local.map(origin), d = local.mapVector(dir);
         float t = 0.0f;
-        if (amr::RaycastTriangles(it.data.data(), it.data.size() / 6, it.indices.data(), it.indices.size(), dhVector(o.x(), o.y(), o.z()),
+        if (simul::RaycastTriangles(it.data.data(), it.data.size() / 6, it.indices.data(), it.indices.size(), dhVector(o.x(), o.y(), o.z()),
                                   dhVector(d.x(), d.y(), d.z()), 1.0f, &t, nullptr, 6) && t < bestT) {
             bestT = t;
             bestLink = it.link;
@@ -1044,9 +1044,9 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
             target.v[12] = w.x() - objectPos_.x;  // 로봇 자신의 좌표계(루트 기준)로
             target.v[13] = w.y() - objectPos_.y;
             target.v[14] = w.z() - objectPos_.z;
-            amr::kinematics::IkOptions opt;
+            simul::kinematics::IkOptions opt;
             opt.maxIterations = 40;
-            const amr::kinematics::IkResult r = amr::kinematics::SolveIk(robot_, q_, selectedLink_, target, opt);
+            const simul::kinematics::IkResult r = simul::kinematics::SolveIk(robot_, q_, selectedLink_, target, opt);
             SetJointValues(r.q);
             emit jointValuesDragged(r.q);
         }
@@ -1066,7 +1066,7 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
         }
     } else if (e->buttons() & Qt::LeftButton) {
         yaw_ -= static_cast<float>(d.x()) * 0.4f;
-        pitch_ = amr::Max(-89.0f, amr::Min(89.0f, pitch_ + static_cast<float>(d.y()) * 0.4f));
+        pitch_ = simul::Max(-89.0f, simul::Min(89.0f, pitch_ + static_cast<float>(d.y()) * 0.4f));
         update();
     } else if (e->buttons() & (Qt::RightButton | Qt::MiddleButton)) {
         // 화면 기준 오른쪽/위 방향으로 이동
@@ -1079,7 +1079,7 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void ModelViewer::wheelEvent(QWheelEvent* e) {
-    dist_ = amr::Max(radius_ * 0.02f, dist_ * amr::Pow(0.9985f, static_cast<float>(e->angleDelta().y())));
+    dist_ = simul::Max(radius_ * 0.02f, dist_ * simul::Pow(0.9985f, static_cast<float>(e->angleDelta().y())));
     update();
 }
 

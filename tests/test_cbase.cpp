@@ -11,7 +11,7 @@
 #include "CBase/Text.h"
 #include "CBase/Util.h"
 
-using namespace amr;
+using namespace simul;
 
 namespace {
 
@@ -396,7 +396,7 @@ void testMathAndText() {
 }
 
 void testFile() {
-    const String path = "amr_cbase_test.bin";
+    const String path = "simul_cbase_test.bin";
     unsigned char data[300];
     for (int i = 0; i < 300; i++) data[i] = static_cast<unsigned char>(i);
     check(WriteFileBytes(path, data, 300), "write a file");

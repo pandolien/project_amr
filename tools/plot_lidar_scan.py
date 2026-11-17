@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""amr_main --lidar-csv 로 저장한 라이다 스캔(CSV)을 그래프로 그린다 (2D 스캔 기준).
+"""simul_main --lidar-csv 로 저장한 라이다 스캔(CSV)을 그래프로 그린다 (2D 스캔 기준).
 
 사용:  python3 tools/plot_lidar_scan.py scan.csv out.png [--room-example]
   왼쪽: 위에서 본 지도 (맞은 점, 색은 거리). 오른쪽: 방위각에 따른 거리.

@@ -2,11 +2,11 @@
 
 #include "CBase/Math.h"
 
-namespace amr {
+namespace simul {
 namespace dynamics {
 
 bool FallBody::Step(double dt, double gz) {
-    if (!(dt > 0.0) || !(gz < 0.0) || !amr::IsFinite(height) || !amr::IsFinite(velocity)) {
+    if (!(dt > 0.0) || !(gz < 0.0) || !simul::IsFinite(height) || !simul::IsFinite(velocity)) {
         velocity = 0.0;
         return false;
     }
@@ -41,4 +41,4 @@ bool FallBody::Step(double dt, double gz) {
 }
 
 }  // namespace dynamics
-}  // namespace amr
+}  // namespace simul

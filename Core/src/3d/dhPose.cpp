@@ -48,8 +48,8 @@ void dhPose::ToArray(double out[7]) const {
 bool dhPose::FromArray(const double in[7], dhPose* out) {
     if (!out) return false;
     for (int i = 0; i < 7; i++)
-        if (!amr::IsFinite(in[i])) return false;
-    const double n = amr::Sqrt(in[3] * in[3] + in[4] * in[4] + in[5] * in[5] + in[6] * in[6]);
+        if (!simul::IsFinite(in[i])) return false;
+    const double n = simul::Sqrt(in[3] * in[3] + in[4] * in[4] + in[5] * in[5] + in[6] * in[6]);
     if (!(n > 1e-12)) return false;
     out->position = dhVector(static_cast<float>(in[0]), static_cast<float>(in[1]), static_cast<float>(in[2]));
     out->orientation = dhQuat(static_cast<float>(in[3] / n), static_cast<float>(in[4] / n), static_cast<float>(in[5] / n),

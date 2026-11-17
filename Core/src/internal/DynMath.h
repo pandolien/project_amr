@@ -8,7 +8,7 @@
 
 #include "CURDF/Urdf.h"
 
-namespace amr {
+namespace simul {
 namespace dynamics {
 namespace detail {
 
@@ -73,10 +73,10 @@ inline M3 AxisAngle(const V3& a, double angle) {
 
 // 순기구학 결과 (double): 링크의 월드(루트 기준) 회전/위치, 관절의 월드 축/원점
 struct Kinematics {
-    amr::Array<M3> R;      // 링크별
-    amr::Array<V3> p;
-    amr::Array<V3> axisW;  // 관절별 (움직이는 관절만 의미 있음)
-    amr::Array<V3> originW;
+    simul::Array<M3> R;      // 링크별
+    simul::Array<V3> p;
+    simul::Array<V3> axisW;  // 관절별 (움직이는 관절만 의미 있음)
+    simul::Array<V3> originW;
 };
 
 inline Kinematics Forward(const urdf::Robot& robot, const urdf::JointValues& q, bool clamp) {
@@ -142,6 +142,6 @@ inline void LinkMass(const urdf::Robot& robot, const Kinematics& k, size_t link,
 
 }  // namespace detail
 }  // namespace dynamics
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_SRC_INTERNAL_DYNMATH_H

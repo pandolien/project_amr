@@ -9,8 +9,8 @@
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
 
-using namespace amr;
-using namespace amr::sensor;
+using namespace simul;
+using namespace simul::sensor;
 
 namespace {
 
@@ -288,22 +288,22 @@ void testBvhGivesSameScan() {
 
 // 예제 Data/Object/samples/lidar_room.urdf: 방 안의 라이다 기둥. 벽/장애물까지의 거리를 해석해와 비교한다.
 struct RoomScene {
-    amr::urdf::Robot robot;
-    amr::urdf::RobotMeshes meshes;
+    simul::urdf::Robot robot;
+    simul::urdf::RobotMeshes meshes;
     Array<TriangleBvh> bvhs;
     Array<LidarTarget> targets;
     int lidarLink;
     bool ok;
     RoomScene() : lidarLink(-1), ok(false) {}
     // joints 자세에서의 라이다 센서 자세와 대상 목록(센서가 붙은 링크는 뺀다)을 만든다
-    dhMat build(const amr::urdf::JointValues& q) {
+    dhMat build(const simul::urdf::JointValues& q) {
         const Array<dhMat> link = robot.LinkTransforms(q);
         bvhs.clear();
         targets.clear();
         struct Src { const Primitive* prim; dhMat world; int link; };
         Array<Src> srcs;
         for (size_t i = 0; i < meshes.visuals.size(); i++) {
-            const amr::urdf::LinkVisual& lv = meshes.visuals[i];
+            const simul::urdf::LinkVisual& lv = meshes.visuals[i];
             if (lv.link == lidarLink) continue;
             const Array<dhMat> nodeWorld = lv.scene.WorldTransforms();
             for (size_t n = 0; n < lv.scene.nodes.size(); n++) {
@@ -341,7 +341,7 @@ struct RoomScene {
 void testLidarRoom3dExample() {
     static RoomScene room;
     String err;
-    const String path = String(AMR_TEST_DATA_DIR) + "/Object/samples/lidar_room_3d.urdf";
+    const String path = String(SIMUL_TEST_DATA_DIR) + "/Object/samples/lidar_room_3d.urdf";
     if (!urdf::LoadUrdf(path, &room.robot, &err)) {
         printf("FAIL: cannot load %s (%s)\n", path.c_str(), err.c_str());
         ++g_fail;
@@ -390,7 +390,7 @@ void testLidarRoom3dExample() {
 void testLidarRoomExample() {
     static RoomScene room;  // 메시를 가리키는 포인터가 있으므로 이동하지 않는 곳에 둔다
     String err;
-    const String path = String(AMR_TEST_DATA_DIR) + "/Object/samples/lidar_room.urdf";
+    const String path = String(SIMUL_TEST_DATA_DIR) + "/Object/samples/lidar_room.urdf";
     if (!urdf::LoadUrdf(path, &room.robot, &err)) {
         printf("FAIL: cannot load %s (%s)\n", path.c_str(), err.c_str());
         ++g_fail;

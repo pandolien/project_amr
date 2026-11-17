@@ -8,27 +8,27 @@
 #include "CURDF/Urdf.h"
 #include "FileUtil.h"
 
-namespace amr {
+namespace simul {
 namespace urdf {
 
 namespace {
 
-bool FileExists(const amr::String& p) {
+bool FileExists(const simul::String& p) {
     FILE* f = fopen(p.c_str(), "rb");
     if (!f) return false;
     fclose(f);
     return true;
 }
 
-amr::String ParentDir(const amr::String& dir) {
+simul::String ParentDir(const simul::String& dir) {
     if (dir.empty()) return "..";
-    const amr::String d = detail::DirName(dir);
+    const simul::String d = detail::DirName(dir);
     if (!d.empty() && d != dir) return d;
     // 마지막 요소가 ".." 이거나 단일 요소이면 ".." 를 덧붙인다
     return detail::JoinPath(dir, "..");
 }
 
-bool TryCandidates(const amr::Array<amr::String>& cands, amr::String* resolved) {
+bool TryCandidates(const simul::Array<simul::String>& cands, simul::String* resolved) {
     for (size_t i = 0; i < cands.size(); i++) {
         if (FileExists(cands[i])) {
             *resolved = cands[i];
@@ -40,19 +40,19 @@ bool TryCandidates(const amr::Array<amr::String>& cands, amr::String* resolved) 
 
 }  // namespace
 
-bool ResolveMeshPath(const amr::String& filename, const amr::String& baseDir, const LoadOptions& opt, amr::String* resolved) {
+bool ResolveMeshPath(const simul::String& filename, const simul::String& baseDir, const LoadOptions& opt, simul::String* resolved) {
     if (!resolved) return false;
     resolved->clear();
     if (filename.empty()) return false;
-    amr::Array<amr::String> cands;
+    simul::Array<simul::String> cands;
 
-    const amr::String pkgPrefix = "package://";
-    const amr::String filePrefix = "file://";
+    const simul::String pkgPrefix = "package://";
+    const simul::String filePrefix = "file://";
     if (filename.compare(0, pkgPrefix.size(), pkgPrefix) == 0) {
-        const amr::String rest = filename.substr(pkgPrefix.size());
+        const simul::String rest = filename.substr(pkgPrefix.size());
         const size_t slash = rest.find('/');
-        const amr::String pkg = slash == amr::String::npos ? rest : rest.substr(0, slash);
-        const amr::String sub = slash == amr::String::npos ? amr::String() : rest.substr(slash + 1);
+        const simul::String pkg = slash == simul::String::npos ? rest : rest.substr(0, slash);
+        const simul::String sub = slash == simul::String::npos ? simul::String() : rest.substr(slash + 1);
         for (size_t i = 0; i < opt.packagePaths.size(); i++)
             if (opt.packagePaths[i].first == pkg) cands.push_back(detail::JoinPath(opt.packagePaths[i].second, sub));
         for (size_t i = 0; i < opt.searchDirs.size(); i++) {
@@ -60,7 +60,7 @@ bool ResolveMeshPath(const amr::String& filename, const amr::String& baseDir, co
             cands.push_back(detail::JoinPath(opt.searchDirs[i], sub));
         }
         // URDF 폴더에서 위로 올라가며 찾는다 (pkg/urdf/robot.urdf -> pkg/meshes/..)
-        amr::String dir = baseDir.empty() ? amr::String(".") : baseDir;
+        simul::String dir = baseDir.empty() ? simul::String(".") : baseDir;
         for (int up = 0; up < 6; up++) {
             cands.push_back(detail::JoinPath(dir, sub));
             cands.push_back(detail::JoinPath(detail::JoinPath(dir, pkg), sub));
@@ -77,8 +77,8 @@ bool ResolveMeshPath(const amr::String& filename, const amr::String& baseDir, co
     return TryCandidates(cands, resolved);
 }
 
-bool LoadGeometryScene(const Geometry& g, const amr::String& baseDir, const LoadOptions& opt, Scene* out,
-                       amr::String* error, amr::Map<amr::String, Scene>* cache) {
+bool LoadGeometryScene(const Geometry& g, const simul::String& baseDir, const LoadOptions& opt, Scene* out,
+                       simul::String* error, simul::Map<simul::String, Scene>* cache) {
     if (error) error->clear();
     if (!out) return false;
     if (g.type == kGeomBox) {
@@ -95,27 +95,27 @@ bool LoadGeometryScene(const Geometry& g, const amr::String& baseDir, const Load
     }
     if (g.type != kGeomMesh) return false;  // geometry 없음
 
-    amr::String path;
+    simul::String path;
     if (!ResolveMeshPath(g.filename, baseDir, opt, &path)) {
         detail::SetError(error, "메시 파일을 찾을 수 없습니다 (" + g.filename + ")");
         return false;
     }
     Scene sc;
-    amr::Map<amr::String, Scene>::iterator it;
+    simul::Map<simul::String, Scene>::iterator it;
     if (cache && (it = cache->find(path)) != cache->end()) {
         sc = it->second;
     } else {
-        amr::String err;
+        simul::String err;
         if (!LoadMesh(path, &sc, &err)) {
             detail::SetError(error, err);
             return false;
         }
-        if (cache) cache->insert(amr::MakePair(path, sc));
+        if (cache) cache->insert(simul::MakePair(path, sc));
     }
     // URDF 의 scale 은 파일 좌표축 기준이므로 축 변환보다 먼저 적용한다
     if (g.scale[0] != 1.0f || g.scale[1] != 1.0f || g.scale[2] != 1.0f)
         sc.ApplyRootTransform(dhMat::Scale(g.scale[0], g.scale[1], g.scale[2]));
-    const amr::String ext = detail::LowerExtension(path);
+    const simul::String ext = detail::LowerExtension(path);
     if (opt.glbYUpToZUp && (ext == "glb" || ext == "gltf")) sc.ApplyRootTransform(dhMat::RotX(static_cast<float>(dhRad(90.0))));
     *out = sc;
     return true;
@@ -126,7 +126,7 @@ bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* ou
     out->visuals.clear();
     out->warnings.clear();
     bool allOk = true;
-    amr::Map<amr::String, Scene> cache;  // 해석된 경로 -> 읽은 메시 (scale 적용 전)
+    simul::Map<simul::String, Scene> cache;  // 해석된 경로 -> 읽은 메시 (scale 적용 전)
 
     for (size_t li = 0; li < robot.links.size(); li++) {
         const Link& link = robot.links[li];
@@ -141,9 +141,9 @@ bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* ou
                 lv.hasColor = true;
                 lv.color = v.material.color;
             }
-            amr::String err;
+            simul::String err;
             if (!LoadGeometryScene(v.geometry, robot.baseDir, opt, &lv.scene, &err, &cache)) {
-                out->warnings.push_back("link '" + link.name + "' visual " + amr::ToString(vi) + ": " + err);
+                out->warnings.push_back("link '" + link.name + "' visual " + simul::ToString(vi) + ": " + err);
                 allOk = false;
                 continue;
             }
@@ -154,4 +154,4 @@ bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* ou
 }
 
 }  // namespace urdf
-}  // namespace amr
+}  // namespace simul

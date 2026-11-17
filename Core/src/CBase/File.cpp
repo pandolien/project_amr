@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-namespace amr {
+namespace simul {
 
 bool ReadAllBytes(const String& path, Array<unsigned char>* out, String* err) {
     out->clear();
@@ -36,4 +36,4 @@ bool WriteFileBytes(const String& path, const void* data, size_t size) {
 
 bool RemoveFile(const String& path) { return remove(path.c_str()) == 0; }
 
-}  // namespace amr
+}  // namespace simul

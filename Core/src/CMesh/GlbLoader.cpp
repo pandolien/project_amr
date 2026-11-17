@@ -6,11 +6,11 @@
 #include "FileUtil.h"
 #include "cgltf.h"
 
-namespace amr {
+namespace simul {
 
 namespace {
 
-amr::String ResultName(cgltf_result r) {
+simul::String ResultName(cgltf_result r) {
     switch (r) {
         case cgltf_result_success: return "성공";
         case cgltf_result_data_too_short: return "데이터가 너무 짧습니다 (잘린 파일)";
@@ -26,16 +26,16 @@ amr::String ResultName(cgltf_result r) {
     }
 }
 
-amr::String IndexName(const char* prefix, size_t i) {
-    return amr::String(prefix) + amr::ToString(i);
+simul::String IndexName(const char* prefix, size_t i) {
+    return simul::String(prefix) + simul::ToString(i);
 }
 
-bool CheckRequiredExtensions(const cgltf_data* d, amr::String* error) {
+bool CheckRequiredExtensions(const cgltf_data* d, simul::String* error) {
     for (cgltf_size i = 0; i < d->extensions_required_count; i++) {
         const char* e = d->extensions_required[i];
         if (!e) continue;
         if (strcmp(e, "KHR_draco_mesh_compression") == 0 || strcmp(e, "EXT_meshopt_compression") == 0) {
-            detail::SetError(error, amr::String("지원하지 않는 압축 확장입니다: ") + e);
+            detail::SetError(error, simul::String("지원하지 않는 압축 확장입니다: ") + e);
             return false;
         }
     }
@@ -64,7 +64,7 @@ void ConvertMaterial(const cgltf_material* m, Material* out) {
 
 // 반환: 1 = 성공, 0 = 건너뜀, -1 = 오류
 int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primitive* out,
-                     amr::Array<amr::String>* warnings, amr::String* error) {
+                     simul::Array<simul::String>* warnings, simul::String* error) {
     if (prim->type != cgltf_primitive_type_triangles && prim->type != cgltf_primitive_type_triangle_strip &&
         prim->type != cgltf_primitive_type_triangle_fan) {
         warnings->push_back("삼각형이 아닌 primitive(점/선)를 건너뛰었습니다");
@@ -125,7 +125,7 @@ int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primit
     }
 
     // 인덱스 (8/16/32비트 모두 cgltf_accessor_read_index 가 처리한다)
-    amr::Array<uint32_t> idx;
+    simul::Array<uint32_t> idx;
     if (prim->indices) {
         const size_t c = static_cast<size_t>(prim->indices->count);
         idx.resize(c);
@@ -175,7 +175,7 @@ int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primit
     return 1;
 }
 
-bool ConvertScene(const cgltf_data* d, Scene* out, amr::String* error) {
+bool ConvertScene(const cgltf_data* d, Scene* out, simul::String* error) {
     out->Clear();
 
     out->materials.resize(d->materials_count);
@@ -242,7 +242,7 @@ bool ConvertScene(const cgltf_data* d, Scene* out, amr::String* error) {
 }
 
 // 파싱된 cgltf_data 를 검증하고 변환한다 (data 는 호출한 쪽에서 해제)
-bool Finish(cgltf_data* data, Scene* out, amr::String* error) {
+bool Finish(cgltf_data* data, Scene* out, simul::String* error) {
     const cgltf_result v = cgltf_validate(data);
     if (v != cgltf_result_success) {
         detail::SetError(error, "glTF 검증 실패: " + ResultName(v));
@@ -254,7 +254,7 @@ bool Finish(cgltf_data* data, Scene* out, amr::String* error) {
 
 }  // namespace
 
-bool LoadGlbFromMemory(const void* bytes, size_t size, Scene* out, amr::String* error) {
+bool LoadGlbFromMemory(const void* bytes, size_t size, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
     if (!bytes || size == 0) {
@@ -278,7 +278,7 @@ bool LoadGlbFromMemory(const void* bytes, size_t size, Scene* out, amr::String* 
     return ok;
 }
 
-bool LoadGlb(const amr::String& path, Scene* out, amr::String* error) {
+bool LoadGlb(const simul::String& path, Scene* out, simul::String* error) {
     if (!out) return false;
     out->Clear();
     cgltf_options options;
@@ -298,4 +298,4 @@ bool LoadGlb(const amr::String& path, Scene* out, amr::String* error) {
     return ok;
 }
 
-}  // namespace amr
+}  // namespace simul

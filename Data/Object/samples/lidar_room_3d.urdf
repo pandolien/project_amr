@@ -4,7 +4,7 @@
   방위각은 360 도를 360 개 광선(1 도 간격)으로 돌고, 한 번 스캔에 광선 5760 개다. 장애물 윤곽만 보이는 2D 예제와 달리
   아래를 보는 채널이 높이 0.4 m 의 낮은 상자(초록)와 바닥까지 잡는다. 천장은 없어서 위를 보는 채널은 벽 윗부분까지만 잡힌다.
 
-  실행:   amr_main Data/Object/samples/lidar_room_3d.urdf
+  실행:   simul_main Data/Object/samples/lidar_room_3d.urdf
           왼쪽 구조 트리에서 lidar_link 를 마우스 오른쪽 버튼 -> "레이저 표시" / "그래프 표시"
           기둥 움직이기: 관절 패널의 x_slide, y_slide (m), yaw (도). 스캔을 파일로: ... --lidar-csv scan.csv --shot out.png
 -->

@@ -2,7 +2,7 @@
 
 #include <math.h>
 
-namespace amr {
+namespace simul {
 
 namespace {
 
@@ -157,4 +157,4 @@ bool Obb::Overlaps(const Obb& o) const {
     return true;  // 15개 축 어디에서도 분리되지 않았다
 }
 
-}  // namespace amr
+}  // namespace simul

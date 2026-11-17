@@ -15,7 +15,7 @@
 #include "CURDF/Urdf.h"
 #include "TestUtil.h"
 
-using namespace amr;
+using namespace simul;
 
 namespace {
 
@@ -28,7 +28,7 @@ void check(bool ok, const char* what) {
     }
 }
 
-bool nearly(double a, double b, double eps = 1e-5) { return amr::Abs(a - b) <= eps; }
+bool nearly(double a, double b, double eps = 1e-5) { return simul::Abs(a - b) <= eps; }
 
 bool boxIs(const Aabb& b, double x0, double y0, double z0, double x1, double y1, double z1, double eps = 1e-5) {
     return nearly(b.lo.x, x0, eps) && nearly(b.lo.y, y0, eps) && nearly(b.lo.z, z0, eps) && nearly(b.hi.x, x1, eps) &&
@@ -99,7 +99,7 @@ void testAabbBasics() {
 
     // 거리
     check(nearly(a.Distance(Aabb(dhVector(3, 0, 0), dhVector(4, 1, 1))), 2.0), "distance along x");
-    check(nearly(a.Distance(Aabb(dhVector(2, 2, 1), dhVector(3, 3, 2))), amr::Sqrt(2.0)), "distance diagonal");
+    check(nearly(a.Distance(Aabb(dhVector(2, 2, 1), dhVector(3, 3, 2))), simul::Sqrt(2.0)), "distance diagonal");
     check(nearly(a.Distance(Aabb(dhVector(0.5f, 0.5f, 0.5f), dhVector(3, 3, 3))), 0.0), "distance when overlapping is 0");
 
     // 겹친 정도
@@ -210,8 +210,8 @@ void testGeometryAabb() {
 }
 
 // ---------------------------------------------------------------- 브로드페이즈
-amr::Array<CollisionPair> bruteCross(const amr::Array<Aabb>& a, const amr::Array<Aabb>& b) {
-    amr::Array<CollisionPair> out;
+simul::Array<CollisionPair> bruteCross(const simul::Array<Aabb>& a, const simul::Array<Aabb>& b) {
+    simul::Array<CollisionPair> out;
     for (size_t i = 0; i < a.size(); i++)
         for (size_t j = 0; j < b.size(); j++)
             if (a[i].Overlaps(b[j])) out.push_back(CollisionPair(static_cast<int>(i), static_cast<int>(j)));
@@ -225,11 +225,11 @@ Aabb randomBox(Rng& r, float span, float maxSize) {
 }
 
 void testBroadphase() {
-    check(FindOverlappingPairs(amr::Array<Aabb>()).empty(), "no boxes, no pairs");
+    check(FindOverlappingPairs(simul::Array<Aabb>()).empty(), "no boxes, no pairs");
 
     for (unsigned seed = 1; seed <= 20; seed++) {
         Rng r(seed);
-        amr::Array<Aabb> a, b;
+        simul::Array<Aabb> a, b;
         const int na = 1 + static_cast<int>(r.next() * 120), nb = 1 + static_cast<int>(r.next() * 120);
         for (int i = 0; i < na; i++) a.push_back(r.next() < 0.1f ? Aabb() : randomBox(r, 10, 1.5f));
         for (int i = 0; i < nb; i++) b.push_back(r.next() < 0.1f ? Aabb() : randomBox(r, 10, 1.5f));
@@ -243,12 +243,12 @@ void testBroadphase() {
     }
 
     // 정렬 순서와 a < b
-    amr::Array<Aabb> boxes;
+    simul::Array<Aabb> boxes;
     boxes.push_back(Aabb(dhVector(0, 0, 0), dhVector(2, 2, 2)));
     boxes.push_back(Aabb(dhVector(5, 5, 5), dhVector(6, 6, 6)));
     boxes.push_back(Aabb(dhVector(1, 1, 1), dhVector(3, 3, 3)));
     boxes.push_back(Aabb());
-    const amr::Array<CollisionPair> p = FindOverlappingPairs(boxes);
+    const simul::Array<CollisionPair> p = FindOverlappingPairs(boxes);
     check(p.size() == 1 && p[0] == CollisionPair(0, 2), "pair indices refer to the input order, a < b");
 
     // x 에서는 겹치지만 y 에서 떨어진 상자는 쌍이 아니다
@@ -258,12 +258,12 @@ void testBroadphase() {
     check(FindOverlappingPairs(boxes).empty(), "overlap in x only is not a pair");
 
     // 두 집합: 같은 집합 안의 겹침은 무시, 인덱스는 각자의 집합 기준
-    amr::Array<Aabb> s1, s2;
+    simul::Array<Aabb> s1, s2;
     s1.push_back(Aabb(dhVector(0, 0, 0), dhVector(2, 2, 2)));
     s1.push_back(Aabb(dhVector(1, 1, 1), dhVector(3, 3, 3)));  // s1[0] 과 겹치지만 같은 집합
     s2.push_back(Aabb(dhVector(10, 10, 10), dhVector(11, 11, 11)));
     s2.push_back(Aabb(dhVector(2.5f, 2.5f, 2.5f), dhVector(4, 4, 4)));
-    const amr::Array<CollisionPair> q = FindOverlappingPairs(s1, s2);
+    const simul::Array<CollisionPair> q = FindOverlappingPairs(s1, s2);
     check(q.size() == 1 && q[0] == CollisionPair(1, 1), "two-set pairs use per-set indices");
 }
 
@@ -279,7 +279,7 @@ const char* kChain =
     "   <limit lower='-3.2' upper='3.2' effort='1' velocity='1'/></joint>"
     "</robot>";
 
-bool hasPair(const amr::Array<CollisionPair>& v, int a, int b) {
+bool hasPair(const simul::Array<CollisionPair>& v, int a, int b) {
     for (size_t i = 0; i < v.size(); i++)
         if (v[i] == CollisionPair(a, b)) return true;
     return false;
@@ -287,7 +287,7 @@ bool hasPair(const amr::Array<CollisionPair>& v, int a, int b) {
 
 void testRobot() {
     urdf::Robot robot;
-    amr::String err;
+    simul::String err;
     check(urdf::LoadUrdfFromString(kChain, &robot, &err), "chain urdf loads");
     RobotCollisionModel model;
     check(BuildCollisionModel(robot, CollisionModelOptions(), &model) && model.shapes.size() == 3, "3 collision shapes");
@@ -296,7 +296,7 @@ void testRobot() {
 
     // 곧게 선 자세
     urdf::JointValues q;
-    amr::Array<Aabb> boxes = ComputeLinkAabbs(robot, model, q);
+    simul::Array<Aabb> boxes = ComputeLinkAabbs(robot, model, q);
     check(boxes.size() == 3, "one AABB per link");
     check(boxIs(boxes[static_cast<size_t>(base)], -0.1, -0.1, 0, 0.1, 0.1, 0.2), "base AABB");
     check(boxIs(boxes[static_cast<size_t>(l1)], -0.05, -0.05, 0.2, 0.05, 0.05, 0.6), "link1 AABB");
@@ -305,7 +305,7 @@ void testRobot() {
 
     SelfCollisionOptions all;
     all.ignoreAdjacent = false;
-    amr::Array<CollisionPair> pa = FindSelfCollisions(robot, boxes, all);
+    simul::Array<CollisionPair> pa = FindSelfCollisions(robot, boxes, all);
     check(hasPair(pa, l1, l2), "adjacent links are reported when not ignored");
 
     // margin: 곧은 자세에서 base 와 link2 사이 간격은 0.35
@@ -313,7 +313,7 @@ void testRobot() {
     closeOpt.margin = 0.3f;
     check(FindSelfCollisions(robot, boxes, closeOpt).empty(), "margin 0.3 < gap 0.35");
     closeOpt.margin = 0.4f;
-    check(hasPair(FindSelfCollisions(robot, boxes, closeOpt), amr::Min(base, l2), amr::Max(base, l2)), "margin 0.4 > gap 0.35");
+    check(hasPair(FindSelfCollisions(robot, boxes, closeOpt), simul::Min(base, l2), simul::Max(base, l2)), "margin 0.4 > gap 0.35");
 
     // j1 = +90 도: link1 이 +x 로 눕는다 (회전축 y, z -> x)
     q["j1"] = static_cast<float>(dhRad(90));
@@ -324,18 +324,18 @@ void testRobot() {
     q.clear();
     q["j2"] = static_cast<float>(dhRad(180));
     boxes = ComputeLinkAabbs(robot, model, q);
-    amr::Array<CollisionPair> col = FindSelfCollisions(robot, boxes);
-    check(col.size() == 1 && col[0] == CollisionPair(amr::Min(base, l2), amr::Max(base, l2)), "folded pose: base-link2 collide");
+    simul::Array<CollisionPair> col = FindSelfCollisions(robot, boxes);
+    check(col.size() == 1 && col[0] == CollisionPair(simul::Min(base, l2), simul::Max(base, l2)), "folded pose: base-link2 collide");
 
     SelfCollisionOptions ign;
-    ign.ignoredPairs.push_back(amr::MakePair(amr::String("link2"), amr::String("base")));  // 순서 무관
+    ign.ignoredPairs.push_back(simul::MakePair(simul::String("link2"), simul::String("base")));  // 순서 무관
     check(FindSelfCollisions(robot, boxes, ign).empty(), "ignored pair is skipped");
 
     // 관절 제한: 허용 범위를 넘는 값은 제한된다
     q.clear();
     q["j2"] = 10.0f;  // 제한 3.2 rad
     boxes = ComputeLinkAabbs(robot, model, q, true);
-    const amr::Array<Aabb> unclamped = ComputeLinkAabbs(robot, model, q, false);
+    const simul::Array<Aabb> unclamped = ComputeLinkAabbs(robot, model, q, false);
     check(!(boxIs(boxes[static_cast<size_t>(l2)], unclamped[static_cast<size_t>(l2)].lo.x, unclamped[static_cast<size_t>(l2)].lo.y,
                   unclamped[static_cast<size_t>(l2)].lo.z, unclamped[static_cast<size_t>(l2)].hi.x,
                   unclamped[static_cast<size_t>(l2)].hi.y, unclamped[static_cast<size_t>(l2)].hi.z, 1e-3)),
@@ -350,7 +350,7 @@ void testRobot() {
           "visual-only urdf loads");
     RobotCollisionModel m2;
     check(BuildCollisionModel(r2, CollisionModelOptions(), &m2) && m2.shapes.empty(), "no <collision>: no shapes by default");
-    amr::Array<Aabb> b2 = ComputeLinkAabbs(r2, m2, urdf::JointValues());
+    simul::Array<Aabb> b2 = ComputeLinkAabbs(r2, m2, urdf::JointValues());
     check(b2.size() == 2 && b2[0].IsEmpty() && b2[1].IsEmpty(), "links without shapes have empty AABBs");
     CollisionModelOptions fb;
     fb.fallbackToVisual = true;
@@ -361,23 +361,23 @@ void testRobot() {
 
 // ---------------------------------------------------------------- 메시 충돌 도형
 void testMeshCollision() {
-    const amr::String dir = tu::Tmp("amr_collision_test");
+    const simul::String dir = tu::Tmp("simul_collision_test");
     tu::MkDir(dir);
-    const amr::String objPath = dir + "/cube.obj";
+    const simul::String objPath = dir + "/cube.obj";
     {
-        amr::WriteFileText(objPath, amr::String("v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv 0 0 1\nv 1 0 1\nv 1 1 1\nv 0 1 1\n")
+        simul::WriteFileText(objPath, simul::String("v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv 0 0 1\nv 1 0 1\nv 1 1 1\nv 0 1 1\n")
           + "f 1 3 2\nf 1 4 3\nf 5 6 7\nf 5 7 8\nf 1 2 6\nf 1 6 5\nf 2 3 7\nf 2 7 6\nf 3 4 8\nf 3 8 7\nf 4 1 5\nf 4 5 8\n");
     }
     const char* xml =
         "<robot name='m'><link name='a'><collision><origin xyz='1 0 0'/>"
         "<geometry><mesh filename='cube.obj' scale='2 2 2'/></geometry></collision></link></robot>";
     urdf::Robot robot;
-    amr::String err;
+    simul::String err;
     check(urdf::LoadUrdfFromString(xml, &robot, &err, dir), "mesh urdf loads");
     RobotCollisionModel model;
     check(BuildCollisionModel(robot, CollisionModelOptions(), &model) && model.shapes.size() == 1, "mesh collision model builds");
     check(boxIs(model.shapes[0].meshBounds, 0, 0, 0, 2, 2, 2), "mesh bounds include URDF scale");
-    const amr::Array<Aabb> boxes = ComputeLinkAabbs(robot, model, urdf::JointValues());
+    const simul::Array<Aabb> boxes = ComputeLinkAabbs(robot, model, urdf::JointValues());
     check(boxIs(boxes[0], 1, 0, 0, 3, 2, 2), "mesh link AABB includes origin");
 
     // 파일이 없으면 경고하고 false, 나머지는 계속
@@ -414,14 +414,14 @@ bool refProject(const Obb& a, const Obb& b, const double L[3]) {
     for (int i = 0; i < 8; i++) {
         const double pa = ca[i].x * L[0] + ca[i].y * L[1] + ca[i].z * L[2];
         const double pb = cb[i].x * L[0] + cb[i].y * L[1] + cb[i].z * L[2];
-        amin = amr::Min(amin, pa); amax = amr::Max(amax, pa);
-        bmin = amr::Min(bmin, pb); bmax = amr::Max(bmax, pb);
+        amin = simul::Min(amin, pa); amax = simul::Max(amax, pa);
+        bmin = simul::Min(bmin, pb); bmax = simul::Max(bmax, pb);
     }
     return !(amax < bmin || bmax < amin);
 }
 
 bool refOverlap(const Obb& a, const Obb& b) {
-    amr::Array<double> axes;
+    simul::Array<double> axes;
     const dhVector* av = a.axis;
     const dhVector* bv = b.axis;
     for (int i = 0; i < 3; i++) {
@@ -433,7 +433,7 @@ bool refOverlap(const Obb& a, const Obb& b) {
             const double c[3] = {static_cast<double>(av[i].y) * bv[j].z - static_cast<double>(av[i].z) * bv[j].y,
                                  static_cast<double>(av[i].z) * bv[j].x - static_cast<double>(av[i].x) * bv[j].z,
                                  static_cast<double>(av[i].x) * bv[j].y - static_cast<double>(av[i].y) * bv[j].x};
-            const double n = amr::Sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+            const double n = simul::Sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
             if (n < 1e-6) continue;  // 평행한 축은 외적이 0 이므로 건너뛴다
             axes.push_back(c[0] / n); axes.push_back(c[1] / n); axes.push_back(c[2] / n);
         }
@@ -471,7 +471,7 @@ void testObbBasics() {
     const Obb rot = o.Transformed(dhMat::RotZ(static_cast<float>(dhRad(45))));
     check(nearly(rot.Volume(), 48.0, 1e-3), "rotation keeps the OBB volume");
     check(rot.ToAabb().Volume() > 48.0f * 1.2f, "rotated OBB's AABB is larger");
-    check(nearly(rot.axis[0].x, amr::Cos(dhRad(45)), 1e-5) && nearly(rot.axis[0].y, amr::Sin(dhRad(45)), 1e-5), "axis follows the rotation");
+    check(nearly(rot.axis[0].x, simul::Cos(dhRad(45)), 1e-5) && nearly(rot.axis[0].y, simul::Sin(dhRad(45)), 1e-5), "axis follows the rotation");
 
     // 균일 스케일
     const Obb sc = o.Transformed(dhMat::Scale(2.0f));
@@ -632,12 +632,12 @@ const char* kBars =
 
 void testTwoPhaseSelfCollision() {
     urdf::Robot robot;
-    amr::String err;
+    simul::String err;
     check(urdf::LoadUrdfFromString(kBars, &robot, &err), "bars urdf loads");
     RobotCollisionModel model;
     check(BuildCollisionModel(robot, CollisionModelOptions(), &model) && model.shapes.size() == 2, "bars model");
     const int a = robot.FindLink("a"), b = robot.FindLink("b");
-    const CollisionPair ab(amr::Min(a, b), amr::Max(a, b));
+    const CollisionPair ab(simul::Min(a, b), simul::Max(a, b));
 
     // b 를 막대에 수직으로 0.3 띄움: AABB 는 겹치지만 OBB 는 떨어져 있다
     urdf::JointValues q;
@@ -669,7 +669,7 @@ void testTwoPhaseSelfCollision() {
     // ignoredPairs 는 두 단계 모두에서 적용된다
     q["jb"] = 0.05f;
     SelfCollisionOptions ign;
-    ign.ignoredPairs.push_back(amr::MakePair(amr::String("b"), amr::String("a")));
+    ign.ignoredPairs.push_back(simul::MakePair(simul::String("b"), simul::String("a")));
     rep = CheckSelfCollisions(robot, model, q, ign);
     check(rep.aabbCandidates.empty() && rep.collisions.empty(), "ignored pair");
 
@@ -701,13 +701,13 @@ void testMeshRaycast() {
     const uint32_t idx[36] = {0, 2, 1, 1, 2, 3, 4, 5, 6, 5, 7, 6, 0, 1, 4, 1, 5, 4, 2, 6, 3, 3, 6, 7, 0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5};
     float t = -1;
     size_t tri = 99;
-    check(RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0.1f, 0.2f), dhVector(-1, 0, 0), 100, &t, &tri) && amr::Abs(t - 4.0f) < 1e-5f && tri < 12,
+    check(RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0.1f, 0.2f), dhVector(-1, 0, 0), 100, &t, &tri) && simul::Abs(t - 4.0f) < 1e-5f && tri < 12,
           "ray hits the near face of the cube");
-    check(RaycastTriangles(cube, 8, idx, 36, dhVector(0, 0, 0), dhVector(0, 0, 1), 100, &t) && amr::Abs(t - 1.0f) < 1e-5f, "ray from inside hits the wall (both sides count)");
+    check(RaycastTriangles(cube, 8, idx, 36, dhVector(0, 0, 0), dhVector(0, 0, 1), 100, &t) && simul::Abs(t - 1.0f) < 1e-5f, "ray from inside hits the wall (both sides count)");
     check(!RaycastTriangles(cube, 8, idx, 36, dhVector(5, 3, 0), dhVector(-1, 0, 0), 100, &t), "ray beside the cube misses");
     check(!RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(1, 0, 0), 100, &t), "ray pointing away misses");
     check(!RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(-1, 0, 0), 3.5f, &t), "tMax shorter than the distance misses");
-    check(RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(-2, 0, 0), 100, &t) && amr::Abs(t - 2.0f) < 1e-5f, "t is in units of the direction length");
+    check(RaycastTriangles(cube, 8, idx, 36, dhVector(5, 0, 0), dhVector(-2, 0, 0), 100, &t) && simul::Abs(t - 2.0f) < 1e-5f, "t is in units of the direction length");
     // 위치+법선이 섞인 배열 (stride 6): 법선 자리에 엉뚱한 값을 넣어도 위치만 쓴다
     float mixed[48];
     for (int v = 0; v < 8; v++) {
@@ -716,7 +716,7 @@ void testMeshRaycast() {
             mixed[v * 6 + 3 + k] = 777.0f;
         }
     }
-    check(RaycastTriangles(mixed, 8, idx, 36, dhVector(5, 0.1f, 0.2f), dhVector(-1, 0, 0), 100, &t, nullptr, 6) && amr::Abs(t - 4.0f) < 1e-5f, "stride 6 reads positions only");
+    check(RaycastTriangles(mixed, 8, idx, 36, dhVector(5, 0.1f, 0.2f), dhVector(-1, 0, 0), 100, &t, nullptr, 6) && simul::Abs(t - 4.0f) < 1e-5f, "stride 6 reads positions only");
     // 안전: 범위를 벗어난 인덱스, 퇴화 삼각형, NaN 은 건너뛴다
     const uint32_t bad[3] = {0, 1, 99};
     check(!RaycastTriangles(cube, 8, bad, 3, dhVector(0, 0, 5), dhVector(0, 0, -1), 100, &t), "out-of-range index is skipped");
@@ -729,7 +729,7 @@ void testMeshRaycast() {
     const float two[18] = {-1, -1, 1, 1, -1, 1, 0, 1, 1, -1, -1, 3, 1, -1, 3, 0, 1, 3};
     const uint32_t i2[6] = {0, 1, 2, 3, 4, 5};
     size_t which = 99;
-    check(RaycastTriangles(two, 6, i2, 6, dhVector(0, 0, 10), dhVector(0, 0, -1), 100, &t, &which) && amr::Abs(t - 7.0f) < 1e-5f && which == 1, "nearest of two layers wins");
+    check(RaycastTriangles(two, 6, i2, 6, dhVector(0, 0, 10), dhVector(0, 0, -1), 100, &t, &which) && simul::Abs(t - 7.0f) < 1e-5f && which == 1, "nearest of two layers wins");
     // 무작위 광선: 같은 정육면체와 슬랩 방식(Aabb::Raycast)이 같은 결과를 내야 한다
     Aabb box;
     box.lo = dhVector(-1, -1, -1);
@@ -742,7 +742,7 @@ void testMeshRaycast() {
     int agree = 0, total = 0, hits = 0;
     for (int i = 0; i < 2000; i++) {
         const dhVector o(rnd(), rnd(), rnd()), d(rnd(), rnd(), rnd());
-        if (amr::Abs(d.x) + amr::Abs(d.y) + amr::Abs(d.z) < 0.05f) continue;
+        if (simul::Abs(d.x) + simul::Abs(d.y) + simul::Abs(d.z) < 0.05f) continue;
         float ta = 0, tb = 0;
         const bool a = RaycastTriangles(cube, 8, idx, 36, o, d, 1e6f, &ta);
         const bool b = box.Raycast(o, d, 1e6f, &tb);
@@ -750,15 +750,15 @@ void testMeshRaycast() {
         if (box.Contains(o)) continue;
         total++;
         hits += a ? 1 : 0;
-        if (a == b && (!a || amr::Abs(ta - tb) < 1e-3f * amr::Max(1.0f, tb))) agree++;
+        if (a == b && (!a || simul::Abs(ta - tb) < 1e-3f * simul::Max(1.0f, tb))) agree++;
     }
     check(total > 1000 && hits > 100 && agree == total, "random rays agree with the slab test");
 }
 
 void testGizmoObj() {
     Scene g;
-    amr::String err;
-    const amr::String path = amr::String(AMR_TEST_DATA_DIR) + "/Object/gizmo/axes.obj";
+    simul::String err;
+    const simul::String path = simul::String(SIMUL_TEST_DATA_DIR) + "/Object/gizmo/axes.obj";
     check(LoadObj(path, &g, &err), "gizmo OBJ loads");
     check(g.warnings.empty(), "gizmo OBJ has no warnings (mtl found)");
     check(g.materials.size() == 4, "gizmo has center + x + y + z materials");
@@ -772,12 +772,12 @@ void testGizmoObj() {
             tris += pr.TriangleCount();
             for (size_t v = 0; v < pr.VertexCount(); v++)
                 for (int k = 0; k < 3; k++) {
-                    lo[k] = amr::Min(lo[k], pr.positions[v * 3 + static_cast<size_t>(k)]);
-                    hi[k] = amr::Max(hi[k], pr.positions[v * 3 + static_cast<size_t>(k)]);
+                    lo[k] = simul::Min(lo[k], pr.positions[v * 3 + static_cast<size_t>(k)]);
+                    hi[k] = simul::Max(hi[k], pr.positions[v * 3 + static_cast<size_t>(k)]);
                 }
         }
     check(tris > 500, "gizmo has real geometry");
-    for (int k = 0; k < 3; k++) check(amr::Abs(hi[k] - 1.0f) < 1e-4f && amr::Abs(lo[k] + 0.1f) < 1e-4f, "gizmo spans -0.1 .. 1.0 on every axis");
+    for (int k = 0; k < 3; k++) check(simul::Abs(hi[k] - 1.0f) < 1e-4f && simul::Abs(lo[k] + 0.1f) < 1e-4f, "gizmo spans -0.1 .. 1.0 on every axis");
     // 각 축 방향 광선이 그 축의 색 재질을 맞춘다 (X 빨강, Y 초록, Z 파랑), 가운데는 회색
     struct Probe { float o[3], d[3]; int dom; };  // dom: 가장 큰 색 성분 (0 r, 1 g, 2 b), -1 이면 회색
     const Probe probes[4] = {{{3, 0.01f, 0}, {-1, 0, 0}, 0}, {{0.01f, 3, 0}, {0, -1, 0}, 1}, {{0.01f, 0, 3}, {0, 0, -1}, 2}, {{0.3f, 0.01f, 0.4f}, {-0.6f, 0, -0.8f}, -1}};
@@ -798,9 +798,9 @@ void testGizmoObj() {
         if (bestMat < 0) continue;
         const Color& c = g.materials[static_cast<size_t>(bestMat)].baseColor;
         int dom = (c.r > c.g && c.r > c.b) ? 0 : (c.g > c.r && c.g > c.b) ? 1 : (c.b > c.r && c.b > c.g) ? 2 : -1;
-        if (amr::Abs(c.r - c.g) < 0.1f && amr::Abs(c.g - c.b) < 0.1f) dom = -1;
+        if (simul::Abs(c.r - c.g) < 0.1f && simul::Abs(c.g - c.b) < 0.1f) dom = -1;
         check(dom == probes[pi].dom, "gizmo part has the expected color");
-        if (probes[pi].dom >= 0) check(amr::Abs(best - 2.0f) < 0.1f, "the arrow tip is at distance 1 from the origin");
+        if (probes[pi].dom >= 0) check(simul::Abs(best - 2.0f) < 0.1f, "the arrow tip is at distance 1 from the origin");
     }
 }
 

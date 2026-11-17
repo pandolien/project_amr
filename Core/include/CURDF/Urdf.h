@@ -13,7 +13,7 @@
 
 // URDF(Unified Robot Description Format) 로더. xacro 는 지원하지 않는다 (먼저 xacro 명령으로 URDF 로 변환).
 // 좌표계는 URDF 규약(Z-up, 미터, 라디안, rpy = 고정축 roll-pitch-yaw)을 따른다.
-namespace amr {
+namespace simul {
 namespace urdf {
 
 enum GeometryType { kGeomNone, kGeomBox, kGeomCylinder, kGeomSphere, kGeomMesh };
@@ -23,7 +23,7 @@ struct Geometry {
     float size[3];         // box 의 전체 변 길이
     float radius;          // cylinder, sphere
     float length;          // cylinder (축 = Z)
-    amr::String filename;  // mesh: 원문 그대로 (package://..., file://..., 상대/절대 경로)
+    simul::String filename;  // mesh: 원문 그대로 (package://..., file://..., 상대/절대 경로)
     float scale[3];        // mesh 의 scale (기본 1 1 1)
     Geometry() : type(kGeomNone), radius(0), length(0) {
         size[0] = size[1] = size[2] = 0;
@@ -32,15 +32,15 @@ struct Geometry {
 };
 
 struct MaterialDef {
-    amr::String name;
+    simul::String name;
     Color color;
     bool hasColor;
-    amr::String texture;  // 원문 경로
+    simul::String texture;  // 원문 경로
     MaterialDef() : hasColor(false) {}
 };
 
 struct Visual {
-    amr::String name;
+    simul::String name;
     dhMat origin;  // link 좌표계 -> visual 좌표계
     Geometry geometry;
     MaterialDef material;
@@ -49,7 +49,7 @@ struct Visual {
 };
 
 struct Collision {
-    amr::String name;
+    simul::String name;
     dhMat origin;
     Geometry geometry;
 };
@@ -62,9 +62,9 @@ struct Inertial {
 };
 
 struct Link {
-    amr::String name;
-    amr::Array<Visual> visuals;
-    amr::Array<Collision> collisions;
+    simul::String name;
+    simul::Array<Visual> visuals;
+    simul::Array<Collision> collisions;
     Inertial inertial;
     bool hasInertial;
     Link() : hasInertial(false) {}
@@ -73,10 +73,10 @@ struct Link {
 enum JointType { kJointFixed, kJointRevolute, kJointContinuous, kJointPrismatic, kJointFloating, kJointPlanar };
 
 struct Joint {
-    amr::String name;
+    simul::String name;
     JointType type;
-    amr::String parent;  // 부모 link 이름
-    amr::String child;   // 자식 link 이름
+    simul::String parent;  // 부모 link 이름
+    simul::String child;   // 자식 link 이름
     dhMat origin;        // 부모 link -> 관절 좌표계
     dhVector axis;       // 정규화된 회전/이동 축 (관절 좌표계, <axis> 가 없으면 기본 0 0 1 = z축. URDF 규격의 기본값 x 가 아니라 이 프로젝트의 규약)
     float lower, upper, effort, velocity;
@@ -85,7 +85,7 @@ struct Joint {
     float damping, friction;
     bool hasDynamics;
     bool hasMimic;
-    amr::String mimicJoint;
+    simul::String mimicJoint;
     float mimicMultiplier, mimicOffset;
     Joint() : type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
               damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
@@ -94,20 +94,20 @@ struct Joint {
     // 회전하는 관절인가 (각도: rad). prismatic 은 이동(m).
     bool IsAngular() const { return type == kJointRevolute || type == kJointContinuous; }
     // 사람에게 보여주는 값 <-> 내부 값(rad, m). 각도 관절만 degree 로 바꾸고 이동 관절은 그대로다.
-    double ToDisplay(double si) const { return IsAngular() ? amr::units::RadToDeg(si) : si; }
-    double FromDisplay(double display) const { return IsAngular() ? amr::units::DegToRad(display) : display; }
+    double ToDisplay(double si) const { return IsAngular() ? simul::units::RadToDeg(si) : si; }
+    double FromDisplay(double display) const { return IsAngular() ? simul::units::DegToRad(display) : display; }
     const char* DisplayUnit() const { return IsAngular() ? "deg" : "m"; }
     // 토크/힘의 단위: 회전 관절은 N·m, 이동 관절은 N
     const char* TorqueUnit() const { return IsAngular() ? "N*m" : "N"; }
 };
 
-typedef amr::Map<amr::String, float> JointValues;  // 관절 이름 -> 각도(rad) 또는 변위(m)
+typedef simul::Map<simul::String, float> JointValues;  // 관절 이름 -> 각도(rad) 또는 변위(m)
 
 // <gazebo reference="링크"><sensor type="ray|gpu_ray|lidar|gpu_lidar"> 로 적은 라이다 (Gazebo 형식).
 // 각도는 rad, 거리는 m. 방위각 샘플 hSamples 개가 hMin..hMax 에 같은 간격으로 놓인다 (양 끝 포함).
 struct LidarDef {
-    amr::String name;     // sensor name (없으면 링크 이름)
-    amr::String link;     // 센서가 붙은 링크
+    simul::String name;     // sensor name (없으면 링크 이름)
+    simul::String link;     // 센서가 붙은 링크
     dhMat pose;           // 링크 기준 센서 자세 (<pose>x y z roll pitch yaw</pose>)
     int hSamples;
     float hMin, hMax;
@@ -119,35 +119,35 @@ struct LidarDef {
 };
 
 struct Robot {
-    amr::String name;
-    amr::Array<Link> links;
-    amr::Array<Joint> joints;
-    amr::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
-    amr::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
+    simul::String name;
+    simul::Array<Link> links;
+    simul::Array<Joint> joints;
+    simul::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
+    simul::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
     int root;                            // 루트 link 인덱스
-    amr::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
-    amr::String baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)
-    amr::Array<amr::String> warnings;
+    simul::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
+    simul::String baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)
+    simul::Array<simul::String> warnings;
 
     Robot() : root(-1) {}
     void Clear();
-    int FindLink(const amr::String& n) const;   // 없으면 -1
-    int FindJoint(const amr::String& n) const;  // 없으면 -1
+    int FindLink(const simul::String& n) const;   // 없으면 -1
+    int FindJoint(const simul::String& n) const;  // 없으면 -1
     // 사용자가 직접 움직이는 관절 (movable 이면서 mimic 이 아닌 것)의 joint 인덱스
-    amr::Array<int> ActuatedJoints() const;
+    simul::Array<int> ActuatedJoints() const;
     // 관절 값을 limit 으로 제한한 뒤 순기구학을 계산한다. 결과는 links 와 같은 순서의 월드 변환.
     // q 에 없는 관절은 0. mimic 관절은 대상 관절 값으로 자동 결정된다.
     // T[child] = T[parent] * origin * motion(q)
-    amr::Array<dhMat> LinkTransforms(const JointValues& q, bool clampToLimits = true) const;
+    simul::Array<dhMat> LinkTransforms(const JointValues& q, bool clampToLimits = true) const;
     // 관절의 최종 값 (mimic, 제한 반영). 관절 이름이 없으면 0.
     float EffectiveJointValue(const JointValues& q, int jointIndex, bool clampToLimits = true) const;
 };
 
 struct LoadOptions {
     // package://<이름>/... 를 찾을 폴더. (이름, 그 패키지의 루트 폴더)
-    amr::Array<amr::Pair<amr::String, amr::String> > packagePaths;
+    simul::Array<simul::Pair<simul::String, simul::String> > packagePaths;
     // 추가 검색 폴더. 상대 경로와 package:// 경로를 이 폴더 아래에서도 찾는다.
-    amr::Array<amr::String> searchDirs;
+    simul::Array<simul::String> searchDirs;
     // GLB(Y-up) 메시를 URDF(Z-up)에 맞게 X축 +90도 회전한다.
     bool glbYUpToZUp;
     LoadOptions() : glbYUpToZUp(true) {}
@@ -155,19 +155,19 @@ struct LoadOptions {
 
 // ---- URDF 읽기. 성공하면 links/joints 의 구조가 검증된 상태다
 //   검증: 이름 중복 없음, 존재하지 않는 link 참조 없음, 루트 하나, 순환 없음, 모든 link 가 루트에 연결됨
-bool LoadUrdf(const amr::String& path, Robot* out, amr::String* error);
-bool LoadUrdfFromString(const amr::String& xml, Robot* out, amr::String* error, const amr::String& baseDir = amr::String());
+bool LoadUrdf(const simul::String& path, Robot* out, simul::String* error);
+bool LoadUrdfFromString(const simul::String& xml, Robot* out, simul::String* error, const simul::String& baseDir = simul::String());
 
 // 메시 경로를 실제 파일로 해석한다. 찾으면 true.
 //   package://pkg/a/b : packagePaths -> searchDirs -> URDF 폴더와 그 상위 폴더 순서
 //   file:///abs/path, 절대 경로, 상대 경로(URDF 폴더 -> searchDirs)
-bool ResolveMeshPath(const amr::String& filename, const amr::String& baseDir, const LoadOptions& opt, amr::String* resolved);
+bool ResolveMeshPath(const simul::String& filename, const simul::String& baseDir, const LoadOptions& opt, simul::String* resolved);
 
 // Geometry 하나를 Scene 으로 만든다. box/cylinder/sphere 는 기본 도형을 생성하고, mesh 는 파일을 읽은 뒤
 // URDF 의 scale 과 축 변환(opt.glbYUpToZUp)을 적용한다. cache 를 주면 같은 파일을 다시 읽지 않는다
 // (경로 -> scale 적용 전 Scene). kGeomNone 이면 false 를 돌려주고 error 는 비워 둔다.
-bool LoadGeometryScene(const Geometry& g, const amr::String& baseDir, const LoadOptions& opt, Scene* out,
-                       amr::String* error, amr::Map<amr::String, Scene>* cache = 0);
+bool LoadGeometryScene(const Geometry& g, const simul::String& baseDir, const LoadOptions& opt, Scene* out,
+                       simul::String* error, simul::Map<simul::String, Scene>* cache = 0);
 
 struct LinkVisual {
     int link;       // Robot::links 인덱스
@@ -180,8 +180,8 @@ struct LinkVisual {
 };
 
 struct RobotMeshes {
-    amr::Array<LinkVisual> visuals;
-    amr::Array<amr::String> warnings;  // 읽지 못한 메시 등
+    simul::Array<LinkVisual> visuals;
+    simul::Array<simul::String> warnings;  // 읽지 못한 메시 등
 };
 
 // 모든 link 의 visual 을 읽는다 (box/cylinder/sphere 는 기본 도형으로 생성, mesh 는 파일 확장자로 판별).
@@ -189,6 +189,6 @@ struct RobotMeshes {
 bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* out);
 
 }  // namespace urdf
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CURDF_URDF_H

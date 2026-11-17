@@ -9,7 +9,7 @@
 //   내부 계산과 데이터 전송 : 길이 m, 각도 radian, 방향은 쿼터니언 (x, y, z, w)
 //   사람에게 보여주거나 입력받을 때 : 각도 degree
 // 변환은 사람과 맞닿는 경계(화면, 콘솔, 명령행)에서만 하고, 그 안쪽에서는 degree 를 쓰지 않는다.
-namespace amr {
+namespace simul {
 namespace units {
 
 const double kPi = 3.14159265358979323846;
@@ -35,6 +35,6 @@ inline dhQuat QuatFromRpyDeg(const RpyDeg& d) {
 }
 
 }  // namespace units
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_3D_UNITS_H

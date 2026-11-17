@@ -2,7 +2,7 @@
 rem ============================================================================
 rem  Install missing tools, build, and run (Windows 10/11, Visual Studio + vcpkg).
 rem
-rem  Usage: run.bat [options] [-- arguments for amr_main]
+rem  Usage: run.bat [options] [-- arguments for simul_main]
 rem    --test        run the tests (ctest) instead of the program
 rem    --no-qt       do not build the 3D window (console mode only, no Qt needed)
 rem    --no-install  never install anything; only report what is missing
@@ -44,7 +44,7 @@ shift
 goto collect
 
 :usage
-echo Usage: run.bat [options] [-- arguments for amr_main]
+echo Usage: run.bat [options] [-- arguments for simul_main]
 echo   --test        run the tests (ctest) instead of the program
 echo   --no-qt       do not build the 3D window ^(console mode only, no Qt needed^)
 echo   --no-install  never install anything; only report what is missing
@@ -93,7 +93,9 @@ rem keep vcpkg in a space-free folder on the system drive instead. Set VCPKG_ROO
 if not defined VCPKG_ROOT (
     set "VCPKG_CHECK=!VCPKG_DIR!"
     if not "!VCPKG_CHECK: =!"=="!VCPKG_CHECK!" (
-        set "VCPKG_DIR=%SystemDrive%\amr-vcpkg"
+        set "VCPKG_DIR=%SystemDrive%\simul-vcpkg"
+        rem keep using the folder created before the rename (a Qt build there already exists)
+        if exist "%SystemDrive%\amr-vcpkg\vcpkg.exe" set "VCPKG_DIR=%SystemDrive%\amr-vcpkg"
         echo [run.bat] The project path contains a space, so vcpkg will live in !VCPKG_DIR! instead.
     )
 )
@@ -142,7 +144,7 @@ if "%DO_CLEAN%"=="1" (
     )
 )
 echo [run.bat] Configure: Qt=%USE_QT%, %BUILD_TYPE%
-cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE="%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=%TRIPLET% -DAMR_BUILD_QT=%USE_QT% -DAMR_BUILD_TESTS=ON
+cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE="%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=%TRIPLET% -DSIMUL_BUILD_QT=%USE_QT% -DSIMUL_BUILD_TESTS=ON
 if errorlevel 1 (echo [run.bat] CMake configure failed & exit /b 1)
 
 echo [run.bat] Build
@@ -152,13 +154,13 @@ if errorlevel 1 (echo [run.bat] Build failed & exit /b 1)
 rem ---- 5. Run -------------------------------------------------------------------
 if "%DO_TEST%"=="1" goto runtests
 
-set "APP=build\bin\%BUILD_TYPE%\amr_main.exe"
+set "APP=build\bin\%BUILD_TYPE%\simul_main.exe"
 if exist "%APP%" (
     echo [run.bat] Running %APP%%APP_ARGS%
     "%APP%"%APP_ARGS%
     exit /b !errorlevel!
 )
-echo [run.bat] amr_main was not built. Running the tests instead.
+echo [run.bat] simul_main was not built. Running the tests instead.
 
 :runtests
 pushd build

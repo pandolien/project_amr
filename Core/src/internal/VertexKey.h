@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 // 메시 로더가 같은 정점을 합칠 때 쓰는 키: (위치, uv, 법선) 인덱스 세 개 (없으면 -1). HashMap 의 키로 쓴다.
-namespace amr {
+namespace simul {
 namespace detail {
 
 struct VertexKey {
@@ -21,6 +21,6 @@ struct VertexKey {
 };
 
 }  // namespace detail
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_INTERNAL_VERTEXKEY_H

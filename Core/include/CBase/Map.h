@@ -7,7 +7,7 @@
 #include "CBase/Array.h"
 #include "CBase/Util.h"
 
-namespace amr {
+namespace simul {
 
 // 키로 정렬된 맵 (map 대체). 정렬된 배열에 이진 탐색으로 찾는다: 찾기는 O(log n), 넣기/지우기는 O(n).
 // 원소가 수천 개 이하인 이름표/설정 용도이고, 수만 개가 넘는 조회에는 HashMap 을 쓴다.
@@ -128,6 +128,6 @@ private:
     Array<T> a_;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_MAP_H

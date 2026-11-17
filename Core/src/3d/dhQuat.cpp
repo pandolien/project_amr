@@ -23,19 +23,19 @@ dhEuler dhQuat::GetEuler() const {
 
 dhQuat dhQuat::FromAxisAngle(float angle, const dhVector& axis) {
     const float n = axis.Norm();
-    if (!(n > 0.0f) || !amr::IsFinite(n)) return dhQuat();
+    if (!(n > 0.0f) || !simul::IsFinite(n)) return dhQuat();
     const float h = angle * 0.5f;
-    const float s = amr::Sin(h) / n;
-    return dhQuat(axis.x * s, axis.y * s, axis.z * s, amr::Cos(h));
+    const float s = simul::Sin(h) / n;
+    return dhQuat(axis.x * s, axis.y * s, axis.z * s, simul::Cos(h));
 }
 
-float dhQuat::Norm() const { return amr::Sqrt(w * w + x * x + y * y + z * z); }
+float dhQuat::Norm() const { return simul::Sqrt(w * w + x * x + y * y + z * z); }
 
 float dhQuat::Dot(const dhQuat& o) const { return w * o.w + x * o.x + y * o.y + z * o.z; }
 
 dhQuat dhQuat::Normalized() const {
     const float n = Norm();
-    if (!(n > 0.0f) || !amr::IsFinite(n)) return dhQuat();
+    if (!(n > 0.0f) || !simul::IsFinite(n)) return dhQuat();
     return dhQuat(x / n, y / n, z / n, w / n);
 }
 

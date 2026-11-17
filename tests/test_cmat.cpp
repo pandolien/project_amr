@@ -17,7 +17,7 @@ void check(bool ok, const char* what) {
     }
 }
 
-bool nearly(double a, double b, double eps = 1e-3) { return amr::Abs(a - b) <= eps; }
+bool nearly(double a, double b, double eps = 1e-3) { return simul::Abs(a - b) <= eps; }
 
 // 결정적 의사난수 [-1, 1)
 float rnd(unsigned& s) {
@@ -221,8 +221,8 @@ void testSVDShape(int r, int c, unsigned seed) {
 // ---- 정밀도: 조건수가 큰 행렬(약 1e5)의 역행렬이 double 기준 참값에 가까운가 ----
 // A = Q1 * D * Q2 (Givens 회전 곱, 계산은 double) 를 float 로 반올림한 행렬의 "정확한" 역행렬을
 // double 가우스-조던으로 구해 비교한다. float 로 SVD 를 하면 오차가 1e-2 수준까지 커진다.
-void givens(amr::Array<double>& M, int n, int i, int j, double th) {  // 왼쪽에서 곱함 (열 우선 n x n)
-    const double c = amr::Cos(th), s = amr::Sin(th);
+void givens(simul::Array<double>& M, int n, int i, int j, double th) {  // 왼쪽에서 곱함 (열 우선 n x n)
+    const double c = simul::Cos(th), s = simul::Sin(th);
     for (int col = 0; col < n; col++) {
         const double a = M[(size_t)i + (size_t)col * n], b = M[(size_t)j + (size_t)col * n];
         M[(size_t)i + (size_t)col * n] = c * a - s * b;
@@ -233,18 +233,18 @@ void givens(amr::Array<double>& M, int n, int i, int j, double th) {  // 왼쪽�
 void testInvPrecision() {
     const int n = 6;
     const double d[n] = {1.0, 0.3, 0.1, 1e-2, 1e-3, 1e-5};
-    amr::Array<double> A((size_t)n * n, 0.0);
+    simul::Array<double> A((size_t)n * n, 0.0);
     for (int i = 0; i < n; i++) A[(size_t)i + (size_t)i * n] = d[i];
     // 서로 다른 회전을 왼쪽에서 여러 번 곱하고, 전치를 이용해 오른쪽에서도 섞는다
     for (int k = 0; k < 12; k++) givens(A, n, k % n, (k * 5 + 1) % n == k % n ? (k + 1) % n : (k * 5 + 1) % n, 0.4 + 0.37 * k);
-    amr::Array<double> At((size_t)n * n);
+    simul::Array<double> At((size_t)n * n);
     for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) At[(size_t)j + (size_t)i * n] = A[(size_t)i + (size_t)j * n];
     for (int k = 0; k < 12; k++) givens(At, n, (k + 2) % n, (k * 3 + 4) % n == (k + 2) % n ? (k + 3) % n : (k * 3 + 4) % n, 0.9 + 0.23 * k);
     for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) A[(size_t)i + (size_t)j * n] = At[(size_t)j + (size_t)i * n];
 
     lMat M;
     M.Init(n, n);
-    amr::Array<double> Af((size_t)n * n);
+    simul::Array<double> Af((size_t)n * n);
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) {
             M.In(i, j) = (float)A[(size_t)i + (size_t)j * n];
@@ -252,14 +252,14 @@ void testInvPrecision() {
         }
 
     // 참값: double 가우스-조던 (부분 피벗)
-    amr::Array<double> W = Af, X((size_t)n * n, 0.0);
+    simul::Array<double> W = Af, X((size_t)n * n, 0.0);
     for (int i = 0; i < n; i++) X[(size_t)i + (size_t)i * n] = 1.0;
     for (int col = 0; col < n; col++) {
         int piv = col;
-        for (int r = col + 1; r < n; r++) if (amr::Abs(W[(size_t)r + (size_t)col * n]) > amr::Abs(W[(size_t)piv + (size_t)col * n])) piv = r;
+        for (int r = col + 1; r < n; r++) if (simul::Abs(W[(size_t)r + (size_t)col * n]) > simul::Abs(W[(size_t)piv + (size_t)col * n])) piv = r;
         for (int c2 = 0; c2 < n; c2++) {
-            amr::Swap(W[(size_t)col + (size_t)c2 * n], W[(size_t)piv + (size_t)c2 * n]);
-            amr::Swap(X[(size_t)col + (size_t)c2 * n], X[(size_t)piv + (size_t)c2 * n]);
+            simul::Swap(W[(size_t)col + (size_t)c2 * n], W[(size_t)piv + (size_t)c2 * n]);
+            simul::Swap(X[(size_t)col + (size_t)c2 * n], X[(size_t)piv + (size_t)c2 * n]);
         }
         const double pv = W[(size_t)col + (size_t)col * n];
         for (int c2 = 0; c2 < n; c2++) { W[(size_t)col + (size_t)c2 * n] /= pv; X[(size_t)col + (size_t)c2 * n] /= pv; }
@@ -273,14 +273,14 @@ void testInvPrecision() {
         }
     }
     double xmax = 0;
-    for (size_t i = 0; i < X.size(); i++) xmax = amr::Max(xmax, amr::Abs(X[i]));
+    for (size_t i = 0; i < X.size(); i++) xmax = simul::Max(xmax, simul::Abs(X[i]));
 
     lMat Inv = M.Inv();
     check(Inv.r == n && Inv.c == n && Inv.v != NULL, "Inv 정밀도: 결과 크기");
     if (Inv.v == NULL) return;
     double err = 0;
     for (int i = 0; i < n; i++)
-        for (int j = 0; j < n; j++) err = amr::Max(err, amr::Abs((double)Inv.Out(i, j) - X[(size_t)i + (size_t)j * n]));
+        for (int j = 0; j < n; j++) err = simul::Max(err, simul::Abs((double)Inv.Out(i, j) - X[(size_t)i + (size_t)j * n]));
     printf("  Inv 정밀도(조건수 ~1e5): 최대 오차 / 최대 원소 = %.3e\n", err / xmax);
     check(err / xmax < 1e-5, "Inv 정밀도: 조건수 1e5 행렬의 역행렬 상대오차 < 1e-5");
 

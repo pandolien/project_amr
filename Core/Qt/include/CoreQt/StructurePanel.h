@@ -20,15 +20,15 @@ class StructurePanel : public QTreeWidget {
 public:
     explicit StructurePanel(QWidget* parent = nullptr);
 
-    void SetRobot(const amr::urdf::Robot& robot);
-    void SetScene(const amr::Scene& scene);
+    void SetRobot(const simul::urdf::Robot& robot);
+    void SetScene(const simul::Scene& scene);
     void Clear();
 
     // 충돌 중인 링크를 빨갛게 표시한다 (링크 인덱스 목록)
-    void SetCollidingLinks(const amr::Array<int>& links);
+    void SetCollidingLinks(const simul::Array<int>& links);
     // 관절별 부가 정보(예: 중력 하중)를 3번째 열에 보여준다. 관절 이름 -> (표시 문자열, 강조 여부).
     // 강조(true)이면 빨갛게 표시한다. 목록에 없는 관절은 비운다.
-    void SetJointNotes(const amr::Map<amr::String, amr::Pair<QString, bool> >& notes);
+    void SetJointNotes(const simul::Map<simul::String, simul::Pair<QString, bool> >& notes);
     // 코드에서 링크를 선택한다 (linkSelected 는 내보내지 않는다). -1 이면 선택 해제.
     void SelectLink(int link);
 
@@ -38,11 +38,11 @@ signals:
 
 private:
     void onCurrentChanged(QTreeWidgetItem* cur);
-    void addLink(QTreeWidgetItem* parent, const amr::urdf::Robot& robot, int link, int viaJoint,
-                 const amr::Array<amr::Array<int> >& childJoints);
-    void addNode(QTreeWidgetItem* parent, const amr::Scene& scene, int node);
+    void addLink(QTreeWidgetItem* parent, const simul::urdf::Robot& robot, int link, int viaJoint,
+                 const simul::Array<simul::Array<int> >& childJoints);
+    void addNode(QTreeWidgetItem* parent, const simul::Scene& scene, int node);
 
-    amr::Array<QTreeWidgetItem*> linkItems_;  // 링크 인덱스 -> 항목
+    simul::Array<QTreeWidgetItem*> linkItems_;  // 링크 인덱스 -> 항목
 };
 
 #endif  // CORECQT_STRUCTUREPANEL_H

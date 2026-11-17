@@ -5,7 +5,7 @@
 
 #include "CBase/Array.h"
 
-namespace amr {
+namespace simul {
 
 // 해시 맵: 정점 합치기처럼 항목이 수십만 개가 될 수 있는 조회용 (평균 O(1)). 순서는 없다.
 // K 는 == 비교와 `size_t Hash() const` 를 가져야 한다. 지우기는 지원하지 않는다.
@@ -73,6 +73,6 @@ private:
     size_t count_;
 };
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_HASHMAP_H

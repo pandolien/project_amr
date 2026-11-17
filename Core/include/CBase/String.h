@@ -5,7 +5,7 @@
 
 #include "CBase/Util.h"
 
-namespace amr {
+namespace simul {
 
 // 문자열 (string 대체). 바이트 문자열이고 항상 널 문자로 끝난다. UTF-8 을 그대로 담는다.
 class String {
@@ -106,6 +106,6 @@ String ToString(double v);  // "%g" 형식 (유효숫자 6 자리). 더 필요�
 // printf 형식 (snprintf 로 만든다). 결과가 아주 길어도 잘리지 않는다.
 String Format(const char* fmt, ...);
 
-}  // namespace amr
+}  // namespace simul
 
 #endif  // CORE_CBASE_STRING_H

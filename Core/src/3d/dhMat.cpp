@@ -45,8 +45,8 @@ dhMat dhMat::Trans(float x, float y, float z) {
 // angle is radian
 dhMat dhMat::RotX(float angle) {
     dhMat h;
-    float s = amr::Sin(angle);
-    float c = amr::Cos(angle);
+    float s = simul::Sin(angle);
+    float c = simul::Cos(angle);
     h.v[5] = c;
     h.v[9] = -s;
     h.v[6] = s;
@@ -56,8 +56,8 @@ dhMat dhMat::RotX(float angle) {
 
 dhMat dhMat::RotY(float angle) {
     dhMat h;
-    float s = amr::Sin(angle);
-    float c = amr::Cos(angle);
+    float s = simul::Sin(angle);
+    float c = simul::Cos(angle);
     h.v[0] = c;
     h.v[8] = s;
     h.v[2] = -s;
@@ -67,8 +67,8 @@ dhMat dhMat::RotY(float angle) {
 
 dhMat dhMat::RotZ(float angle) {
     dhMat h;
-    float s = amr::Sin(angle);
-    float c = amr::Cos(angle);
+    float s = simul::Sin(angle);
+    float c = simul::Cos(angle);
     h.v[0] = c;
     h.v[4] = -s;
     h.v[1] = s;
@@ -134,9 +134,9 @@ dhMat dhMat::Inv() const {
 dhMat dhMat::Quat(float angle, const dhVector& axis) {
     dhVector u = axis.Unit();
     float half = angle * 0.5f;
-    float s = amr::Sin(half);
+    float s = simul::Sin(half);
     dhQuat q;
-    q.w = amr::Cos(half);
+    q.w = simul::Cos(half);
     q.x = u.x * s;
     q.y = u.y * s;
     q.z = u.z * s;
@@ -178,25 +178,25 @@ dhQuat dhMat::GetQuat() const {
 
     const float t = v[0] + v[5] + v[10];
     if (t > 0) {
-        float S = 2.0f * amr::Sqrt(t + 1.0f);  // S = 4w
+        float S = 2.0f * simul::Sqrt(t + 1.0f);  // S = 4w
         q.w = S * 0.25f;
         q.x = (v[6] - v[9]) / S;
         q.y = (v[8] - v[2]) / S;
         q.z = (v[1] - v[4]) / S;
     } else if (v[0] >= v[5] && v[0] >= v[10]) {
-        float S = 2.0f * amr::Sqrt(1.0f + v[0] - v[5] - v[10]);  // S = 4x
+        float S = 2.0f * simul::Sqrt(1.0f + v[0] - v[5] - v[10]);  // S = 4x
         q.x = S * 0.25f;
         q.w = (v[6] - v[9]) / S;
         q.y = (v[4] + v[1]) / S;
         q.z = (v[8] + v[2]) / S;
     } else if (v[5] >= v[10]) {
-        float S = 2.0f * amr::Sqrt(1.0f + v[5] - v[0] - v[10]);  // S = 4y
+        float S = 2.0f * simul::Sqrt(1.0f + v[5] - v[0] - v[10]);  // S = 4y
         q.y = S * 0.25f;
         q.w = (v[8] - v[2]) / S;
         q.x = (v[4] + v[1]) / S;
         q.z = (v[9] + v[6]) / S;
     } else {
-        float S = 2.0f * amr::Sqrt(1.0f + v[10] - v[0] - v[5]);  // S = 4z
+        float S = 2.0f * simul::Sqrt(1.0f + v[10] - v[0] - v[5]);  // S = 4z
         q.z = S * 0.25f;
         q.w = (v[1] - v[4]) / S;
         q.x = (v[8] + v[2]) / S;
@@ -207,10 +207,10 @@ dhQuat dhMat::GetQuat() const {
 
 dhEuler dhMat::RPY() const {
     dhEuler abr;
-    abr.b = amr::Atan2(-v[2], amr::Sqrt(v[0] * v[0] + v[1] * v[1]));
-    float cb = amr::Cos(abr.b);
-    abr.a = amr::Atan2(v[1] / cb, v[0] / cb);
-    abr.r = amr::Atan2(v[6] / cb, v[10] / cb);
+    abr.b = simul::Atan2(-v[2], simul::Sqrt(v[0] * v[0] + v[1] * v[1]));
+    float cb = simul::Cos(abr.b);
+    abr.a = simul::Atan2(v[1] / cb, v[0] / cb);
+    abr.r = simul::Atan2(v[6] / cb, v[10] / cb);
     return abr;
 }
 
