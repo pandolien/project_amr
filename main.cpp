@@ -36,6 +36,8 @@ struct Options {
     simul::Array<simul::String> moreFiles;  // 둘째 파일부터 (모두 한 장면에 올린다)
     struct Place { simul::String model; double v[4]; };   // --place 모델=x,y,z[,회전도]
     simul::Array<Place> places;
+    bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
+    bool hideMenu;             // --hide-menu: 메뉴만 숨김
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
@@ -61,7 +63,7 @@ struct Options {
     simul::Array<simul::Pair<simul::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     simul::Array<simul::Pair<simul::String, simul::String> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : shading(2), info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : onlyView(false), hideMenu(false), shading(2), info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
@@ -91,6 +93,7 @@ void PrintUsage(const char* exe) {
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
+        "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
@@ -157,6 +160,8 @@ int ParseArgs(int argc, char** argv, Options* o) {
             }
             continue;
         }
+        if (a == "--only-view") { o->onlyView = true; continue; }
+        if (a == "--hide-menu") { o->hideMenu = true; continue; }
         if (a == "--place" && hasNext) {
             const simul::String v = argv[++i];
             const size_t eq = v.find('=');
@@ -345,6 +350,7 @@ int PrintInfo(const Options& o) {
 #include <QMouseEvent>
 #include <QActionGroup>
 #include <QDockWidget>
+#include <QShortcut>
 #include <QMenu>
 #include <QDragEnterEvent>
 #include <QFileDialog>
@@ -388,6 +394,7 @@ public:
         for (size_t i = 0; i < o.packages.size(); i++)
             viewer_->LoadOptions().packagePaths.push_back(simul::MakePair(o.packages[i].first, o.packages[i].second));
         setCentralWidget(viewer_);
+        setDockNestingEnabled(true);   // 도크를 서로 옆/위/아래, 탭으로 자유롭게 놓을 수 있다
 
         tree_ = new StructurePanel;
         treeDock_ = new QDockWidget(QString::fromUtf8("구조"), this);
@@ -552,6 +559,24 @@ public:
         logAct->setText(QString::fromUtf8("로그"));
         logAct->setShortcut(Qt::Key_L);
         view->insertAction(viewSep, logAct);
+        // 화면 구성: 메뉴 숨기기(F10), 3D 화면만 보기(F11). 숨긴 메뉴의 단축키는 동작하지 않으므로 창 자체에도 달아 둔다.
+        menuAct_ = new QAction(QString::fromUtf8("메뉴 표시"), this);
+        menuAct_->setCheckable(true);
+        menuAct_->setChecked(true);
+        menuAct_->setShortcut(Qt::Key_F10);
+        QObject::connect(menuAct_, &QAction::toggled, this, [this](bool on) { menuBar()->setVisible(on); if (!uiHidden_) menuWasVisible_ = on; });
+        view->insertAction(viewSep, menuAct_);
+        addAction(menuAct_);
+        onlyViewAct_ = new QAction(QString::fromUtf8("3D 화면만 보기"), this);
+        onlyViewAct_->setCheckable(true);
+        onlyViewAct_->setShortcut(Qt::Key_F11);
+        QObject::connect(onlyViewAct_, &QAction::toggled, this, [this](bool on) { setUiHidden(on); });
+        view->insertAction(viewSep, onlyViewAct_);
+        addAction(onlyViewAct_);
+        QShortcut* esc = new QShortcut(QKeySequence(Qt::Key_Escape), this);   // 3D 화면만 보는 중에는 Esc 로도 돌아온다
+        QObject::connect(esc, &QShortcut::activated, this, [this]() { if (uiHidden_) onlyViewAct_->setChecked(false); });
+        view->insertSeparator(viewSep);
+        configureDocks();
         QAction* frame = new QAction(QString::fromUtf8("선택 좌표계"), this);
         view->insertAction(viewSep, frame);
         frame->setShortcut(Qt::Key_G);
@@ -645,6 +670,11 @@ public:
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { tree_->SetCollidingLinks(viewer_->CollidingLinks()); });
         infoMessage_ = QString::fromUtf8("파일 > 열기 (Ctrl+O) 또는 파일을 창에 끌어다 놓으세요. 왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대, 왼쪽 클릭: 물체 선택");
         statusBar()->showMessage(infoMessage_);
+    }
+
+    void startHidden(const Options& o) {
+        if (o.hideMenu) menuAct_->setChecked(false);
+        if (o.onlyView) onlyViewAct_->setChecked(true);
     }
 
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
@@ -771,6 +801,7 @@ public:
             lidarDock_ = new QDockWidget(QString::fromUtf8("라이다 그래프"), this);
             lidarDock_->setWidget(lidarPlot_);
             addDockWidget(Qt::RightDockWidgetArea, lidarDock_);
+            configureDock(lidarDock_);
             // 3D 화면이 그려지는지(레이저 표시가 켜져 있는지)와 상관없이 그래프가 나오도록 직접 스캔한다
             QTimer* t = new QTimer(this);
             QObject::connect(t, &QTimer::timeout, this, [this]() {
@@ -1061,6 +1092,48 @@ private:
         tree_->SetJointNotes(notes);
     }
 
+    // 모든 도크를 떼어 내(플로팅) 아무 데나 놓거나 다시 붙이고, 닫을 수 있게 한다
+    void configureDock(QDockWidget* d) {
+        if (!d) return;
+        d->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
+        d->setAllowedAreas(Qt::AllDockWidgetAreas);
+    }
+    void configureDocks() {
+        configureDock(treeDock_);
+        configureDock(dock_);
+        configureDock(logDock_);
+        configureDock(lidarDock_);
+    }
+
+    // 3D 화면만 남긴다: 메뉴, 상태바, 모든 도크(떼어 낸 것 포함)를 숨겼다가, 끄면 보이던 것만 되살린다
+    void setUiHidden(bool on) {
+        if (on == uiHidden_) return;
+        uiHidden_ = on;
+        const QList<QDockWidget*> docks = findChildren<QDockWidget*>();
+        if (on) {
+            hiddenDocks_.clear();
+            for (int i = 0; i < docks.size(); i++) {
+                if (docks[i]->isVisible()) hiddenDocks_.push_back(docks[i]);
+                docks[i]->hide();
+            }
+            menuWasVisible_ = menuBar()->isVisible();
+            statusWasVisible_ = statusBar()->isVisible();
+            menuBar()->hide();
+            statusBar()->hide();
+        } else {
+            for (int i = 0; i < hiddenDocks_.size(); i++) hiddenDocks_[i]->show();
+            hiddenDocks_.clear();
+            menuBar()->setVisible(menuWasVisible_);
+            statusBar()->setVisible(statusWasVisible_);
+        }
+        const bool b = menuAct_->blockSignals(true);
+        menuAct_->setChecked(on ? false : menuWasVisible_);
+        menuAct_->blockSignals(b);
+        const bool b2 = onlyViewAct_->blockSignals(true);
+        onlyViewAct_->setChecked(on);
+        onlyViewAct_->blockSignals(b2);
+    }
+
     void logError(const QString& text) {
         log_->Error(text);
         logDock_->show();   // 오류는 바로 보이게 한다
@@ -1129,6 +1202,12 @@ private:
     LidarPlot* lidarPlot_ = nullptr;
     QDockWidget* lidarDock_ = nullptr;
     JointPanel* panel_;
+    QAction* menuAct_ = nullptr;
+    QAction* onlyViewAct_ = nullptr;
+    bool uiHidden_ = false;           // 3D 화면만 보는 중
+    bool menuWasVisible_ = true;
+    bool statusWasVisible_ = true;
+    QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
     QDockWidget* logDock_ = nullptr;
     QSet<QString> loggedWarnings_;
@@ -1177,6 +1256,7 @@ int main(int argc, char** argv) {
             w.applyMove(o);
         }
     }
+    w.startHidden(o);
     if (!o.shot.empty() || !o.shotWindow.empty()) {
         const simul::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
