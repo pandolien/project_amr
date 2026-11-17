@@ -63,6 +63,7 @@ ModelViewer::ModelViewer(QWidget* parent)
     gizmoDirty_ = false;
     dragged_ = false;
     lidarOn_ = false;
+    lidarDraw_ = true;
     lidarLink_ = -1;
     lidarHeading_ = 0.0f;
     dragAxis_ = -1;
@@ -558,6 +559,7 @@ void ModelViewer::drawBoxEdges(const dhVector c[8], const QVector4D& color) {
 
 void ModelViewer::SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount) {
     lidarOn_ = true;
+    lidarDraw_ = true;
     lidarLink_ = link;
     lidarMount_ = mount;
     lidar_.SetSettings(settings);
@@ -747,7 +749,7 @@ void ModelViewer::paintGL() {
             it.ibo.release();
         }
     }
-    if (lidarOn_) {
+    if (lidarOn_ && lidarDraw_) {
         prog_->setUniformValue("uLit", 0.0f);
         prog_->setUniformValue("uMVP", proj * view);
         prog_->setUniformValue("uModelView", view);

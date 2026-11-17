@@ -5,7 +5,7 @@
   아래를 보는 채널이 높이 0.4 m 의 낮은 상자(초록)와 바닥까지 잡는다. 천장은 없어서 위를 보는 채널은 벽 윗부분까지만 잡힌다.
 
   실행:   amr_main Data/Object/samples/lidar_room_3d.urdf
-          왼쪽 구조 트리에서 lidar_link 를 마우스 오른쪽 버튼 -> "라이다 스캔 표시"
+          왼쪽 구조 트리에서 lidar_link 를 마우스 오른쪽 버튼 -> "레이저 표시" / "그래프 표시"
           기둥 움직이기: 관절 패널의 x_slide, y_slide (m), yaw (도). 스캔을 파일로: ... --lidar-csv scan.csv --shot out.png
 -->
 <robot name="lidar_room_3d">

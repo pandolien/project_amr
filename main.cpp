@@ -571,23 +571,39 @@ public:
         if (!sp.fromUrdf || !o.lidarCsv.empty()) showLidar(true);  // URDF 의 라이다는 오른쪽 버튼으로 켠다 (CSV 저장을 요청했으면 바로)
     }
 
-    // 라이다 스캔(광선, 맞은 점)과 그래프 도크를 켜고 끈다
-    void showLidar(bool on) {
-        if (!on || lidarSpec_.link < 0) {
-            viewer_->ClearLidar();
+    // 센서를 달아 둔다 (아직 안 달렸으면). 광선 표시와 그래프는 아래 두 함수로 따로 켜고 끈다
+    // 새로 달 때 레이저 표시는 꺼진 채로 시작한다 (켜는 쪽이 따로 켠다)
+    bool ensureLidar() {
+        if (lidarSpec_.link < 0) return false;
+        if (!viewer_->LidarEnabled()) {
+            viewer_->SetLidar(lidarSpec_.link, lidarSpec_.settings, lidarSpec_.mount);
+            viewer_->SetLidarDrawn(false);
+        }
+        return true;
+    }
+
+    // 3D 화면의 레이저(광선 + 맞은 점) 표시
+    void showLidarBeams(bool on) {
+        if (on && !ensureLidar()) return;
+        if (viewer_->LidarEnabled()) viewer_->SetLidarDrawn(on);  // ensureLidar 뒤라서 항상 달려 있다 (끄기 때는 안 달렸을 수도)
+    }
+
+    // 스캔 그래프 도크 (오른쪽). 보이는 동안에만 0.1 초마다 스캔해서 갱신한다
+    void showLidarGraph(bool on) {
+        if (on && !ensureLidar()) return;
+        if (!on) {
             if (lidarDock_) lidarDock_->hide();
             return;
         }
-        viewer_->SetLidar(lidarSpec_.link, lidarSpec_.settings, lidarSpec_.mount);
-        if (!lidarPlot_) {  // 스캔 그래프 (오른쪽 도크)
+        if (!lidarPlot_) {
             lidarPlot_ = new LidarPlot;
-            lidarDock_ = new QDockWidget(QString::fromUtf8("라이다"), this);
+            lidarDock_ = new QDockWidget(QString::fromUtf8("라이다 그래프"), this);
             lidarDock_->setWidget(lidarPlot_);
             addDockWidget(Qt::RightDockWidgetArea, lidarDock_);
-            // 3D 화면이 그려지는지와 상관없이 그래프가 나오도록, 0.1 초마다 직접 스캔해서 갱신한다
+            // 3D 화면이 그려지는지(레이저 표시가 켜져 있는지)와 상관없이 그래프가 나오도록 직접 스캔한다
             QTimer* t = new QTimer(this);
             QObject::connect(t, &QTimer::timeout, this, [this]() {
-                if (!viewer_->LidarEnabled()) return;
+                if (!viewer_->LidarEnabled() || !lidarDock_->isVisible()) return;
                 const amr::sensor::LidarScan& sc = viewer_->ScanLidar();
                 lidarPlot_->SetScan(sc, viewer_->LidarOrigin(), viewer_->LidarHeading());
             });
@@ -596,14 +612,26 @@ public:
         lidarDock_->show();
     }
 
-    // 구조 트리에서 링크를 오른쪽 버튼으로 눌렀을 때: 라이다가 달린 링크면 스캔 표시를 켜고 끈다
+    // 레이저 표시와 그래프를 한꺼번에 켜고 끈다 (명령행 --lidar, 끄기)
+    void showLidar(bool on) {
+        showLidarBeams(on);
+        showLidarGraph(on);
+        if (!on) viewer_->ClearLidar();
+    }
+
+    // 구조 트리에서 링크를 오른쪽 버튼으로 눌렀을 때: 라이다가 달린 링크면 레이저 표시와 그래프를 따로 켜고 끈다  (exec 가 끝나면 체크 상태가 이미 바뀌어 있다)
     void onLinkContextMenu(int link, const QPoint& globalPos) {
         if (link < 0 || link != lidarSpec_.link) return;
         QMenu menu;
-        QAction* a = menu.addAction(QString::fromUtf8("라이다 스캔 표시 (광선 + 그래프)"));
-        a->setCheckable(true);
-        a->setChecked(viewer_->LidarEnabled());
-        if (menu.exec(globalPos) == a) showLidar(!viewer_->LidarEnabled());
+        QAction* beams = menu.addAction(QString::fromUtf8("레이저 표시 (3D 화면)"));
+        beams->setCheckable(true);
+        beams->setChecked(viewer_->LidarEnabled() && viewer_->LidarDrawn());
+        QAction* graph = menu.addAction(QString::fromUtf8("그래프 표시"));
+        graph->setCheckable(true);
+        graph->setChecked(lidarDock_ && lidarDock_->isVisible());
+        QAction* chosen = menu.exec(globalPos);
+        if (chosen == beams) showLidarBeams(beams->isChecked());
+        else if (chosen == graph) showLidarGraph(graph->isChecked());
     }
 
     void applyMove(const Options& o) {

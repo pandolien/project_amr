@@ -93,7 +93,10 @@ public:
     // 그린다. 정적 모델만 열려 있으면 link = -1 (월드 기준)로 달 수 있다. ClearLidar 로 끈다.
     void SetLidar(int link, const amr::sensor::LidarSettings& settings, const dhMat& mount = dhMat());
     void ClearLidar();
-    bool LidarEnabled() const { return lidarOn_; }
+    bool LidarEnabled() const { return lidarOn_; }  // 센서가 달려 있는가 (스캔은 ScanLidar 로 언제든 할 수 있다)
+    // 3D 화면에 광선(청록 선)과 맞은 점(빨간 십자)을 그릴지. SetLidar 직후는 true. 끄면 그리는 비용도 들지 않는다.
+    void SetLidarDrawn(bool on) { lidarDraw_ = on; update(); }
+    bool LidarDrawn() const { return lidarDraw_; }
     dhVector LidarOrigin() const { return lidarOrigin_; }  // 마지막 스캔의 센서 원점/방향각 (ScanLidar 뒤에 유효)
     float LidarHeading() const { return lidarHeading_; }
     const amr::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
@@ -191,6 +194,7 @@ private:
     bool dragged_;
     dhVector objectPos_;   // 이동량 (월드, m)
     bool lidarOn_;
+    bool lidarDraw_;
     int lidarLink_;
     dhMat lidarMount_;
     amr::sensor::Lidar lidar_;
