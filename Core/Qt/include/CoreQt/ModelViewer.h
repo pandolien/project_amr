@@ -23,6 +23,7 @@
 #include "CCollision/Bvh.h"
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
+#include "CURDF/World.h"
 
 // 3D 모델 / URDF 로봇 뷰어 (QOpenGLWidget, OpenGL 2.1 호환, Qt 5.12).
 //   마우스: 왼쪽 드래그 = 회전, 오른쪽/가운데 드래그 = 이동, 휠 = 확대/축소, 더블클릭 = 화면에 맞춤
@@ -35,7 +36,19 @@ public:
 
     // 확장자로 판별: .urdf 는 로봇(visual 메시 포함), 나머지(.glb .gltf .stl .obj .dae)는 정적 모델.
     // 실패하면 false 와 error. 성공 시 카메라를 모델에 맞춘다.
-    bool LoadFile(const QString& path, QString* error = nullptr);
+    // 모델을 한 장면에 여러 개 올린다. 파일을 열면 이전 것을 지우지 않고 추가한다 (URDF, 또는 STL/OBJ/DAE/glTF 한 개).
+    // 둘 이상이면 가상 "world" 링크 아래에 모델마다 고정 관절로 매달리고, 이름이 겹치는 링크/관절에는 "<모델>/" 이 붙는다.
+    bool AddFile(const QString& path, QString* error = nullptr);
+    bool LoadFile(const QString& path, QString* error = nullptr);  // 모두 지우고 이 파일 하나만 올린다
+    void CloseAll();
+    void RemoveModel(int index);
+    int ModelCount() const { return static_cast<int>(world_.size()); }
+    QString ModelName(int index) const;
+    int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)
+    int ModelOfRoot(int link) const { return world_.EntryOfRoot(robot_, link); }  // 링크가 어떤 모델의 루트이면 그 모델 번호, 아니면 -1
+    // 모델의 월드 위치(m)와 z축 회전(도). 모델이 하나면 오브젝트 위치로 움직인다 (회전은 둘 이상일 때만).
+    void SetModelPlacement(int index, float x, float y, float z, float yawDeg);
+    void ModelPlacement(int index, float* x, float* y, float* z, float* yawDeg) const;
 
     void SetScene(const simul::Scene& scene);  // 정적 모델 (이미 Z-up 이어야 한다)
     void SetRobot(const simul::urdf::Robot& robot, const simul::urdf::RobotMeshes& meshes);
@@ -202,6 +215,8 @@ private:
     dhVector objectPos_;   // 이동량 (월드, m)
     bool lidarOn_;
     bool lidarDraw_;
+    simul::urdf::World world_;      // 올려 둔 모델들 (합친 결과가 robot_)
+    bool rebuildWorld(QString* error);
     int shading_;
     int lidarLink_;
     dhMat lidarMount_;

@@ -33,6 +33,9 @@ void InitConsole() {
 
 struct Options {
     simul::String file;
+    simul::Array<simul::String> moreFiles;  // 둘째 파일부터 (모두 한 장면에 올린다)
+    struct Place { simul::String model; double v[4]; };   // --place 모델=x,y,z[,회전도]
+    simul::Array<Place> places;
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
@@ -87,6 +90,7 @@ void PrintUsage(const char* exe) {
         "  --no-fall          중력 낙하를 끈다 (기본은 들어 올린 물체가 바닥으로 떨어짐)\n"
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
+        "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
@@ -153,6 +157,19 @@ int ParseArgs(int argc, char** argv, Options* o) {
             }
             continue;
         }
+        if (a == "--place" && hasNext) {
+            const simul::String v = argv[++i];
+            const size_t eq = v.find('=');
+            Options::Place pl;
+            pl.v[0] = pl.v[1] = pl.v[2] = pl.v[3] = 0;
+            if (eq == simul::String::npos || eq == 0 || sscanf(v.c_str() + eq + 1, "%lf,%lf,%lf,%lf", &pl.v[0], &pl.v[1], &pl.v[2], &pl.v[3]) < 3) {
+                fprintf(stderr, "--place 는 모델이름=x,y,z 또는 모델이름=x,y,z,회전도 형식입니다 (예: lidar_room=0,0,0,90)\n");
+                return 2;
+            }
+            pl.model = v.substr(0, eq);
+            o->places.push_back(pl);
+            continue;
+        }
         if (a == "--shading" && hasNext) {
             const simul::String v = argv[++i];
             if (v == "lambert") o->shading = 0;
@@ -191,7 +208,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (!a.empty() && a[0] == '-') { fprintf(stderr, "알 수 없는 옵션: %s (--help)\n", a.c_str()); return 2; }
-        o->file = a;
+        if (o->file.empty()) o->file = a; else o->moreFiles.push_back(a);
     }
     return 0;
 }
@@ -415,14 +432,23 @@ public:
         });
 
         QMenu* file = menuBar()->addMenu(QString::fromUtf8("파일"));
-        QAction* open = file->addAction(QString::fromUtf8("열기..."));
+        QAction* open = file->addAction(QString::fromUtf8("열기 (추가)..."));
         open->setShortcut(QKeySequence::Open);
         QObject::connect(open, &QAction::triggered, this, [this]() {
             const QString p = QFileDialog::getOpenFileName(
-                this, QString::fromUtf8("모델 또는 URDF 열기"), QString(),
+                this, QString::fromUtf8("모델 또는 URDF 열기 (현재 장면에 추가됩니다)"), QString(),
                 QString::fromUtf8("3D 모델 / URDF (*.urdf *.glb *.gltf *.stl *.obj *.dae);;모든 파일 (*)"));
             if (!p.isEmpty()) openFile(p);
         });
+        QAction* closeAll = file->addAction(QString::fromUtf8("모두 닫기"));
+        QObject::connect(closeAll, &QAction::triggered, this, [this]() {
+            showLidar(false);
+            viewer_->CloseAll();
+            lidarSpec_ = LidarSpec();
+            afterLoad(QString());
+            setWindowTitle("Project Simul");
+        });
+        file->addSeparator();
         QAction* quit = file->addAction(QString::fromUtf8("종료"));
         quit->setShortcut(QKeySequence::Quit);
         QObject::connect(quit, &QAction::triggered, this, &QWidget::close);
@@ -564,15 +590,31 @@ public:
         statusBar()->showMessage(infoMessage_);
     }
 
+    // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
     bool openFile(const QString& path) {
+        const bool beamsWere = viewer_->LidarEnabled() && viewer_->LidarDrawn();
+        const bool graphWere = lidarDock_ && lidarDock_->isVisible();
         QString err;
-        if (!viewer_->LoadFile(path, &err)) {
+        if (!viewer_->AddFile(path, &err)) {
             QMessageBox::warning(this, QString::fromUtf8("열 수 없음"), err);
             return false;
         }
         afterLoad(path);
-        applyLidar(cli_);  // 메뉴/드래그로 연 파일에도 URDF 의 라이다를 단다
+        applyLidar(cli_);  // URDF 의 라이다 설정을 읽어 둔다
+        if (beamsWere && lidarSpec_.link >= 0) showLidarBeams(true);  // 모델을 더해도 켜 둔 라이다 표시는 유지
+        if (graphWere && lidarSpec_.link >= 0) showLidarGraph(true);
         return true;
+    }
+
+    // --place: 모델 이름으로 월드 위치를 정한다
+    void applyPlaces(const Options& o) {
+        for (size_t i = 0; i < o.places.size(); i++) {
+            int found = -1;
+            for (int m = 0; m < viewer_->ModelCount(); m++) if (viewer_->ModelName(m) == simulqt::ToQ(o.places[i].model)) found = m;
+            if (found < 0) { fprintf(stderr, "경고: 모델 '%s' 이 없습니다 (--place)\n", o.places[i].model.c_str()); continue; }
+            viewer_->SetModelPlacement(found, static_cast<float>(o.places[i].v[0]), static_cast<float>(o.places[i].v[1]), static_cast<float>(o.places[i].v[2]), static_cast<float>(o.places[i].v[3]));
+        }
+        if (!o.places.empty()) afterLoad(QString::fromUtf8("배치 적용"));
     }
 
     // 명령행에서 받은 관절 값을 적용한다 (각도 관절은 degree 로 받아 rad 로 바꾼다)
@@ -684,17 +726,65 @@ public:
 
     // 구조 트리에서 링크를 오른쪽 버튼으로 눌렀을 때: 라이다가 달린 링크면 레이저 표시와 그래프를 따로 켜고 끈다  (exec 가 끝나면 체크 상태가 이미 바뀌어 있다)
     void onLinkContextMenu(int link, const QPoint& globalPos) {
-        if (link < 0 || link != lidarSpec_.link) return;
+        const int model = viewer_->ModelOfRoot(link);   // 모델의 루트 링크를 눌렀는가
+        const bool lidar = link >= 0 && link == lidarSpec_.link;
+        if (model < 0 && !lidar) return;
         QMenu menu;
-        QAction* beams = menu.addAction(QString::fromUtf8("레이저 표시 (3D 화면)"));
-        beams->setCheckable(true);
-        beams->setChecked(viewer_->LidarEnabled() && viewer_->LidarDrawn());
-        QAction* graph = menu.addAction(QString::fromUtf8("그래프 표시"));
-        graph->setCheckable(true);
-        graph->setChecked(lidarDock_ && lidarDock_->isVisible());
-        QAction* chosen = menu.exec(globalPos);
+        QAction *beams = nullptr, *graph = nullptr, *place = nullptr, *remove = nullptr;
+        if (lidar) {
+            beams = menu.addAction(QString::fromUtf8("레이저 표시 (3D 화면)"));
+            beams->setCheckable(true);
+            beams->setChecked(viewer_->LidarEnabled() && viewer_->LidarDrawn());
+            graph = menu.addAction(QString::fromUtf8("그래프 표시"));
+            graph->setCheckable(true);
+            graph->setChecked(lidarDock_ && lidarDock_->isVisible());
+        }
+        if (model >= 0) {
+            if (lidar) menu.addSeparator();
+            place = menu.addAction(QString::fromUtf8("위치 지정... (%1)").arg(viewer_->ModelName(model)));
+            remove = menu.addAction(QString::fromUtf8("제거 (%1)").arg(viewer_->ModelName(model)));
+        }
+        QAction* chosen = menu.exec(globalPos);   // 끝나면 체크 상태는 이미 바뀌어 있다
+        if (!chosen) return;
         if (chosen == beams) showLidarBeams(beams->isChecked());
         else if (chosen == graph) showLidarGraph(graph->isChecked());
+        else if (chosen == place) askPlacement(model);
+        else if (chosen == remove) removeModel(model);
+    }
+
+    // 모델의 월드 위치와 z축 회전을 입력받는다
+    void askPlacement(int model) {
+        float x, y, z, yaw;
+        viewer_->ModelPlacement(model, &x, &y, &z, &yaw);
+        bool ok = false;
+        const QString text = QInputDialog::getText(this, QString::fromUtf8("위치 지정"),
+                                                   QString::fromUtf8("%1\nx, y, z (m), 회전(도, z축): 마지막 회전은 생략하면 0\n(모델이 하나뿐이면 회전은 쓰이지 않습니다)").arg(viewer_->ModelName(model)),
+                                                   QLineEdit::Normal, QString("%1, %2, %3, %4").arg(x).arg(y).arg(z).arg(yaw), &ok);
+        if (!ok) return;
+        QString flat = text;
+        flat.replace(',', ' ');
+        const QStringList p = flat.simplified().split(' ', QString::SkipEmptyParts);
+        double v[4] = {0, 0, 0, 0};
+        bool good = p.size() == 3 || p.size() == 4;
+        for (int i = 0; good && i < p.size(); i++) v[i] = p[i].toDouble(&good);
+        if (!good) {
+            QMessageBox::warning(this, QString::fromUtf8("위치 지정"), QString::fromUtf8("숫자 3개(x, y, z) 또는 4개(+ 회전)를 넣어 주세요."));
+            return;
+        }
+        viewer_->SetModelPlacement(model, static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2]), static_cast<float>(v[3]));
+        updateCollisionLabel();
+    }
+
+    void removeModel(int model) {
+        const bool beamsWere = viewer_->LidarEnabled() && viewer_->LidarDrawn();
+        const bool graphWere = lidarDock_ && lidarDock_->isVisible();
+        const QString name = viewer_->ModelName(model);
+        showLidar(false);
+        viewer_->RemoveModel(model);
+        afterLoad(QString::fromUtf8("%1 제거").arg(name));
+        applyLidar(cli_);
+        if (beamsWere && lidarSpec_.link >= 0) showLidarBeams(true);
+        if (graphWere && lidarSpec_.link >= 0) showLidarGraph(true);
     }
 
     void applyMove(const Options& o) {
@@ -726,7 +816,7 @@ protected:
     }
     void dropEvent(QDropEvent* e) override {
         const QList<QUrl> urls = e->mimeData()->urls();
-        if (!urls.isEmpty()) openFile(urls[0].toLocalFile());
+        for (int i = 0; i < urls.size(); i++) openFile(urls[i].toLocalFile());
     }
 
 private:
@@ -857,6 +947,12 @@ private:
             tree_->SetRobot(viewer_->Robot());
             tree_->SetCollidingLinks(viewer_->CollidingLinks());
             panel_->SetRobot(viewer_->Robot());
+            {   // 모델을 더하거나 뺄 때 이름이 남아 있는 관절 값은 그대로 둔다
+                const simul::urdf::JointValues& q = viewer_->CurrentJointValues();
+                panel_->blockSignals(true);
+                for (simul::urdf::JointValues::const_iterator it = q.begin(); it != q.end(); ++it) panel_->SetValue(simulqt::ToQ(it->first), it->second);
+                panel_->blockSignals(false);
+            }
             updateTorques();
             dock_->setVisible(!panel_->IsEmpty());
         } else {
@@ -873,7 +969,7 @@ private:
         infoMessage_ = msg;
         statusBar()->showMessage(msg);
         updateSelectionLabel();
-        setWindowTitle(QString("Project Simul - ") + path);
+        setWindowTitle(viewer_->ModelCount() > 1 ? QString("Project Simul - %1").arg(QString::fromUtf8("모델 %1개").arg(viewer_->ModelCount())) : QString("Project Simul - ") + path);
     }
 
     Options cli_;  // 명령행 옵션 (파일을 새로 열 때도 쓴다)
@@ -924,6 +1020,8 @@ int main(int argc, char** argv) {
         if (!w.openFile(QString::fromLocal8Bit(o.file.c_str()))) {
             if (!o.shot.empty() || !o.shotWindow.empty()) return 1;
         } else {
+            for (size_t i = 0; i < o.moreFiles.size(); i++) w.openFile(QString::fromLocal8Bit(o.moreFiles[i].c_str()));
+            w.applyPlaces(o);
             w.applyJoints(o);
             w.applySelect(o);
             w.applyMove(o);

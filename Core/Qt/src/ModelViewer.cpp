@@ -489,28 +489,114 @@ QStringList ModelViewer::CollisionDescriptions() const {
     return out;
 }
 
-bool ModelViewer::LoadFile(const QString& path, QString* error) {
-    const simul::String p = simulqt::FromQLocal8Bit(path);
-    const QString ext = QFileInfo(path).suffix().toLower();
+bool ModelViewer::AddFile(const QString& path, QString* error) {
     simul::String err;
-    if (ext == "urdf") {
-        simul::urdf::Robot robot;
-        if (!simul::urdf::LoadUrdf(p, &robot, &err)) {
-            if (error) *error = simulqt::ToQ(err);
-            return false;
-        }
-        simul::urdf::RobotMeshes meshes;
-        simul::urdf::LoadRobotMeshes(robot, options_, &meshes);  // 일부 실패는 경고로 남는다
-        SetRobot(robot, meshes);
-        return true;
-    }
-    simul::Scene scene;
-    if (!simul::LoadMesh(p, &scene, &err)) {
+    const bool hadOne = world_.size() == 1;
+    if (!world_.Add(simulqt::FromQLocal8Bit(path), &err)) {
         if (error) *error = simulqt::ToQ(err);
         return false;
     }
-    if (ext == "glb" || ext == "gltf") scene.ApplyRootTransform(dhMat::RotX(static_cast<float>(dhRad(90.0))));  // Y-up -> Z-up
-    SetScene(scene);
+    if (hadOne) {  // 하나일 때 오브젝트 위치로 옮겨 둔 것을 첫 모델의 배치로 넘긴다 (둘 이상이면 배치는 attach 관절이 가진다)
+        world_.SetPlacement(0, dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z));
+    }
+    if (!rebuildWorld(error)) {
+        world_.Remove(world_.size() - 1);  // 합치지 못하면 추가를 취소한다
+        if (hadOne) {
+            world_.SetPlacement(0, dhMat());
+            rebuildWorld(nullptr);
+        }
+        return false;
+    }
+    return true;
+}
+
+bool ModelViewer::LoadFile(const QString& path, QString* error) {
+    const simul::urdf::World keep = world_;
+    world_.Clear();
+    if (AddFile(path, error)) return true;
+    world_ = keep;  // 열지 못하면 이전 장면을 그대로 둔다
+    return false;
+}
+
+void ModelViewer::CloseAll() {
+    world_.Clear();
+    Clear();
+    emit modelChanged();
+}
+
+void ModelViewer::RemoveModel(int index) {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
+    const bool wasMany = world_.size() >= 2;
+    const dhMat last = wasMany && world_.size() == 2 ? world_.entry(static_cast<size_t>(1 - index)).placement : dhMat();
+    world_.Remove(static_cast<size_t>(index));
+    if (world_.size() == 0) {
+        Clear();
+        emit modelChanged();
+        return;
+    }
+    rebuildWorld(nullptr);
+    if (world_.size() == 1 && wasMany) objectPos_ = dhVector(last.v[12], last.v[13], last.v[14]);  // 남은 하나는 오브젝트 위치로
+    update();
+}
+
+QString ModelViewer::ModelName(int index) const {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return QString();
+    return simulqt::ToQ(world_.entry(static_cast<size_t>(index)).name);
+}
+
+void ModelViewer::SetModelPlacement(int index, float x, float y, float z, float yawDeg) {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
+    if (world_.size() == 1) {
+        SetObjectPosition(x, y, z);
+        return;
+    }
+    const dhMat m = dhMat::Trans(x, y, z) * dhMat::RotZ(static_cast<float>(dhRad(yawDeg)));
+    world_.SetPlacement(static_cast<size_t>(index), m);
+    const simul::String& root = world_.entry(static_cast<size_t>(index)).rootName;
+    for (size_t j = 0; j < robot_.joints.size(); j++) {
+        if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = m;
+    }
+    linkT_ = robot_.LinkTransforms(q_);
+    minZValid_ = false;
+    recomputeCollisions();
+    updateBounds();
+    update();
+    emit modelChanged();
+}
+
+void ModelViewer::ModelPlacement(int index, float* x, float* y, float* z, float* yawDeg) const {
+    float v[4] = {0, 0, 0, 0};
+    if (index >= 0 && static_cast<size_t>(index) < world_.size()) {
+        if (world_.size() == 1) {
+            v[0] = objectPos_.x; v[1] = objectPos_.y; v[2] = objectPos_.z;
+        } else {
+            const dhMat& m = world_.entry(static_cast<size_t>(index)).placement;
+            v[0] = m.v[12]; v[1] = m.v[13]; v[2] = m.v[14];
+            v[3] = static_cast<float>(dhDeg(simul::Atan2(m.v[1], m.v[0])));
+        }
+    }
+    if (x) *x = v[0];
+    if (y) *y = v[1];
+    if (z) *z = v[2];
+    if (yawDeg) *yawDeg = v[3];
+}
+
+// 올려 둔 모델을 하나의 Robot 으로 합쳐 화면에 새로 올린다. 이름이 남아 있는 관절 값은 유지한다.
+bool ModelViewer::rebuildWorld(QString* error) {
+    simul::urdf::Robot built;
+    simul::String err;
+    if (!world_.Build(options_, &built, &err)) {
+        if (error) *error = simulqt::ToQ(err);
+        return false;
+    }
+    const simul::urdf::JointValues oldQ = q_;
+    simul::urdf::RobotMeshes meshes;
+    simul::urdf::LoadRobotMeshes(built, options_, &meshes);  // 일부 실패는 경고로 남는다
+    SetRobot(built, meshes);
+    simul::urdf::JointValues q;
+    for (simul::urdf::JointValues::const_iterator it = oldQ.begin(); it != oldQ.end(); ++it)
+        if (built.FindJoint(it->first) >= 0) q[it->first] = it->second;
+    if (!q.empty()) SetJointValues(q);
     return true;
 }
 

@@ -466,6 +466,17 @@ bool LoadUrdfFromString(const simul::String& xml, Robot* out, simul::String* err
     return true;
 }
 
+bool FinalizeRobot(Robot* robot, simul::String* error) {
+    if (!robot) return false;
+    Parser p;
+    p.robot = robot;
+    if (!p.Validate()) {
+        detail::SetError(error, p.error);
+        return false;
+    }
+    return true;
+}
+
 bool LoadUrdf(const simul::String& path, Robot* out, simul::String* error) {
     if (!out) return false;
     out->Clear();

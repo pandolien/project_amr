@@ -143,6 +143,9 @@ struct Robot {
     float EffectiveJointValue(const JointValues& q, int jointIndex, bool clampToLimits = true) const;
 };
 
+// 구조 검증과 루트/순서 계산 (LoadUrdf 가 마지막에 하는 것과 같다). 프로그램이 직접 만들거나 합친 Robot 에 쓴다.
+bool FinalizeRobot(Robot* robot, simul::String* error);
+
 struct LoadOptions {
     // package://<이름>/... 를 찾을 폴더. (이름, 그 패키지의 루트 폴더)
     simul::Array<simul::Pair<simul::String, simul::String> > packagePaths;
