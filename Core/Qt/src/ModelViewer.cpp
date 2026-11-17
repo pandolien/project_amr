@@ -151,9 +151,8 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragAxis_ = -1;
     dragIk_ = false;
     dragModel_ = -1;
-    dragRot_ = false;
-    dragRotA0_ = 0;
-    dragPlace_[0] = dragPlace_[1] = dragPlace_[2] = dragPlace_[3] = 0;
+    dragRing_ = -1;
+    dragRingA0_ = 0;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
@@ -361,7 +360,7 @@ bool ModelViewer::SelectedFrame(dhMat* out) const {
 }
 
 bool ModelViewer::CanMoveSelection() const {
-    if (world_.size() >= 2) return selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;  // 둘 이상이면 각 모델의 루트 링크가 이동 손잡이
+    if (world_.Composite()) return selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;  // 둘 이상이면 각 모델의 루트 링크가 이동 손잡이
     if (selectedModel_) return true;
     return hasRobot_ && selectedLink_ >= 0 && selectedLink_ == robot_.root;
 }
@@ -496,19 +495,22 @@ QStringList ModelViewer::CollisionDescriptions() const {
 
 bool ModelViewer::AddFile(const QString& path, QString* error) {
     simul::String err;
-    const bool hadOne = world_.size() == 1;
+    const bool hadOne = world_.size() == 1 && !world_.Composite();
     if (!world_.Add(simulqt::FromQLocal8Bit(path), &err)) {
         if (error) *error = simulqt::ToQ(err);
         return false;
     }
     if (hadOne) {  // 하나일 때 오브젝트 위치로 옮겨 둔 것을 첫 모델의 배치로 넘긴다 (둘 이상이면 배치는 attach 관절이 가진다)
         world_.SetPlacement(0, dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z));
+        objectPos_ = dhVector(0, 0, 0);
     }
     if (!rebuildWorld(error)) {
         world_.Remove(world_.size() - 1);  // 합치지 못하면 추가를 취소한다
         if (hadOne) {
+            const dhMat p = world_.entry(0).placement;
             world_.SetPlacement(0, dhMat());
             rebuildWorld(nullptr);
+            objectPos_ = dhVector(p.v[12], p.v[13], p.v[14]);
         }
         return false;
     }
@@ -517,9 +519,12 @@ bool ModelViewer::AddFile(const QString& path, QString* error) {
 
 bool ModelViewer::LoadFile(const QString& path, QString* error) {
     const simul::urdf::World keep = world_;
+    const dhVector keepPos = objectPos_;
     world_.Clear();
+    objectPos_ = dhVector(0, 0, 0);
     if (AddFile(path, error)) return true;
     world_ = keep;  // 열지 못하면 이전 장면을 그대로 둔다
+    objectPos_ = keepPos;
     return false;
 }
 
@@ -531,16 +536,25 @@ void ModelViewer::CloseAll() {
 
 void ModelViewer::RemoveModel(int index) {
     if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
-    const bool wasMany = world_.size() >= 2;
-    const dhMat last = wasMany && world_.size() == 2 ? world_.entry(static_cast<size_t>(1 - index)).placement : dhMat();
+    const bool wasComposite = world_.Composite();
+    // 둘 중 하나를 지워 하나만 남으면 그 모델의 자세를 가져간다 (회전이 있으면 world 아래에 그대로 둔다)
+    const dhMat last = world_.size() == 2 ? world_.entry(static_cast<size_t>(1 - index)).placement : dhMat();
     world_.Remove(static_cast<size_t>(index));
     if (world_.size() == 0) {
         Clear();
         emit modelChanged();
         return;
     }
+    bool rotated = false;
+    for (int k = 0; k < 3; k++)
+        for (int r = 0; r < 3; r++)
+            if (simul::Abs(last.v[k * 4 + r] - (k == r ? 1.0f : 0.0f)) > 1e-6f) rotated = true;
+    const bool stay = world_.Composite() || (wasComposite && world_.size() == 1 && rotated);
+    const bool toObjectPos = world_.size() == 1 && wasComposite && !stay;
+    if (toObjectPos) world_.SetPlacement(0, dhMat());
+    if (stay && world_.size() == 1) world_.SetForceComposite(true);
     rebuildWorld(nullptr);
-    if (world_.size() == 1 && wasMany) objectPos_ = dhVector(last.v[12], last.v[13], last.v[14]);  // 남은 하나는 오브젝트 위치로
+    if (toObjectPos) objectPos_ = dhVector(last.v[12], last.v[13], last.v[14]);  // 남은 하나는 오브젝트 위치로 (SetRobot 이 지운 뒤에 넣는다)
     update();
 }
 
@@ -549,17 +563,34 @@ QString ModelViewer::ModelName(int index) const {
     return simulqt::ToQ(world_.entry(static_cast<size_t>(index)).name);
 }
 
-void ModelViewer::SetModelPlacement(int index, float x, float y, float z, float yawDeg) {
-    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
-    if (world_.size() == 1) {
-        SetObjectPosition(x, y, z);
-        return;
+bool ModelViewer::ensureComposite() {
+    if (world_.Composite() || world_.size() != 1) return world_.Composite();
+    world_.SetPlacement(0, dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z));
+    objectPos_ = dhVector(0, 0, 0);
+    world_.SetForceComposite(true);
+    if (!rebuildWorld(nullptr, true)) {
+        world_.SetForceComposite(false);
+        const dhMat p = world_.entry(0).placement;
+        world_.SetPlacement(0, dhMat());
+        rebuildWorld(nullptr, true);
+        objectPos_ = dhVector(p.v[12], p.v[13], p.v[14]);  // SetRobot 이 위치를 지우므로 다시 넣는다
+        return false;
     }
-    const dhMat m = dhMat::Trans(x, y, z) * dhMat::RotZ(static_cast<float>(dhRad(yawDeg)));
-    world_.SetPlacement(static_cast<size_t>(index), m);
+    emit structureChanged();
+    return true;
+}
+
+bool ModelViewer::CanRotateSelection() const {
+    return showFrame_ && hasRobot_ && selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;
+}
+
+void ModelViewer::SetModelPose(int index, const dhMat& pose) {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
+    if (!world_.Composite() && !ensureComposite()) return;
+    world_.SetPlacement(static_cast<size_t>(index), pose);
     const simul::String& root = world_.entry(static_cast<size_t>(index)).rootName;
     for (size_t j = 0; j < robot_.joints.size(); j++) {
-        if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = m;
+        if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = pose;
     }
     linkT_ = robot_.LinkTransforms(q_);
     minZValid_ = false;
@@ -567,27 +598,53 @@ void ModelViewer::SetModelPlacement(int index, float x, float y, float z, float 
     updateBounds();
     update();
     emit modelChanged();
+    emit objectMoved();
+}
+
+dhMat ModelViewer::ModelPose(int index) const {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return dhMat();
+    if (!world_.Composite()) return dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z);
+    return world_.entry(static_cast<size_t>(index)).placement;
+}
+
+void ModelViewer::SetModelPlacement6(int index, const float v[6]) {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
+    const bool rotates = v[3] != 0.0f || v[4] != 0.0f || v[5] != 0.0f;
+    if (!world_.Composite() && !rotates) {
+        SetObjectPosition(v[0], v[1], v[2]);
+        return;
+    }
+    const dhMat m = dhMat::Trans(v[0], v[1], v[2]) * dhMat::RotZ(static_cast<float>(dhRad(v[5]))) *
+                    dhMat::RotY(static_cast<float>(dhRad(v[4]))) * dhMat::RotX(static_cast<float>(dhRad(v[3])));
+    SetModelPose(index, m);
+}
+
+void ModelViewer::SetModelPlacement(int index, float x, float y, float z, float yawDeg) {
+    const float v[6] = {x, y, z, 0.0f, 0.0f, yawDeg};
+    SetModelPlacement6(index, v);
+}
+
+void ModelViewer::ModelPlacement6(int index, float v[6]) const {
+    for (int i = 0; i < 6; i++) v[i] = 0;
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
+    const dhMat m = ModelPose(index);
+    v[0] = m.v[12]; v[1] = m.v[13]; v[2] = m.v[14];
+    v[3] = static_cast<float>(dhDeg(simul::Atan2(m.v[6], m.v[10])));                          // roll
+    v[4] = static_cast<float>(dhDeg(asinf(simul::Max(-1.0f, simul::Min(1.0f, -m.v[2])))));    // pitch
+    v[5] = static_cast<float>(dhDeg(simul::Atan2(m.v[1], m.v[0])));                           // yaw
 }
 
 void ModelViewer::ModelPlacement(int index, float* x, float* y, float* z, float* yawDeg) const {
-    float v[4] = {0, 0, 0, 0};
-    if (index >= 0 && static_cast<size_t>(index) < world_.size()) {
-        if (world_.size() == 1) {
-            v[0] = objectPos_.x; v[1] = objectPos_.y; v[2] = objectPos_.z;
-        } else {
-            const dhMat& m = world_.entry(static_cast<size_t>(index)).placement;
-            v[0] = m.v[12]; v[1] = m.v[13]; v[2] = m.v[14];
-            v[3] = static_cast<float>(dhDeg(simul::Atan2(m.v[1], m.v[0])));
-        }
-    }
+    float v[6];
+    ModelPlacement6(index, v);
     if (x) *x = v[0];
     if (y) *y = v[1];
     if (z) *z = v[2];
-    if (yawDeg) *yawDeg = v[3];
+    if (yawDeg) *yawDeg = v[5];
 }
 
 // 올려 둔 모델을 하나의 Robot 으로 합쳐 화면에 새로 올린다. 이름이 남아 있는 관절 값은 유지한다.
-bool ModelViewer::rebuildWorld(QString* error) {
+bool ModelViewer::rebuildWorld(QString* error, bool keepView) {
     simul::urdf::Robot built;
     simul::String err;
     if (!world_.Build(options_, &built, &err)) {
@@ -595,13 +652,23 @@ bool ModelViewer::rebuildWorld(QString* error) {
         return false;
     }
     const simul::urdf::JointValues oldQ = q_;
+    const QString selName = (selectedLink_ >= 0 && static_cast<size_t>(selectedLink_) < robot_.links.size()) ? simulqt::ToQ(robot_.links[static_cast<size_t>(selectedLink_)].name) : QString();
+    const float vYaw = yaw_, vPitch = pitch_, vDist = dist_;
+    const QVector3D vTarget = target_;
     simul::urdf::RobotMeshes meshes;
     simul::urdf::LoadRobotMeshes(built, options_, &meshes);  // 일부 실패는 경고로 남는다
     SetRobot(built, meshes);
+    if (keepView) {  // 이미 보고 있던 장면을 다시 합치는 것이면 카메라를 그대로 둔다
+        yaw_ = vYaw; pitch_ = vPitch; dist_ = vDist; target_ = vTarget;
+    }
     simul::urdf::JointValues q;
     for (simul::urdf::JointValues::const_iterator it = oldQ.begin(); it != oldQ.end(); ++it)
         if (built.FindJoint(it->first) >= 0) q[it->first] = it->second;
     if (!q.empty()) SetJointValues(q);
+    if (!selName.isEmpty()) {  // 합치기 전에 골라 둔 링크는 이름으로 다시 찾아 선택을 유지한다
+        const int l = robot_.FindLink(simulqt::FromQ(selName));
+        if (l >= 0) selectedLink_ = l;
+    }
     return true;
 }
 
@@ -996,14 +1063,15 @@ void ModelViewer::drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& v
         glLineWidth(1.0f);
         prog_->disableAttributeArray(0);
     }
+    drawRings(proj, view);
 }
 
-// 광선이 원점의 높이에 있는 수평면과 만나는 곳의 방위각 (원점 기준, rad)
-static bool HorizontalAngle(const QVector3D& o, const QVector3D& d, const QVector3D& c, float* ang) {
-    if (simul::Abs(d.z()) < 1e-9f) return false;
-    const float t = (c.z() - o.z()) / d.z();
-    const QVector3D p = o + d * t;
-    *ang = simul::Atan2(p.y() - c.y(), p.x() - c.x());
+// 광선이 원점 o 를 지나고 법선이 n 인 평면과 만나는 곳의 점
+static bool RayPlane(const QVector3D& ro, const QVector3D& rd, const QVector3D& o, const QVector3D& n, QVector3D* p) {
+    const float den = QVector3D::dotProduct(rd, n);
+    if (simul::Abs(den) < 1e-9f) return false;
+    const float t = QVector3D::dotProduct(o - ro, n) / den;
+    *p = ro + rd * t;
     return true;
 }
 
@@ -1012,6 +1080,8 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
     pressPos_ = e->pos();
     dragged_ = false;
     dragAxis_ = -1;
+    dragRing_ = -1;
+    dragModel_ = -1;
     if (e->button() == Qt::LeftButton) {  // 좌표계 화살표 위에서 누르면 카메라가 아니라 물체를 움직인다
         float u = 0;
         const int axis = hitGizmoAxis(e->pos(), &u);
@@ -1020,18 +1090,42 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
             dragU0_ = u;
             dragStart_ = objectPos_;
             dragIk_ = !CanMoveSelection();
-            dragModel_ = -1;
-            if (!dragIk_ && world_.size() >= 2) {  // 모델 하나를 움직인다: 시작 순간의 좌표계와 배치를 기억한다
+            if (!dragIk_ && world_.Composite()) {  // 모델 하나를 움직인다: 시작 순간의 좌표계와 자세를 기억한다
                 dragModel_ = ModelOfRoot(selectedLink_);
                 float s = 0;
                 selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
-                ModelPlacement(dragModel_, &dragPlace_[0], &dragPlace_[1], &dragPlace_[2], &dragPlace_[3]);
-                QVector3D o, dd;
-                dragRot_ = (e->modifiers() & Qt::ShiftModifier) && mouseRay(e->pos(), &o, &dd) && HorizontalAngle(o, dd, dragIkOrigin_, &dragRotA0_);
+                dragPose_ = ModelPose(dragModel_);
             }
             if (dragIk_) {  // 시작 순간의 좌표계를 기억해 둔다 (관절이 움직여도 축이 흔들리지 않게)
                 float s = 0;
                 selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
+            }
+        } else {  // 화살표가 아니면 회전 링인지 본다
+            float ang = 0;
+            const int ring = hitRing(e->pos(), &ang);
+            if (ring >= 0) {
+                const int model = ModelOfRoot(selectedLink_);
+                if (!world_.Composite()) ensureComposite();  // 모델 하나도 자세를 attach 관절로 표현해야 돌릴 수 있다
+                if (world_.Composite()) {
+                    dragModel_ = model;
+                    dragRing_ = ring;
+                    // ensureComposite 로 다시 합쳐졌으니 링 기준을 새로 구한다
+                    QVector3D a;
+                    float s = 0;
+                    if (ringBasis(ring, &dragIkOrigin_, &a, &dragRingU_, &dragRingV_, &s)) {
+                        dragIkAxes_[0] = a;
+                        dragPose_ = ModelPose(dragModel_);
+                        QVector3D ro, rd, p;
+                        if (mouseRay(e->pos(), &ro, &rd) && RayPlane(ro, rd, dragIkOrigin_, a, &p)) {
+                            const QVector3D r = p - dragIkOrigin_;
+                            dragRingA0_ = simul::Atan2(QVector3D::dotProduct(r, dragRingV_), QVector3D::dotProduct(r, dragRingU_));
+                        } else {
+                            dragRing_ = -1;
+                        }
+                    } else {
+                        dragRing_ = -1;
+                    }
+                }
             }
         }
     }
@@ -1040,11 +1134,12 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
 void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     // 거의 움직이지 않고 뗀 왼쪽 버튼 = 클릭: 그 자리의 물체를 선택한다
     if (e->button() != Qt::LeftButton) return;
-    if (dragAxis_ >= 0) {  // 화살표를 끌던 중이었다: 선택은 그대로 두고 끝낸다
+    if (dragAxis_ >= 0 || dragRing_ >= 0) {  // 화살표/링을 끌던 중이었다: 선택은 그대로 두고 끝낸다
+        dragRing_ = -1;
         dragAxis_ = -1;
         dragIk_ = false;
         dragModel_ = -1;
-        dragRot_ = false;
+        dragRing_ = -1;
         update();
         return;
     }
@@ -1114,6 +1209,75 @@ int ModelViewer::hitGizmoAxis(const QPoint& pos, float* uOut) const {
     return best;
 }
 
+// 회전 링의 기준: 링 평면의 법선(축, 월드), 평면 안의 직교 기준 u,v (u x v = 축), 화면 크기
+bool ModelViewer::ringBasis(int axis, QVector3D* origin, QVector3D* a, QVector3D* u, QVector3D* v, float* scale) const {
+    QVector3D ax[3];
+    if (axis < 0 || axis > 2 || !selectionGizmo(origin, ax, scale)) return false;
+    *a = ax[axis];
+    *u = ax[(axis + 1) % 3];
+    *v = QVector3D::crossProduct(*a, *u).normalized();
+    return true;
+}
+
+static const float kRingRadius = 0.72f;  // 링 반지름 (좌표계 화살표 길이 1 기준)
+
+int ModelViewer::hitRing(const QPoint& pos, float* angle) const {
+    if (!CanRotateSelection()) return -1;
+    QVector3D ro, rd;
+    if (!mouseRay(pos, &ro, &rd)) return -1;
+    int best = -1;
+    float bestErr = 1e30f;
+    for (int i = 0; i < 3; i++) {
+        QVector3D o, a, u, v, p;
+        float s = 0;
+        if (!ringBasis(i, &o, &a, &u, &v, &s) || !RayPlane(ro, rd, o, a, &p)) continue;
+        const QVector3D r = p - o;
+        const float err = simul::Abs(r.length() - kRingRadius * s);
+        if (err < 0.07f * s && err < bestErr) {  // 링 두께보다 조금 넉넉하게
+            bestErr = err;
+            best = i;
+            if (angle) *angle = simul::Atan2(QVector3D::dotProduct(r, v), QVector3D::dotProduct(r, u));
+        }
+    }
+    return best;
+}
+
+// 선택한 모델의 회전 링 3개 (축마다 같은 색). 좌표계처럼 화면에서 일정한 크기로 그린다.
+void ModelViewer::drawRings(const QMatrix4x4& proj, const QMatrix4x4& view) {
+    if (!CanRotateSelection()) return;
+    dhMat f;
+    if (!SelectedFrame(&f)) return;
+    const QMatrix4x4 frame = ToQt(f);
+    const QVector3D origin = frame.column(3).toVector3D();
+    const QVector3D eye = view.inverted().column(3).toVector3D();
+    const float s = simul::Max((eye - origin).length() * 0.14f, 1e-6f);
+    QMatrix4x4 scaled = frame;
+    scaled.scale(s * kRingRadius);
+    prog_->setUniformValue("uLit", 0.0f);
+    prog_->setUniformValue("uMVP", proj * view * scaled);
+    prog_->setUniformValue("uModelView", view * scaled);
+    const QVector4D colors[3] = {QVector4D(0.92f, 0.2f, 0.2f, 1), QVector4D(0.25f, 0.8f, 0.25f, 1), QVector4D(0.25f, 0.45f, 0.95f, 1)};
+    const int N = 64;
+    float pts[N + 1][3];
+    prog_->enableAttributeArray(0);
+    prog_->disableAttributeArray(1);
+    glLineWidth(3.0f);
+    for (int axis = 0; axis < 3; axis++) {
+        const int i1 = (axis + 1) % 3, i2 = (axis + 2) % 3;
+        for (int k = 0; k <= N; k++) {
+            const float t = 6.2831853f * static_cast<float>(k) / static_cast<float>(N);
+            pts[k][0] = pts[k][1] = pts[k][2] = 0.0f;
+            pts[k][i1] = simul::Cos(t);
+            pts[k][i2] = simul::Sin(t);
+        }
+        prog_->setUniformValue("uColor", dragRing_ == axis ? QVector4D(1.0f, 0.95f, 0.3f, 1) : colors[axis]);
+        prog_->setAttributeArray(0, GL_FLOAT, pts, 3);
+        glDrawArrays(GL_LINE_STRIP, 0, N + 1);
+    }
+    glLineWidth(1.0f);
+    prog_->disableAttributeArray(0);
+}
+
 int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
     if (model) *model = false;
     if (items_.empty()) return -1;
@@ -1161,15 +1325,27 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
             SetJointValues(r.q);
             emit jointValuesDragged(r.q);
         }
+    } else if (dragRing_ >= 0 && dragModel_ >= 0 && (e->buttons() & Qt::LeftButton)) {
+        QVector3D ro, rd, p;
+        if (mouseRay(e->pos(), &ro, &rd) && RayPlane(ro, rd, dragIkOrigin_, dragIkAxes_[0], &p)) {
+            const QVector3D r = p - dragIkOrigin_;
+            const float a = simul::Atan2(QVector3D::dotProduct(r, dragRingV_), QVector3D::dotProduct(r, dragRingU_));
+            // 링의 축(월드) 둘레로 모델 원점을 지나게 돌린다: M = T(o) R(axis, 변화량) T(-o) M0
+            const dhVector ax(dragIkAxes_[0].x(), dragIkAxes_[0].y(), dragIkAxes_[0].z());
+            const dhMat rot = dhMat::Trans(dragIkOrigin_.x(), dragIkOrigin_.y(), dragIkOrigin_.z()) * dhMat::Quat(a - dragRingA0_, ax) *
+                              dhMat::Trans(-dragIkOrigin_.x(), -dragIkOrigin_.y(), -dragIkOrigin_.z());
+            SetModelPose(dragModel_, rot * dragPose_);
+        }
     } else if (dragAxis_ >= 0 && dragModel_ >= 0 && (e->buttons() & Qt::LeftButton)) {
         QVector3D o, dd;
-        float u = 0, a = 0;
-        if (dragRot_) {  // Shift + 화살표: 모델의 z축 회전. 마우스가 모델 원점 둘레를 돈 각도만큼 돌린다
-            if (mouseRay(e->pos(), &o, &dd) && HorizontalAngle(o, dd, dragIkOrigin_, &a))
-                SetModelPlacement(dragModel_, dragPlace_[0], dragPlace_[1], dragPlace_[2], dragPlace_[3] + static_cast<float>(dhDeg(a - dragRotA0_)));
-        } else if (mouseRay(e->pos(), &o, &dd) && RayAxisParam(o, dd, dragIkOrigin_, dragIkAxes_[dragAxis_], &u)) {
+        float u = 0;
+        if (mouseRay(e->pos(), &o, &dd) && RayAxisParam(o, dd, dragIkOrigin_, dragIkAxes_[dragAxis_], &u)) {
             const QVector3D delta = dragIkAxes_[dragAxis_] * (u - dragU0_);
-            SetModelPlacement(dragModel_, dragPlace_[0] + delta.x(), dragPlace_[1] + delta.y(), dragPlace_[2] + delta.z(), dragPlace_[3]);
+            dhMat m = dragPose_;  // 자세는 그대로 두고 위치만 옮긴다
+            m.v[12] += delta.x();
+            m.v[13] += delta.y();
+            m.v[14] += delta.z();
+            SetModelPose(dragModel_, m);
         }
     } else if (dragAxis_ >= 0 && (e->buttons() & Qt::LeftButton)) {
         QVector3D o, dd, p, ax[3];

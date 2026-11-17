@@ -93,7 +93,7 @@ bool World::Build(const LoadOptions& opt, Robot* out, String* error) {
         return false;
     }
     out->Clear();
-    if (entries_.size() == 1) {
+    if (!Composite()) {
         *out = entries_[0].robot;
         entries_[0].rootName = out->links[static_cast<size_t>(out->root)].name;
         entries_[0].linkNames.clear();

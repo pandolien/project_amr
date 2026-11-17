@@ -49,6 +49,12 @@ public:
     // 모델의 월드 위치(m)와 z축 회전(도). 모델이 하나면 오브젝트 위치로 움직인다 (회전은 둘 이상일 때만).
     void SetModelPlacement(int index, float x, float y, float z, float yawDeg);
     void ModelPlacement(int index, float* x, float* y, float* z, float* yawDeg) const;
+    // 위치 x,y,z (m) 와 자세 roll,pitch,yaw (도, 고정축 z-y-x 순: R = Rz(yaw) Ry(pitch) Rx(roll)). 회전이 있으면 모델 하나도 world 아래에 매단다.
+    void SetModelPlacement6(int index, const float v[6]);
+    void ModelPlacement6(int index, float v[6]) const;
+    void SetModelPose(int index, const dhMat& pose);
+    dhMat ModelPose(int index) const;
+    bool CanRotateSelection() const;  // 선택한 링크가 모델의 루트 링크라서 회전 링이 나오는가
 
     void SetScene(const simul::Scene& scene);  // 정적 모델 (이미 Z-up 이어야 한다)
     void SetRobot(const simul::urdf::Robot& robot, const simul::urdf::RobotMeshes& meshes);
@@ -140,6 +146,7 @@ public:
 
 signals:
     void modelChanged();
+    void structureChanged();  // 링크 구성이 바뀌었다 (모델 하나를 처음 돌리면 world 가 생긴다): 트리/패널을 다시 채운다
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
     void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
     void lidarScanned(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
@@ -216,7 +223,11 @@ private:
     bool lidarOn_;
     bool lidarDraw_;
     simul::urdf::World world_;      // 올려 둔 모델들 (합친 결과가 robot_)
-    bool rebuildWorld(QString* error);
+    bool rebuildWorld(QString* error, bool keepView = false);
+    bool ensureComposite();                 // 모델 하나를 world 아래로 옮긴다 (이동량은 attach 관절로)
+    int hitRing(const QPoint& pos, float* angle) const;   // 마우스 아래의 회전 링 (0 x, 1 y, 2 z, 없으면 -1)
+    void drawRings(const QMatrix4x4& proj, const QMatrix4x4& view);
+    bool ringBasis(int axis, QVector3D* origin, QVector3D* a, QVector3D* u, QVector3D* v, float* scale) const;
     int shading_;
     int lidarLink_;
     dhMat lidarMount_;
@@ -230,10 +241,11 @@ private:
     QVector3D dragIkAxes_[3];
     float dragU0_;
     dhVector dragStart_;
-    bool dragRot_;            // Shift 로 눌러 시작한, z축 회전 끌기인가
-    float dragRotA0_;         // 회전 끌기를 시작한 때 마우스의 방위각 (rad)
+    int dragRing_;            // 끌고 있는 회전 링 (0 x, 1 y, 2 z, 아니면 -1)
+    float dragRingA0_;        // 링 끌기를 시작한 때 마우스의 각도 (rad)
+    QVector3D dragRingU_, dragRingV_;  // 링 평면의 기준 축
+    dhMat dragPose_;          // 끌기 시작 때의 모델 자세
     int dragModel_;           // 둘 이상 올렸을 때 끌고 있는 모델 번호 (아니면 -1)
-    float dragPlace_[4];      // 끌기 시작 때의 그 모델 배치 x,y,z,yaw
     QTimer* fallTimer_;
     QElapsedTimer fallClock_;
     bool fallEnabled_;

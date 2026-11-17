@@ -33,6 +33,26 @@ void testSingleModelIsUnchanged() {
     check(w.EntryOfRoot(built, built.root) == 0, "one model: root belongs to entry 0");
 }
 
+// 모델 하나도 world 아래에 매달 수 있다 (회전을 attach 관절로 표현하려고)
+void testSingleModelForcedComposite() {
+    World w;
+    String err;
+    check(w.Add(kData + "arm.urdf", &err), "add arm");
+    check(!w.Composite(), "one model is not composite");
+    w.SetForceComposite(true);
+    check(w.Composite(), "forced composite");
+    const dhMat pose = dhMat::Trans(1, 2, 3) * dhMat::RotZ(1.5707963f);
+    w.SetPlacement(0, pose);
+    Robot built;
+    check(w.Build(LoadOptions(), &built, &err), "build forced");
+    check(built.links[static_cast<size_t>(built.root)].name == "world", "forced: world root");
+    check(w.EntryOfRoot(built, built.FindLink(w.entry(0).rootName)) == 0, "forced: model root found");
+    const int j = built.FindJoint(w.AttachJointName(0));
+    check(j >= 0 && near(built.joints[static_cast<size_t>(j)].origin.v[12], 1) && near(built.joints[static_cast<size_t>(j)].origin.v[1], 1), "forced: attach joint carries the pose");
+    w.Clear();
+    check(!w.Composite(), "Clear resets forced composite");
+}
+
 void testTwoModels() {
     World w;
     String err;
@@ -126,6 +146,7 @@ void testBuildEmpty() {
 
 int main() {
     testSingleModelIsUnchanged();
+    testSingleModelForcedComposite();
     testTwoModels();
     testSameFileTwice();
     testMeshFileAsModel();

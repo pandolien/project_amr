@@ -29,7 +29,10 @@ public:
     // 파일을 읽어 맨 뒤에 추가한다. .urdf 는 URDF 로, 그 밖은 메시 하나짜리 로봇으로 읽는다.
     bool Add(const simul::String& path, simul::String* error);
     void Remove(size_t index);
-    void Clear() { entries_.clear(); }
+    void Clear() { entries_.clear(); forceComposite_ = false; }
+    // 모델이 하나여도 가상 "world" 아래에 매달아 합친다 (회전처럼 attach 관절로 자세를 표현해야 할 때)
+    void SetForceComposite(bool on) { forceComposite_ = on; }
+    bool Composite() const { return entries_.size() >= 2 || (forceComposite_ && !entries_.empty()); }
     size_t size() const { return entries_.size(); }
     const WorldEntry& entry(size_t i) const { return entries_[i]; }
     void SetPlacement(size_t i, const dhMat& placement) { entries_[i].placement = placement; }
@@ -46,6 +49,7 @@ public:
 
 private:
     simul::Array<WorldEntry> entries_;
+    bool forceComposite_ = false;
 };
 
 }  // namespace urdf

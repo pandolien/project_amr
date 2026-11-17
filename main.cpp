@@ -584,6 +584,17 @@ public:
         });
         collisionLabel_ = new QLabel;
         statusBar()->addPermanentWidget(collisionLabel_);
+        QObject::connect(viewer_, &ModelViewer::structureChanged, this, [this]() {   // 단독 모델을 처음 돌리면 world 가 생겨 링크 구성이 바뀐다
+            tree_->SetRobot(viewer_->Robot());
+            tree_->SetCollidingLinks(viewer_->CollidingLinks());
+            tree_->SelectLink(viewer_->SelectedLink());
+            panel_->SetRobot(viewer_->Robot());
+            const simul::urdf::JointValues& q = viewer_->CurrentJointValues();
+            panel_->blockSignals(true);
+            for (simul::urdf::JointValues::const_iterator it = q.begin(); it != q.end(); ++it) panel_->SetValue(simulqt::ToQ(it->first), it->second);
+            panel_->blockSignals(false);
+            updateSelectionLabel();
+        });
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { updateCollisionLabel(); });
         QObject::connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { tree_->SetCollidingLinks(viewer_->CollidingLinks()); });
         infoMessage_ = QString::fromUtf8("파일 > 열기 (Ctrl+O) 또는 파일을 창에 끌어다 놓으세요. 왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대, 왼쪽 클릭: 물체 선택");
@@ -752,26 +763,28 @@ public:
         else if (chosen == remove) removeModel(model);
     }
 
-    // 모델의 월드 위치와 z축 회전을 입력받는다
+    // 모델의 월드 위치와 자세를 입력받는다
     void askPlacement(int model) {
-        float x, y, z, yaw;
-        viewer_->ModelPlacement(model, &x, &y, &z, &yaw);
+        float v[6];
+        viewer_->ModelPlacement6(model, v);
         bool ok = false;
         const QString text = QInputDialog::getText(this, QString::fromUtf8("위치 지정"),
-                                                   QString::fromUtf8("%1\nx, y, z (m), 회전(도, z축): 마지막 회전은 생략하면 0\n(모델이 하나뿐이면 회전은 쓰이지 않습니다)").arg(viewer_->ModelName(model)),
-                                                   QLineEdit::Normal, QString("%1, %2, %3, %4").arg(x).arg(y).arg(z).arg(yaw), &ok);
+                                                   QString::fromUtf8("%1\nx, y, z (m), roll, pitch, yaw (도). 자세는 생략하면 0\n(Rz(yaw)·Ry(pitch)·Rx(roll))").arg(viewer_->ModelName(model)),
+                                                   QLineEdit::Normal, QString("%1, %2, %3, %4, %5, %6").arg(v[0]).arg(v[1]).arg(v[2]).arg(v[3]).arg(v[4]).arg(v[5]), &ok);
         if (!ok) return;
         QString flat = text;
         flat.replace(',', ' ');
         const QStringList p = flat.simplified().split(' ', QString::SkipEmptyParts);
-        double v[4] = {0, 0, 0, 0};
-        bool good = p.size() == 3 || p.size() == 4;
-        for (int i = 0; good && i < p.size(); i++) v[i] = p[i].toDouble(&good);
+        double d[6] = {0, 0, 0, 0, 0, 0};
+        bool good = p.size() == 3 || p.size() == 6;
+        for (int i = 0; good && i < p.size(); i++) d[i] = p[i].toDouble(&good);
         if (!good) {
-            QMessageBox::warning(this, QString::fromUtf8("위치 지정"), QString::fromUtf8("숫자 3개(x, y, z) 또는 4개(+ 회전)를 넣어 주세요."));
+            QMessageBox::warning(this, QString::fromUtf8("위치 지정"), QString::fromUtf8("숫자 3개(x, y, z) 또는 6개(+ roll, pitch, yaw)를 넣어 주세요."));
             return;
         }
-        viewer_->SetModelPlacement(model, static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2]), static_cast<float>(v[3]));
+        float f[6];
+        for (int i = 0; i < 6; i++) f[i] = static_cast<float>(d[i]);
+        viewer_->SetModelPlacement6(model, f);
         updateCollisionLabel();
     }
 
@@ -888,7 +901,7 @@ private:
                                      .arg(r.roll, 0, 'f', 1).arg(r.pitch, 0, 'f', 1).arg(r.yaw, 0, 'f', 1)
                                      .arg(static_cast<double>(pose.orientation.x), 0, 'f', 3).arg(static_cast<double>(pose.orientation.y), 0, 'f', 3)
                                      .arg(static_cast<double>(pose.orientation.z), 0, 'f', 3).arg(static_cast<double>(pose.orientation.w), 0, 'f', 3)
-                                     .arg(viewer_->CanMoveSelection() ? QString::fromUtf8(viewer_->ModelCount() > 1 ? "화살표를 끌어서 이동 (Shift+끌기: 회전)" : "화살표를 끌어서 이동") : QString::fromUtf8("관절로 움직이는 링크")));
+                                     .arg(viewer_->CanMoveSelection() ? QString::fromUtf8("화살표를 끌어 이동, 링을 끌어 회전") : QString::fromUtf8("관절로 움직이는 링크")));
     }
 
     // 현재 자세와 중력으로 관절별 중력 하중을 다시 계산해서 관절 패널(모터 토크)과 구조 트리(모든 관절)에 보여준다
