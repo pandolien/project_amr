@@ -150,6 +150,7 @@ public:
 
 signals:
     void modelChanged();
+    void modelDragFinished(int model, bool rotated);   // 화살표/링 끌기가 끝났다 (model 은 모델 번호)
     void structureChanged();  // 링크 구성이 바뀌었다 (모델 하나를 처음 돌리면 world 가 생긴다): 트리/패널을 다시 채운다
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
     void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때

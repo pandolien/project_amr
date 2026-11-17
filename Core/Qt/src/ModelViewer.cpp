@@ -1231,6 +1231,9 @@ void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     // 거의 움직이지 않고 뗀 왼쪽 버튼 = 클릭: 그 자리의 물체를 선택한다
     if (e->button() != Qt::LeftButton) return;
     if (dragAxis_ >= 0 || dragRing_ >= 0) {  // 화살표/링을 끌던 중이었다: 선택은 그대로 두고 끝낸다
+        const bool rotated = dragRing_ >= 0;
+        const int movedModel = (!dragIk_ && dragRing_ < 0 && dragModel_ < 0) ? ModelOfRoot(selectedLink_) : dragModel_;
+        if (movedModel >= 0 && dragged_) emit modelDragFinished(movedModel, rotated);
         dragRing_ = -1;
         dragAxis_ = -1;
         dragIk_ = false;

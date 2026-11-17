@@ -350,6 +350,8 @@ int PrintInfo(const Options& o) {
 #include <QFileDialog>
 #include <QInputDialog>
 #include "CoreQt/SelectionOverlay.h"
+#include "CoreQt/LogView.h"
+#include <QSet>
 #include <QLineEdit>
 #include <QLabel>
 #include <QMainWindow>
@@ -423,6 +425,22 @@ public:
         dock_->setWidget(panel_);
         addDockWidget(Qt::RightDockWidgetArea, dock_);
         dock_->hide();
+        log_ = new LogView;   // 열기/제거/이동/충돌/경고/오류를 시간순으로 모아 둔다
+        logDock_ = new QDockWidget(QString::fromUtf8("로그"), this);
+        logDock_->setWidget(log_);
+        addDockWidget(Qt::BottomDockWidgetArea, logDock_);
+        logDock_->hide();
+        QObject::connect(viewer_, &ModelViewer::modelDragFinished, this, [this](int model, bool rotated) {
+            float v[6];
+            viewer_->ModelPlacement6(model, v);
+            log_->Info(QString::fromUtf8("%1 %2: 위치 %3, %4, %5 m, RPY %6°, %7°, %8°")
+                           .arg(viewer_->ModelName(model)).arg(rotated ? QString::fromUtf8("회전") : QString::fromUtf8("이동"))
+                           .arg(static_cast<double>(v[0]), 0, 'f', 3).arg(static_cast<double>(v[1]), 0, 'f', 3).arg(static_cast<double>(v[2]), 0, 'f', 3)
+                           .arg(static_cast<double>(v[3]), 0, 'f', 1).arg(static_cast<double>(v[4]), 0, 'f', 1).arg(static_cast<double>(v[5]), 0, 'f', 1));
+        });
+        QObject::connect(viewer_, &ModelViewer::selectionPicked, this, [this](int link, bool) {
+            if (link >= 0 && static_cast<size_t>(link) < viewer_->Robot().links.size()) log_->Info(QString::fromUtf8("선택: %1").arg(simulqt::ToQ(viewer_->Robot().links[static_cast<size_t>(link)].name)));
+        });
         overlay_ = new SelectionOverlay(viewer_);   // 클릭한 물체 옆에 뜨는 정보 + 관절 슬라이더 (3D 화면 위)
         QObject::connect(overlay_, &SelectionOverlay::valueEdited, this, [this](const QString& name, double value) {
             panel_->SetValue(name, value);   // 관절 패널이 값을 들고 있다: 바꾸면 3D 화면, 토크, 시뮬레이션이 같이 갱신된다
@@ -452,6 +470,8 @@ public:
         QObject::connect(closeAll, &QAction::triggered, this, [this]() {
             showLidar(false);
             viewer_->CloseAll();
+            loggedWarnings_.clear();
+            log_->Info(QString::fromUtf8("모두 닫기"));
             lidarSpec_ = LidarSpec();
             afterLoad(QString());
             setWindowTitle("Project Simul");
@@ -513,6 +533,7 @@ public:
             }
             if (a && b && c) {
                 gravity_ = simul::dynamics::Gravity(gx, gy, gz);
+                log_->Info(QString::fromUtf8("중력 가속도: %1, %2, %3 m/s²").arg(gx).arg(gy).arg(gz));
                 viewer_->SetGravity(gx, gy, gz);
                 sim_.SetGravity(gravity_);
                 updateTorques();
@@ -527,6 +548,10 @@ public:
         QAction* jointDock = dock_->toggleViewAction();   // 오른쪽 관절 도크는 기본으로 숨긴다 (슬라이더는 클릭한 물체 옆 오버레이에 나온다)
         jointDock->setText(QString::fromUtf8("관절 도크 (전체 관절)"));
         view->insertAction(viewSep, jointDock);
+        QAction* logAct = logDock_->toggleViewAction();
+        logAct->setText(QString::fromUtf8("로그"));
+        logAct->setShortcut(Qt::Key_L);
+        view->insertAction(viewSep, logAct);
         QAction* frame = new QAction(QString::fromUtf8("선택 좌표계"), this);
         view->insertAction(viewSep, frame);
         frame->setShortcut(Qt::Key_G);
@@ -628,10 +653,17 @@ public:
         const bool graphWere = lidarDock_ && lidarDock_->isVisible();
         QString err;
         if (!viewer_->AddFile(path, &err)) {
+            logError(QString::fromUtf8("열 수 없음: %1 - %2").arg(path).arg(err));
             QMessageBox::warning(this, QString::fromUtf8("열 수 없음"), err);
             return false;
         }
         afterLoad(path);
+        log_->Info(QString::fromUtf8("열기: %1  (모델 %2개, %3)").arg(path).arg(viewer_->ModelCount()).arg(viewer_->Summary()));
+        for (int i = 0; i < viewer_->Warnings().size(); i++) {   // 합친 뒤의 경고 중 아직 기록하지 않은 것
+            if (loggedWarnings_.contains(viewer_->Warnings()[i])) continue;
+            loggedWarnings_.insert(viewer_->Warnings()[i]);
+            log_->Warning(viewer_->Warnings()[i]);
+        }
         applyLidar(cli_);  // URDF 의 라이다 설정을 읽어 둔다
         if (beamsWere && lidarSpec_.link >= 0) showLidarBeams(true);  // 모델을 더해도 켜 둔 라이다 표시는 유지
         if (graphWere && lidarSpec_.link >= 0) showLidarGraph(true);
@@ -643,7 +675,7 @@ public:
         for (size_t i = 0; i < o.places.size(); i++) {
             int found = -1;
             for (int m = 0; m < viewer_->ModelCount(); m++) if (viewer_->ModelName(m) == simulqt::ToQ(o.places[i].model)) found = m;
-            if (found < 0) { fprintf(stderr, "경고: 모델 '%s' 이 없습니다 (--place)\n", o.places[i].model.c_str()); continue; }
+            if (found < 0) { fprintf(stderr, "경고: 모델 '%s' 이 없습니다 (--place)\n", o.places[i].model.c_str()); log_->Warning(QString::fromUtf8("--place: 모델 '%1' 이 없습니다").arg(simulqt::ToQ(o.places[i].model))); continue; }
             viewer_->SetModelPlacement(found, static_cast<float>(o.places[i].v[0]), static_cast<float>(o.places[i].v[1]), static_cast<float>(o.places[i].v[2]), static_cast<float>(o.places[i].v[3]));
         }
         if (!o.places.empty()) afterLoad(QString::fromUtf8("배치 적용"));
@@ -653,7 +685,7 @@ public:
     void applyJoints(const Options& o) {
         for (size_t i = 0; i < o.joints.size(); i++) {
             const int ji = viewer_->Robot().FindJoint(o.joints[i].first);
-            if (ji < 0) { fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); continue; }
+            if (ji < 0) { fprintf(stderr, "경고: 관절 '%s' 이 없습니다\n", o.joints[i].first.c_str()); log_->Warning(QString::fromUtf8("관절 '%1' 이 없습니다").arg(simulqt::ToQ(o.joints[i].first))); continue; }
             panel_->SetValue(simulqt::ToQ(o.joints[i].first), viewer_->Robot().joints[static_cast<size_t>(ji)].FromDisplay(o.joints[i].second));
         }
     }
@@ -722,12 +754,14 @@ public:
     // 3D 화면의 레이저(광선 + 맞은 점) 표시
     void showLidarBeams(bool on) {
         if (on && !ensureLidar()) return;
+        if (on != (viewer_->LidarEnabled() && viewer_->LidarDrawn())) log_->Info(on ? QString::fromUtf8("라이다 레이저 표시 켬") : QString::fromUtf8("라이다 레이저 표시 끔"));   // 바뀔 때만
         if (viewer_->LidarEnabled()) viewer_->SetLidarDrawn(on);  // ensureLidar 뒤라서 항상 달려 있다 (끄기 때는 안 달렸을 수도)
     }
 
     // 스캔 그래프 도크 (오른쪽). 보이는 동안에만 0.1 초마다 스캔해서 갱신한다
     void showLidarGraph(bool on) {
         if (on && !ensureLidar()) return;
+        if (on != (lidarDock_ && lidarDock_->isVisible())) log_->Info(on ? QString::fromUtf8("라이다 그래프 켬") : QString::fromUtf8("라이다 그래프 끔"));
         if (!on) {
             if (lidarDock_) lidarDock_->hide();
             return;
@@ -806,6 +840,7 @@ public:
         float f[6];
         for (int i = 0; i < 6; i++) f[i] = static_cast<float>(d[i]);
         viewer_->SetModelPlacement6(model, f);
+        log_->Info(QString::fromUtf8("%1 위치 지정: %2, %3, %4 m, RPY %5°, %6°, %7°").arg(viewer_->ModelName(model)).arg(d[0]).arg(d[1]).arg(d[2]).arg(d[3]).arg(d[4]).arg(d[5]));
         updateCollisionLabel();
     }
 
@@ -815,6 +850,7 @@ public:
         const QString name = viewer_->ModelName(model);
         showLidar(false);
         viewer_->RemoveModel(model);
+        log_->Info(QString::fromUtf8("제거: %1  (남은 모델 %2개)").arg(name).arg(viewer_->ModelCount()));
         afterLoad(QString::fromUtf8("%1 제거").arg(name));
         applyLidar(cli_);
         if (beamsWere && lidarSpec_.link >= 0) showLidarBeams(true);
@@ -857,6 +893,7 @@ private:
     // 모터 끄기: 켜면 지금 관절 값에서 시작해서 중력, 관성, 마찰로 움직인다. 끄면(모터 켜짐) 지금 자세를 유지한다.
     void setMotorsOff(bool on) {
         motorsOff_ = on;
+        log_->Info(on ? QString::fromUtf8("모터 끔: 관절이 중력으로 움직입니다") : QString::fromUtf8("모터 켬"));
         if (!on) {
             simTimer_->stop();
             return;
@@ -1024,12 +1061,22 @@ private:
         tree_->SetJointNotes(notes);
     }
 
+    void logError(const QString& text) {
+        log_->Error(text);
+        logDock_->show();   // 오류는 바로 보이게 한다
+    }
+
     void updateCollisionLabel() {
         if (!viewer_->HasRobot()) {
             collisionLabel_->clear();
             return;
         }
         const QStringList d = viewer_->CollisionDescriptions();
+        if (d != lastCollisions_) {   // 충돌 쌍이 바뀔 때만 기록한다
+            if (!d.isEmpty()) log_->Warning(QString::fromUtf8("OBB 충돌 %1건: %2").arg(d.size()).arg(d.join(", ")));
+            else if (!lastCollisions_.isEmpty()) log_->Info(QString::fromUtf8("충돌 해소"));
+            lastCollisions_ = d;
+        }
         const int cand = static_cast<int>(viewer_->AabbCandidates().size());
         if (d.isEmpty()) {
             collisionLabel_->setText(QString::fromUtf8("충돌 없음 (AABB 후보 %1건)").arg(cand));
@@ -1082,6 +1129,10 @@ private:
     LidarPlot* lidarPlot_ = nullptr;
     QDockWidget* lidarDock_ = nullptr;
     JointPanel* panel_;
+    LogView* log_ = nullptr;
+    QDockWidget* logDock_ = nullptr;
+    QSet<QString> loggedWarnings_;
+    QStringList lastCollisions_;
     SelectionOverlay* overlay_ = nullptr;
     int overlayLink_ = -1;   // 오버레이가 지금 보여주는 링크
     QDockWidget* dock_;
