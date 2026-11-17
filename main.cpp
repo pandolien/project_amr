@@ -475,6 +475,16 @@ public:
             QObject::connect(sa, &QAction::triggered, this, [this, m]() { viewer_->SetShading(m); });
         }
         viewer_->SetShading(cli_.shading);
+        QMenu* ringMenu = view->addMenu(QString::fromUtf8("회전 링 기준"));
+        QActionGroup* ringGroup = new QActionGroup(this);
+        const char* ringNames[2] = {"월드 축 (기본)", "오브젝트 축"};
+        for (int k = 0; k < 2; k++) {
+            QAction* ra = ringMenu->addAction(QString::fromUtf8(ringNames[k]));
+            ra->setCheckable(true);
+            ra->setChecked(k == 0);
+            ringGroup->addAction(ra);
+            QObject::connect(ra, &QAction::triggered, this, [this, k]() { viewer_->SetRingLocal(k == 1); });
+        }
         QAction* grav = phys->addAction(QString::fromUtf8("중력 방향..."));
         QObject::connect(grav, &QAction::triggered, this, [this]() {
             bool ok = false;

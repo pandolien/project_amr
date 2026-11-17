@@ -54,7 +54,9 @@ public:
     void ModelPlacement6(int index, float v[6]) const;
     void SetModelPose(int index, const dhMat& pose);
     dhMat ModelPose(int index) const;
-    bool CanRotateSelection() const;  // 선택한 링크가 모델의 루트 링크라서 회전 링이 나오는가
+    bool CanRotateSelection() const;
+    void SetRingLocal(bool local) { ringLocal_ = local; update(); }   // 회전 링을 월드 축(기본)/오브젝트 축에 붙인다
+    bool RingLocal() const { return ringLocal_; }  // 선택한 링크가 모델의 루트 링크라서 회전 링이 나오는가
 
     void SetScene(const simul::Scene& scene);  // 정적 모델 (이미 Z-up 이어야 한다)
     void SetRobot(const simul::urdf::Robot& robot, const simul::urdf::RobotMeshes& meshes);
@@ -242,8 +244,9 @@ private:
     float dragU0_;
     dhVector dragStart_;
     int dragRing_;            // 끌고 있는 회전 링 (0 x, 1 y, 2 z, 아니면 -1)
-    float dragRingA0_;        // 링 끌기를 시작한 때 마우스의 각도 (rad)
-    QVector3D dragRingU_, dragRingV_;  // 링 평면의 기준 축
+    QPointF dragRingDir_;     // 링 끌기: 잡은 점에서 링 접선 방향의 화면상 단위 벡터
+    float dragRingPx_;        // 링 끌기: 1 rad 돌리는 데 필요한 화면 픽셀
+    bool ringLocal_;          // 링 기준: false 월드 축, true 오브젝트 축
     dhMat dragPose_;          // 끌기 시작 때의 모델 자세
     int dragModel_;           // 둘 이상 올렸을 때 끌고 있는 모델 번호 (아니면 -1)
     QTimer* fallTimer_;

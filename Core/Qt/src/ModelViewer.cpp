@@ -152,7 +152,9 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragIk_ = false;
     dragModel_ = -1;
     dragRing_ = -1;
-    dragRingA0_ = 0;
+    dragRingDir_ = QPointF(1, 0);
+    dragRingPx_ = 100;
+    ringLocal_ = false;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
@@ -1083,8 +1085,9 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
     dragRing_ = -1;
     dragModel_ = -1;
     if (e->button() == Qt::LeftButton) {  // 좌표계 화살표 위에서 누르면 카메라가 아니라 물체를 움직인다
-        float u = 0;
-        const int axis = hitGizmoAxis(e->pos(), &u);
+        float u = 0, ringAng = 0;
+        const int ringHit = hitRing(e->pos(), &ringAng);   // 링이 화살표와 겹치는 곳에서는 링을 먼저 잡는다
+        const int axis = ringHit >= 0 ? -1 : hitGizmoAxis(e->pos(), &u);
         if (axis >= 0) {
             dragAxis_ = axis;
             dragU0_ = u;
@@ -1101,8 +1104,7 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
                 selectionGizmo(&dragIkOrigin_, dragIkAxes_, &s);
             }
         } else {  // 화살표가 아니면 회전 링인지 본다
-            float ang = 0;
-            const int ring = hitRing(e->pos(), &ang);
+            const int ring = ringHit;
             if (ring >= 0) {
                 const int model = ModelOfRoot(selectedLink_);
                 if (!world_.Composite()) ensureComposite();  // 모델 하나도 자세를 attach 관절로 표현해야 돌릴 수 있다
@@ -1112,13 +1114,30 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
                     // ensureComposite 로 다시 합쳐졌으니 링 기준을 새로 구한다
                     QVector3D a;
                     float s = 0;
-                    if (ringBasis(ring, &dragIkOrigin_, &a, &dragRingU_, &dragRingV_, &s)) {
+                    QVector3D uu, vv;
+                    if (ringBasis(ring, &dragIkOrigin_, &a, &uu, &vv, &s)) {
                         dragIkAxes_[0] = a;
                         dragPose_ = ModelPose(dragModel_);
                         QVector3D ro, rd, p;
                         if (mouseRay(e->pos(), &ro, &rd) && RayPlane(ro, rd, dragIkOrigin_, a, &p)) {
-                            const QVector3D r = p - dragIkOrigin_;
-                            dragRingA0_ = simul::Atan2(QVector3D::dotProduct(r, dragRingV_), QVector3D::dotProduct(r, dragRingU_));
+                            // 링 위에서 잡은 점의 접선을 화면으로 옮겨, 마우스가 그 방향으로 간 만큼 돌린다.
+                            // (평면과 광선의 교점으로 각도를 구하면 링을 비스듬히 볼 때 값이 크게 튄다)
+                            const QVector3D rad = p - dragIkOrigin_;
+                            const float R = simul::Max(rad.length(), 1e-6f);
+                            const QVector3D tan = QVector3D::crossProduct(a, rad).normalized();
+                            const QMatrix4x4 pv = projMatrix() * viewMatrix();
+                            auto scr = [&](const QVector3D& w) {
+                                const QVector4D c = pv * QVector4D(w, 1.0f);
+                                return QPointF((c.x() / c.w() * 0.5f + 0.5f) * width(), (1.0f - (c.y() / c.w() * 0.5f + 0.5f)) * height());
+                            };
+                            const QPointF s0 = scr(p), s1 = scr(p + tan * (R * 0.1f));
+                            const QPointF st = (s1 - s0) / (R * 0.1f);          // 접선 방향 1 m 당 화면 픽셀
+                            const float stLen = sqrtf(static_cast<float>(st.x() * st.x() + st.y() * st.y()));
+                            const QPointF c0 = scr(dragIkOrigin_), c1 = scr(dragIkOrigin_ + (p - dragIkOrigin_).normalized() * R);
+                            const QPointF rr = c1 - c0;
+                            const float radiusPx = simul::Max(sqrtf(static_cast<float>(rr.x() * rr.x() + rr.y() * rr.y())), 20.0f);  // 링 반지름의 화면 크기
+                            dragRingDir_ = stLen > 1e-3f ? QPointF(st.x() / stLen, st.y() / stLen) : QPointF(1, 0);
+                            dragRingPx_ = simul::Max(stLen * R, radiusPx * 0.25f);  // 비스듬히 볼 때도 너무 예민해지지 않게
                         } else {
                             dragRing_ = -1;
                         }
@@ -1215,6 +1234,12 @@ bool ModelViewer::ringBasis(int axis, QVector3D* origin, QVector3D* a, QVector3D
     if (axis < 0 || axis > 2 || !selectionGizmo(origin, ax, scale)) return false;
     // 링은 모델이 얼마나 돌아가 있든 월드 X/Y/Z 에 고정한다 (모델 좌표축을 따라가면 한 번 돌린 뒤 링이 비스듬해진다)
     const QVector3D w[3] = {QVector3D(1, 0, 0), QVector3D(0, 1, 0), QVector3D(0, 0, 1)};
+    if (ringLocal_) {  // 오브젝트 축에 붙인다
+        *a = ax[axis];
+        *u = ax[(axis + 1) % 3];
+        *v = ax[(axis + 2) % 3];
+        return true;
+    }
     *a = w[axis];
     *u = w[(axis + 1) % 3];
     *v = w[(axis + 2) % 3];
@@ -1235,7 +1260,7 @@ int ModelViewer::hitRing(const QPoint& pos, float* angle) const {
         if (!ringBasis(i, &o, &a, &u, &v, &s) || !RayPlane(ro, rd, o, a, &p)) continue;
         const QVector3D r = p - o;
         const float err = simul::Abs(r.length() - kRingRadius * s);
-        if (err < 0.07f * s && err < bestErr) {  // 링 두께보다 조금 넉넉하게
+        if (err < 0.05f * s && err < bestErr) {  // 링 두께보다 조금 넉넉하게
             bestErr = err;
             best = i;
             if (angle) *angle = simul::Atan2(QVector3D::dotProduct(r, v), QVector3D::dotProduct(r, u));
@@ -1328,16 +1353,13 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
             emit jointValuesDragged(r.q);
         }
     } else if (dragRing_ >= 0 && dragModel_ >= 0 && (e->buttons() & Qt::LeftButton)) {
-        QVector3D ro, rd, p;
-        if (mouseRay(e->pos(), &ro, &rd) && RayPlane(ro, rd, dragIkOrigin_, dragIkAxes_[0], &p)) {
-            const QVector3D r = p - dragIkOrigin_;
-            const float a = simul::Atan2(QVector3D::dotProduct(r, dragRingV_), QVector3D::dotProduct(r, dragRingU_));
-            // 링의 축(월드) 둘레로 모델 원점을 지나게 돌린다: M = T(o) R(axis, 변화량) T(-o) M0
-            const dhVector ax(dragIkAxes_[0].x(), dragIkAxes_[0].y(), dragIkAxes_[0].z());
-            const dhMat rot = dhMat::Trans(dragIkOrigin_.x(), dragIkOrigin_.y(), dragIkOrigin_.z()) * dhMat::Quat(a - dragRingA0_, ax) *
-                              dhMat::Trans(-dragIkOrigin_.x(), -dragIkOrigin_.y(), -dragIkOrigin_.z());
-            SetModelPose(dragModel_, rot * dragPose_);
-        }
+        const QPointF dm(e->pos().x() - pressPos_.x(), e->pos().y() - pressPos_.y());
+        const float a = static_cast<float>((dm.x() * dragRingDir_.x() + dm.y() * dragRingDir_.y())) / dragRingPx_;  // 접선 방향으로 간 거리 / 반지름 = 각도
+        // 링의 축(월드) 둘레로 모델 원점을 지나게 돌린다: M = T(o) R(axis, a) T(-o) M0 (쿼터니언 회전)
+        const dhVector ax(dragIkAxes_[0].x(), dragIkAxes_[0].y(), dragIkAxes_[0].z());
+        const dhMat rot = dhMat::Trans(dragIkOrigin_.x(), dragIkOrigin_.y(), dragIkOrigin_.z()) * dhMat::Quat(a, ax) *
+                          dhMat::Trans(-dragIkOrigin_.x(), -dragIkOrigin_.y(), -dragIkOrigin_.z());
+        SetModelPose(dragModel_, rot * dragPose_);
     } else if (dragAxis_ >= 0 && dragModel_ >= 0 && (e->buttons() & Qt::LeftButton)) {
         QVector3D o, dd;
         float u = 0;
