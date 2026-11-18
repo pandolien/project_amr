@@ -42,7 +42,11 @@ SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), view
         if (model < 0) return;
         QMenu menu;
         QAction* remove = menu.addAction(QString::fromUtf8("제거 (%1)").arg(viewer_->ModelName(model)));
-        if (menu.exec(p) == remove) viewer_->RemoveModel(model);
+        const bool isFloor = viewer_->FloorModel() == model;
+        QAction* floor = menu.addAction(isFloor ? QString::fromUtf8("바닥 지정 해제") : QString::fromUtf8("바닥으로 지정 (%1)").arg(viewer_->ModelName(model)));
+        QAction* chosen = menu.exec(p);
+        if (chosen == remove) viewer_->RemoveModel(model);
+        else if (chosen == floor) viewer_->SetFloorModel(isFloor ? -1 : model);
     });
     connect(viewer_, &ModelViewer::robotChanged, this, &SimulView::refreshTree);
     connect(viewer_, &ModelViewer::structureChanged, this, &SimulView::refreshTree);

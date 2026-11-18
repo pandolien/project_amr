@@ -179,13 +179,17 @@ ModelViewer::ModelViewer(QWidget* parent)
     ringLocal_ = false;
     hoverRing_ = -1;
     mouseEdit_ = true;
-    modelMinZValid_ = false;
+    modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
     fallVel_ = 0;
+    floorModel_ = -1;
+    floorNx_ = floorNy_ = 0;
+    floorMinX_ = floorMinY_ = 0.0f;
+    floorCell_ = 1.0f;
     minZ_ = 0;
-    minZValid_ = false; modelMinZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
     fallTimer_ = new QTimer(this);
     fallTimer_->setInterval(16);
     fallClock_.start();
@@ -238,7 +242,7 @@ void ModelViewer::Clear() {
     selectedModel_ = false;
     objectPos_ = dhVector(0, 0, 0);
     fallVel_ = 0;
-    minZValid_ = false; modelMinZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
     scene_ = simul::Scene();
     hasScene_ = false;
     warnings_.clear();
@@ -371,7 +375,7 @@ void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;
     linkT_ = robot_.LinkTransforms(q);
-    minZValid_ = false; modelMinZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
     recomputeCollisions();
     update();
     emit jointValuesChanged();
@@ -555,7 +559,8 @@ bool ModelViewer::stepFallModels(double dt) {
             continue;
         }
         simul::dynamics::FallBody b;
-        b.height = static_cast<double>(modelBottom(static_cast<int>(k)));
+        const bool onFloorModel = floorModel_ >= 0 && floorModel_ != static_cast<int>(k);
+        b.height = static_cast<double>(onFloorModel ? modelClearance(static_cast<int>(k)) : modelBottom(static_cast<int>(k)));
         b.velocity = modelFallVel_[k];
         if (b.height >= 0.0 && b.height < 1e-5 && b.velocity <= 0.0) {  // 바닥에 놓여 있다
             modelFallVel_[k] = 0.0;
@@ -572,6 +577,139 @@ bool ModelViewer::stepFallModels(double dt) {
         any = any || moving;
     }
     return any;
+}
+
+// ---- 바닥 모델 ----
+
+void ModelViewer::SetFloorModel(int model) {
+    if (model < 0 || static_cast<size_t>(model) >= world_.size()) model = -1;
+    if (model == floorModel_) return;
+    floorModel_ = model;
+    floorValid_ = false;
+    modelClearValid_ = false;
+    for (size_t k = 0; k < modelFallVel_.size(); k++) modelFallVel_[k] = 0.0;
+    update();
+}
+
+bool ModelViewer::SetFloorByLink(const QString& linkName, QString* error) {
+    const int link = robot_.FindLink(simulqt::FromQ(linkName));
+    const int model = link >= 0 ? ModelOfLink(link) : -1;
+    if (model < 0) {
+        if (error) *error = QStringLiteral("바닥으로 지정할 모델을 찾지 못했습니다: ") + linkName;
+        return false;
+    }
+    SetFloorModel(model);
+    return true;
+}
+
+// 바닥 모델의 위를 향한 삼각형을 월드 좌표로 모으고 xy 격자에 나눠 담는다
+void ModelViewer::buildFloor() const {
+    floorTris_.clear();
+    floorGrid_.clear();
+    floorNx_ = floorNy_ = 0;
+    floorValid_ = true;
+    if (floorModel_ < 0) return;
+    float lo[2] = {simul::kFloatMax, simul::kFloatMax}, hi[2] = {-simul::kFloatMax, -simul::kFloatMax};
+    for (size_t i = 0; i < items_.size(); i++) {
+        const Item& it = *items_[i];
+        if (world_.EntryOfLink(robot_, it.link) != floorModel_) continue;
+        dhMat m = it.base;
+        if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+        for (size_t t = 0; t + 2 < it.indices.size(); t += 3) {
+            float p[3][3];
+            for (int k = 0; k < 3; k++) Transform(m, &it.data[static_cast<size_t>(it.indices[t + static_cast<size_t>(k)]) * 6], p[k]);
+            const float ex = p[1][0] - p[0][0], ey = p[1][1] - p[0][1], fx = p[2][0] - p[0][0], fy = p[2][1] - p[0][1];
+            if (ex * fy - ey * fx <= 1e-12f) continue;   // 위에서 봤을 때 반시계가 아니면(아래를 향하거나 선이면) 윗면이 아니다
+            for (int k = 0; k < 3; k++) {
+                floorTris_.push_back(p[k][0]);
+                floorTris_.push_back(p[k][1]);
+                floorTris_.push_back(p[k][2]);
+                lo[0] = simul::Min(lo[0], p[k][0]);
+                lo[1] = simul::Min(lo[1], p[k][1]);
+                hi[0] = simul::Max(hi[0], p[k][0]);
+                hi[1] = simul::Max(hi[1], p[k][1]);
+            }
+        }
+    }
+    const size_t n = floorTris_.size() / 9;
+    if (n == 0) return;
+    // 삼각형 수에 맞춰 칸 수를 정한다 (칸마다 삼각형 몇 개)
+    const float w = simul::Max(hi[0] - lo[0], 1e-4f), h = simul::Max(hi[1] - lo[1], 1e-4f);
+    int cells = static_cast<int>(sqrtf(static_cast<float>(n))) + 1;
+    if (cells > 128) cells = 128;
+    floorCell_ = simul::Max(w, h) / static_cast<float>(cells);
+    floorMinX_ = lo[0];
+    floorMinY_ = lo[1];
+    floorNx_ = static_cast<int>(w / floorCell_) + 1;
+    floorNy_ = static_cast<int>(h / floorCell_) + 1;
+    floorGrid_.assign(static_cast<size_t>(floorNx_ * floorNy_), simul::Array<int>());
+    for (size_t t = 0; t < n; t++) {
+        const float* v = &floorTris_[t * 9];
+        const float x0 = simul::Min(v[0], simul::Min(v[3], v[6])), x1 = simul::Max(v[0], simul::Max(v[3], v[6]));
+        const float y0 = simul::Min(v[1], simul::Min(v[4], v[7])), y1 = simul::Max(v[1], simul::Max(v[4], v[7]));
+        int ix0 = static_cast<int>((x0 - floorMinX_) / floorCell_), ix1 = static_cast<int>((x1 - floorMinX_) / floorCell_);
+        int iy0 = static_cast<int>((y0 - floorMinY_) / floorCell_), iy1 = static_cast<int>((y1 - floorMinY_) / floorCell_);
+        ix0 = simul::Max(ix0, 0); iy0 = simul::Max(iy0, 0);
+        ix1 = simul::Min(ix1, floorNx_ - 1); iy1 = simul::Min(iy1, floorNy_ - 1);
+        for (int iy = iy0; iy <= iy1; iy++)
+            for (int ix = ix0; ix <= ix1; ix++) floorGrid_[static_cast<size_t>(iy * floorNx_ + ix)].push_back(static_cast<int>(t));
+    }
+}
+
+bool ModelViewer::FloorHeightAt(double x, double y, double* z) const {
+    if (floorModel_ < 0) return false;
+    if (!floorValid_) buildFloor();
+    if (floorNx_ <= 0) return false;
+    const float fx = static_cast<float>(x), fy = static_cast<float>(y);
+    const int ix = static_cast<int>(floorf((fx - floorMinX_) / floorCell_)), iy = static_cast<int>(floorf((fy - floorMinY_) / floorCell_));
+    if (ix < 0 || iy < 0 || ix >= floorNx_ || iy >= floorNy_) return false;
+    const simul::Array<int>& cell = floorGrid_[static_cast<size_t>(iy * floorNx_ + ix)];
+    bool hit = false;
+    float best = -simul::kFloatMax;
+    for (size_t c = 0; c < cell.size(); c++) {
+        const float* v = &floorTris_[static_cast<size_t>(cell[c]) * 9];
+        const float d = (v[3] - v[0]) * (v[7] - v[1]) - (v[4] - v[1]) * (v[6] - v[0]);   // 삼각형 xy 넓이의 2배 (윗면만 모았으니 > 0)
+        const float a = ((v[3] - fx) * (v[7] - fy) - (v[4] - fy) * (v[6] - fx)) / d;       // 무게중심 좌표
+        const float b = ((v[6] - fx) * (v[1] - fy) - (v[7] - fy) * (v[0] - fx)) / d;
+        const float g = 1.0f - a - b;
+        const float eps = -1e-5f;   // 이웃 삼각형 사이 틈에 빠지지 않게 조금 너그럽게
+        if (a < eps || b < eps || g < eps) continue;
+        const float h = a * v[2] + b * v[5] + g * v[8];
+        if (h > best) best = h;
+        hit = true;
+    }
+    if (hit && z) *z = static_cast<double>(best);
+    return hit;
+}
+
+// 모델의 꼭짓점마다 (꼭짓점 높이 - 그 아래 바닥 높이) 를 구해 가장 작은 값이 더 내려갈 수 있는 거리다.
+// 바닥 모델이 없는 자리는 z=0 평면이 바닥이다.
+float ModelViewer::modelClearance(int model) const {
+    if (!modelClearValid_) {
+        modelClear_.clear();
+        for (size_t k = 0; k < world_.size(); k++) modelClear_.push_back(simul::kFloatMax);
+        for (size_t i = 0; i < items_.size(); i++) {
+            const Item& it = *items_[i];
+            const int k = world_.EntryOfLink(robot_, it.link);
+            if (k < 0 || k == floorModel_) continue;
+            dhMat m = it.base;
+            if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+            float lo = modelClear_[static_cast<size_t>(k)];
+            const size_t verts = it.data.size() / 6;
+            const size_t stride = verts > 20000 ? verts / 20000 : 1;   // 아주 큰 메시는 건너뛰며 본다
+            for (size_t v = 0; v < verts; v += stride) {
+                float p[3];
+                Transform(m, &it.data[v * 6], p);
+                double fz = 0.0;
+                if (!FloorHeightAt(static_cast<double>(p[0]), static_cast<double>(p[1]), &fz)) fz = 0.0;
+                lo = simul::Min(lo, p[2] - static_cast<float>(fz));
+            }
+            modelClear_[static_cast<size_t>(k)] = lo;
+        }
+        modelClearValid_ = true;
+    }
+    if (model < 0 || static_cast<size_t>(model) >= modelClear_.size() || modelClear_[static_cast<size_t>(model)] == simul::kFloatMax) return 0.0f;
+    return modelClear_[static_cast<size_t>(model)];
 }
 
 double ModelViewer::SimulateFall(double maxSeconds) {
@@ -738,7 +876,7 @@ void ModelViewer::SetModelPose(int index, const dhMat& pose) {
         if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = pose;
     }
     linkT_ = robot_.LinkTransforms(q_);
-    minZValid_ = false; modelMinZValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
     recomputeCollisions();
     updateBounds();
     update();

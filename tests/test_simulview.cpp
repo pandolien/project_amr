@@ -127,6 +127,58 @@ int main(int argc, char** argv) {
             v->RemoveModel(box);
             CHECK(v->ModelCount() == before, "quaternion test model removed");
         }
+        // 바닥 모델: 지정한 모델의 윗면(평면, 곡면)에 닿으면 멈춘다. 지정하지 않은 자리는 z=0 평면
+        {
+            auto writeUrdf = [](const char* name, const char* geometry) {
+                const QString path = QString::fromUtf8(tu::Tmp(name).c_str());
+                QFile f(path);
+                f.open(QIODevice::WriteOnly);
+                f.write(QByteArray("<robot name=\"floor_part\"><link name=\"floor_part_link\"><visual><geometry>") + geometry +
+                        "</geometry></visual></link></robot>");
+                f.close();
+                return path;
+            };
+            const int before = v->ModelCount();
+            QString ferr;
+            const QString table = writeUrdf("simul_floor_table.urdf", "<box size=\"1 1 1\"/>");   // 윗면 z = 0.5 (중심이 원점)
+            CHECK(v->AddFile(table, &ferr), "add the floor model");
+            const int fl = before;
+            CHECK(v->AddFile(arm, &ferr), "add a falling model");
+            const int item = before + 1;
+            v->SetModelPlacement(fl, dhPose(dhVector(0, 0, 0), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            v->SetModelPlacement(item, dhPose(dhVector(0, 0, 3), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            v->SetFloorModel(fl);
+            CHECK(v->FloorModel() == fl, "floor model is set");
+            double z = 0.0;
+            CHECK(v->FloorHeightAt(0.2, -0.3, &z) && simul::Abs(static_cast<float>(z) - 0.5f) < 1e-4f, "floor top is 0.5 m");
+            CHECK(!v->FloorHeightAt(2.0, 0.0, &z), "no floor surface outside the floor model");
+            v->SimulateFall(20.0);
+            const float restZ = v->ModelPlacementPose(item).position.z;   // 팔의 바닥면이 모델 원점이라 원점 높이 = 윗면 높이
+            CHECK(simul::Abs(restZ - 0.5f) < 2e-3f, "the model rests on the floor model's top (0.5 m), not on z = 0");
+            // 바닥 모델 바깥으로 옮기면 z=0 평면까지 내려간다
+            v->SetModelPlacement(item, dhPose(dhVector(3, 0, 1), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            v->SimulateFall(20.0);
+            CHECK(simul::Abs(v->ModelPlacementPose(item).position.z) < 2e-3f, "beside the floor model it falls to the z = 0 plane");
+            v->SetFloorModel(-1);
+            CHECK(v->FloorModel() < 0, "floor model cleared");
+            v->RemoveModel(item);
+            v->RemoveModel(fl);
+
+            // 곡면: 반지름 1 m 구의 꼭대기 위로 떨어뜨린다. 지정한 모델이 아닌 곳은 영향이 없다.
+            const QString ball = writeUrdf("simul_floor_ball.urdf", "<sphere radius=\"1\"/>");
+            CHECK(v->AddFile(ball, &ferr) && v->AddFile(arm, &ferr), "add a curved floor model and a falling model");
+            const int b = before, it = before + 1;
+            v->SetModelPlacement(it, dhPose(dhVector(0, 0, 4), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            v->SetFloorModel(b);
+            v->SimulateFall(20.0);
+            const float zc = v->ModelPlacementPose(it).position.z;
+            // 상자 바닥 모서리(0.25, 0.25)가 구 표면(높이 sqrt(1 - 0.125) = 0.935)에 닿는다. 구는 조각으로 근사하므로 약간 낮을 수 있다
+            CHECK(zc > 0.88f && zc < 1.0f, "the model stops where its corners touch the curved top");
+            v->SetFloorModel(-1);
+            v->RemoveModel(it);
+            v->RemoveModel(b);
+            CHECK(v->ModelCount() == before, "floor test models removed");
+        }
         // 길이 단위 변환: mm 로 만든 파일(1000 단위 상자)을 0.001 배 하면 1 m 가 된다
         {
             const QString objPath = QString::fromUtf8(tu::Tmp("simul_mm_cube.obj").c_str());

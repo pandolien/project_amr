@@ -39,6 +39,7 @@ struct Options {
     simul::Array<Place> places;
     struct Scale { simul::String model; double factor; };   // --scale 모델=배율
     simul::Array<Scale> scales;
+    simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
@@ -99,6 +100,7 @@ void PrintUsage(const char* exe) {
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
+        "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
@@ -171,6 +173,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--only-view") { o->onlyView = true; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
+        if (a == "--floor" && hasNext) { o->floorModel = argv[++i]; continue; }
         if (a == "--scale" && hasNext) {   // 모델 전체 크기 배율. 예: --scale arm=0.5
             const simul::String v = argv[++i];
             const size_t eq = v.find('=');
@@ -750,6 +753,19 @@ public:
     }
 
     // 명령행의 --scale 모델=배율
+    void applyFloor(const Options& o) {
+        if (o.floorModel.empty()) return;
+        const QString name = simulqt::ToQ(o.floorModel);
+        int found = -1;
+        for (int m = 0; m < viewer_->ModelCount(); m++) if (viewer_->ModelName(m) == name) found = m;
+        if (found < 0) {
+            fprintf(stderr, "경고: --floor %s 모델을 찾지 못했습니다\n", o.floorModel.c_str());
+            logError(QString::fromUtf8("바닥 지정 실패: %1").arg(name));
+            return;
+        }
+        viewer_->SetFloorModel(found);
+    }
+
     void applyScales(const Options& o) {
         for (size_t i = 0; i < o.scales.size(); i++) {
             const QString name = simulqt::ToQ(o.scales[i].model);
@@ -1246,6 +1262,7 @@ int main(int argc, char** argv) {
             for (size_t i = 0; i < o.moreFiles.size(); i++) w.openFile(QString::fromLocal8Bit(o.moreFiles[i].c_str()));
             w.applyScales(o);
             w.applyPlaces(o);
+            w.applyFloor(o);
             w.applyJoints(o);
             w.applySelect(o);
             w.applyMove(o);
