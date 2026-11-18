@@ -36,6 +36,8 @@ struct Options {
     simul::Array<simul::String> moreFiles;  // 둘째 파일부터 (모두 한 장면에 올린다)
     struct Place { simul::String model; double v[4]; };   // --place 모델=x,y,z[,회전도]
     simul::Array<Place> places;
+    struct Scale { simul::String model; double factor; };   // --scale 모델=배율
+    simul::Array<Scale> scales;
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
@@ -95,6 +97,7 @@ void PrintUsage(const char* exe) {
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
+        "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
@@ -165,6 +168,16 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--only-view") { o->onlyView = true; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
+        if (a == "--scale" && hasNext) {   // 모델 전체 크기 배율. 예: --scale arm=0.5
+            const simul::String v = argv[++i];
+            const size_t eq = v.find('=');
+            Options::Scale sc;
+            sc.factor = eq == simul::String::npos ? 0.0 : atof(v.c_str() + eq + 1);
+            if (eq == simul::String::npos || sc.factor <= 0.0) { fprintf(stderr, "--scale 은 모델=배율 형식입니다 (배율은 0 보다 커야 합니다. 예: --scale arm=0.5)\n"); return false; }
+            sc.model = v.substr(0, eq);
+            o->scales.push_back(sc);
+            continue;
+        }
         if (a == "--place" && hasNext) {
             const simul::String v = argv[++i];
             const size_t eq = v.find('=');
@@ -732,6 +745,20 @@ public:
         if (!o.places.empty()) afterLoad(QString::fromUtf8("배치 적용"));
     }
 
+    // 명령행의 --scale 모델=배율
+    void applyScales(const Options& o) {
+        for (size_t i = 0; i < o.scales.size(); i++) {
+            const QString name = simulqt::ToQ(o.scales[i].model);
+            int found = -1;
+            for (int m = 0; m < viewer_->ModelCount(); m++) if (viewer_->ModelName(m) == name) found = m;
+            if (found < 0 || !viewer_->SetModelScale(found, o.scales[i].factor)) {
+                fprintf(stderr, "경고: --scale %s 를 적용하지 못했습니다 (모델 이름을 확인하세요)\n", o.scales[i].model.c_str());
+                logError(QString::fromUtf8("크기 배율 적용 실패: %1").arg(name));
+            }
+        }
+        if (!o.scales.empty()) { viewer_->FitView(); afterLoad(QString::fromUtf8("크기 배율")); }   // 시작할 때의 배율이면 화면도 새 크기에 맞춘다
+    }
+
     // 명령행에서 받은 관절 값을 적용한다 (각도 관절은 degree 로 받아 rad 로 바꾼다)
     void applyJoints(const Options& o) {
         for (size_t i = 0; i < o.joints.size(); i++) {
@@ -1205,6 +1232,7 @@ int main(int argc, char** argv) {
             if (!o.shot.empty() || !o.shotWindow.empty()) return 1;
         } else {
             for (size_t i = 0; i < o.moreFiles.size(); i++) w.openFile(QString::fromLocal8Bit(o.moreFiles[i].c_str()));
+            w.applyScales(o);
             w.applyPlaces(o);
             w.applyJoints(o);
             w.applySelect(o);

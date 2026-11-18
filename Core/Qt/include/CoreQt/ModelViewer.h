@@ -66,6 +66,10 @@ public:
     // 모델 파일의 길이 단위를 맞춘다: 메시를 s 배로 한다 (mm 로 만든 파일은 0.001, cm 는 0.01, inch 는 0.0254). 1.0 이 원래 크기. 기본 도형은 바뀌지 않는다.
     bool SetModelUnitScale(int index, double s);
     double ModelUnitScale(int index) const;
+    // 모델 전체의 크기 배율: 길이, 관절 위치, 도형, 메시가 모두 s 배 (1.0 이 원래 크기, 0.1 ~ 10 같은 값). massScales 이면 질량이 s^3, 관성이 s^5 으로 따라가
+    // 작게 만들면 가벼워지고 크게 만들면 무거워진다 (false 면 질량은 그대로). 원래 크기 기준의 절대 배율이라 여러 번 불러도 겹쳐지지 않는다. 기본 도형도 된다.
+    bool SetModelScale(int index, double s, bool massScales = true);
+    double ModelScale(int index) const;
 
     // ---- 카메라 (m, radian, 쿼터니언). 마우스로 돌리는 중심 궤도 카메라: target 을 distance 만큼 떨어져서 본다.
     // yaw 는 target 둘레 z 축 회전, pitch 는 올려다보는 각 (+ 이면 카메라가 위에 있다). 둘 다 radian, pitch 는 +-89 도로 제한한다.

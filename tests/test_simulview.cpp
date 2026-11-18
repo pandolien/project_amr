@@ -147,6 +147,20 @@ int main(int argc, char** argv) {
             v->RemoveModel(mm);
             QFile::remove(objPath);
         }
+        // 크기 배율: 길이와 질량(s^3)이 함께 바뀐다
+        {
+            const int before = v->ModelCount();
+            simul::String serr;
+            CHECK(v->AddFile(arm, &serr), "add a model for the scale test");
+            const int sm = before;
+            auto totalMass = [&]() { float m = 0; for (size_t i = 0; i < v->Robot().links.size(); i++) if (v->ModelOfLink(static_cast<int>(i)) == sm) m += v->Robot().links[i].inertial.mass; return m; };
+            const float m1 = totalMass();
+            CHECK(simul::Abs(static_cast<float>(v->ModelScale(sm)) - 1.0f) < 1e-6f, "scale starts at 1");
+            CHECK(v->SetModelScale(sm, 2.0) && simul::Abs(static_cast<float>(v->ModelScale(sm)) - 2.0f) < 1e-6f, "scale set to 2");
+            CHECK(simul::Abs(totalMass() - m1 * 8.0f) < 1e-2f * (1.0f + m1), "mass grows by 2^3 after doubling");
+            CHECK(!v->SetModelScale(sm, 0.0) && !v->SetModelScale(99, 2.0), "bad scale or model index rejected");
+            v->RemoveModel(sm);
+        }
         view.show();
         view.resize(900, 600);
         QApplication::processEvents();
