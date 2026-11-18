@@ -122,6 +122,42 @@ int main(int argc, char** argv) {
             v->RemoveModel(cyl);
             v->RemoveModel(box);
         }
+        // 입력 창으로 올리기: 종류별 입력 칸, z 자동 높이, 입력한 값 그대로 반영
+        {
+            const int before = v->ModelCount();
+            const double at[3] = {1.5, -0.5, 0.0};
+            ShapeDialog dlg(nullptr, ShapeDialog::kCylinder, at);
+            CHECK(dlg.CurrentShape() == ShapeDialog::kCylinder && dlg.Name() == "cylinder", "dialog starts with the requested shape");
+            CHECK(simul::Abs(static_cast<float>(dlg.Position(0)) - 1.5f) < 1e-6f && simul::Abs(static_cast<float>(dlg.Position(2)) - 0.25f) < 1e-6f, "dialog z rests on the floor");
+            dlg.SetSize(0, 0.1);
+            dlg.SetSize(1, 2.0);
+            CHECK(simul::Abs(static_cast<float>(dlg.Position(2)) - 1.0f) < 1e-6f, "z follows the length while untouched");
+            dlg.SetName("pole");
+            dlg.SetMass(7.5);
+            dlg.SetColor(QColor(10, 200, 30));
+            QString derr;
+            const int idx = dlg.Apply(v, &derr);
+            CHECK(idx == before && v->ModelCount() == before + 1 && v->ModelName(idx) == "pole", "dialog adds the shape");
+            float got[6];
+            v->ModelPlacement6(idx, got);
+            CHECK(simul::Abs(got[0] - 1.5f) < 1e-3f && simul::Abs(got[1] + 0.5f) < 1e-3f && simul::Abs(got[2] - 1.0f) < 1e-3f, "dialog position applied");
+            dlg.SetShape(ShapeDialog::kSphere);
+            dlg.SetSize(0, 0.0);
+            CHECK(dlg.Size(0) > 0.0, "dialog fields cannot hold a zero size");
+            const int ball = dlg.Apply(v, &derr);
+            CHECK(ball == before + 1, "dialog adds a sphere too");
+            v->RemoveModel(ball);
+            v->RemoveModel(idx);
+        }
+        // 오른쪽 클릭 신호를 받는 호스트가 있으면 기본 메뉴 대신 호스트가 처리한다
+        {
+            int gotHits = 0;
+            double gx = 0, gy = 0;
+            QMetaObject::Connection c = QObject::connect(&view, &SimulView::viewContextMenuRequested, [&](const QPoint&, double x, double y) { gotHits++; gx = x; gy = y; });
+            emit v->viewContextMenuRequested(QPoint(0, 0), 1.25, -2.0);
+            CHECK(gotHits == 1 && simul::Abs(static_cast<float>(gx) - 1.25f) < 1e-6f && simul::Abs(static_cast<float>(gy) + 2.0f) < 1e-6f, "host receives the right-click position");
+            QObject::disconnect(c);
+        }
         // 장면 -> URDF 하나로 저장 -> 다시 읽기
         {
             const QString out = QString::fromUtf8(tu::Tmp("simul_view_scene.urdf").c_str());

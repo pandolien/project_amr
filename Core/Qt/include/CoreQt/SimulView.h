@@ -11,6 +11,7 @@
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/FloatingPanel.h"
 #include "CoreQt/SelectionOverlay.h"
+#include "CoreQt/ShapeDialog.h"
 #include "CoreQt/StructurePanel.h"
 
 // 다른 Qt 프로그램(호스트)에 붙여 쓰는 3D 뷰 부품.
@@ -42,6 +43,9 @@ public:
     // "추가" 메뉴를 새로 만든다: 박스, 원통, 구를 장면에 더한다 (기본 크기, 위치는 겹치지 않게 옆으로 비켜 놓는다).
     // 호스트 메뉴줄에 그대로 끼울 수 있다. 직접 만들려면 ModelViewer::AddBox / AddCylinder / AddSphere 를 부르면 된다.
     QMenu* NewAddMenu(QWidget* parent);
+    // 도형 입력 창(크기, 위치, 색, 질량)을 띄워 확인하면 장면에 올린다. 올렸으면 모델 번호, 취소/실패면 -1.
+    // pos 는 놓을 자리 x, y, z (m), 비우면 원점 옆. "추가" 메뉴와 3D 화면 오른쪽 클릭 메뉴가 이걸 부른다.
+    int AddShapeWithDialog(ShapeDialog::Shape shape, const double* pos = nullptr);
     QMenu* AddMenu(const QString& title);   // 이 부품이 소유하는 메뉴를 하나 더한다
     void ResetMenus();                       // 기본 메뉴로 되돌린다
 
@@ -64,6 +68,9 @@ public:
     bool HasFeature(Feature f) const { return (features_ & f) != 0; }
 
 signals:
+    // 3D 화면의 빈 곳(또는 물체)을 오른쪽 클릭했다. 받는 쪽이 있으면 호스트가 자기 메뉴를 띄우고, 없으면 "추가" 메뉴가 뜬다.
+    // (x, y) 는 클릭한 자리의 바닥 좌표 m.
+    void viewContextMenuRequested(const QPoint& globalPos, double x, double y);
     void shapeAddFailed(const QString& error);     // "추가" 메뉴의 도형 추가가 실패했다
     void urdfSaved(const QString& path);          // 기본 메뉴의 "장면을 URDF 로 저장"이 성공했다
     void urdfSaveFailed(const QString& error);

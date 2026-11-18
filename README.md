@@ -377,7 +377,8 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 
 파일 없이 기본 도형을 장면에 모델로 올린다. 색과 질량(관성은 공식으로 계산)을 주고, 올라간 도형은 다른 모델처럼 옮기고 돌리고 중력으로 떨어지고 충돌하며, URDF 로 내보내면 함께 저장된다.
 
-- 앱: 메뉴 **추가 > 박스 / 원통 / 구**, 명령행 `--add-box 이름=가로,세로,높이[@x,y,z]`, `--add-cylinder 이름=반지름,길이[@x,y,z]`, `--add-sphere 이름=반지름[@x,y,z]` (여러 번 가능, 파일 없이도 된다)
+- 앱(마우스): 메뉴 **추가 > 박스... / 원통... / 구...** 를 누르면 이름, 크기, 위치, 질량, 색을 입력하는 창(`ShapeDialog`)이 뜨고 **추가**를 누르면 올라간다. 3D 화면의 빈 곳을 **오른쪽 클릭**(끌지 않고)하면 "여기에 박스 추가..." 메뉴가 떠서 누른 바닥 자리에 올릴 수 있다. 오른쪽 클릭을 호스트가 직접 처리하려면 `SimulView::viewContextMenuRequested(globalPos, x, y)` 를 받으면 된다(받는 쪽이 있으면 기본 메뉴는 뜨지 않는다). 창만 따로 쓰려면 `ShapeDialog::Apply(viewer)`. 묻지 않고 기본 크기로 바로 올리는 건 **추가 > 빠른 추가**.
+- 앱(명령행): `--add-box 이름=가로,세로,높이[@x,y,z]`, `--add-cylinder 이름=반지름,길이[@x,y,z]`, `--add-sphere 이름=반지름[@x,y,z]` (여러 번 가능, 파일 없이도 된다)
 - 라이브러리: `ModelViewer::AddBox / AddCylinder / AddSphere(이름, 크기, pose6, 색, 질량)` (모델 번호를 돌려주고 실패하면 -1), `SimulView::NewAddMenu(parent)` 로 같은 메뉴를 호스트 메뉴줄에 끼울 수 있다. 화면 없이는 `urdf::MakePrimitiveRobot` + `World::AddRobot`.
 
 ## 화면 구성 (도크, 메뉴 숨기기, 3D 화면만)

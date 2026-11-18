@@ -171,6 +171,8 @@ signals:
     void selectionChanged(int link);   // SetSelectedLink 로 선택이 바뀌었을 때 (-1 이면 해제)
     void robotChanged();               // 로봇(모델 구성)이 새로 올라왔다
     void jointValuesChanged();         // SetJointValues 로 관절 값이 바뀌었다
+    // 화면에서 오른쪽 버튼을 끌지 않고 눌렀다 뗐다. (x, y) 는 그 자리의 바닥(z=0) 위 월드 좌표 m. SimulView 는 이걸로 "추가" 메뉴를 띄운다.
+    void viewContextMenuRequested(const QPoint& globalPos, double x, double y);
     void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
 protected:

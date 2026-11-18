@@ -20,6 +20,19 @@ SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), view
     viewer_ = new ModelViewer(this);
     lay->addWidget(viewer_);
     overlay_ = new SelectionOverlay(viewer_);   // 3D 화면 위에 뜬다
+    connect(viewer_, &ModelViewer::viewContextMenuRequested, this, [this](const QPoint& gp, double x, double y) {
+        if (receivers(SIGNAL(viewContextMenuRequested(QPoint, double, double))) > 0) {
+            emit viewContextMenuRequested(gp, x, y);
+            return;
+        }
+        if (!HasFeature(kMouseEdit)) return;   // 보기만 하는 모드에서는 장면을 바꾸는 메뉴를 띄우지 않는다
+        QMenu menu(this);
+        const double pos[3] = {x, y, 0.0};
+        connect(menu.addAction(QString::fromUtf8("여기에 박스 추가...")), &QAction::triggered, this, [this, &pos]() { AddShapeWithDialog(ShapeDialog::kBox, pos); });
+        connect(menu.addAction(QString::fromUtf8("여기에 원통 추가...")), &QAction::triggered, this, [this, &pos]() { AddShapeWithDialog(ShapeDialog::kCylinder, pos); });
+        connect(menu.addAction(QString::fromUtf8("여기에 구 추가...")), &QAction::triggered, this, [this, &pos]() { AddShapeWithDialog(ShapeDialog::kSphere, pos); });
+        menu.exec(gp);
+    });
     connect(overlay_, &SelectionOverlay::valueEdited, this, [this](const QString& name, double value) {
         simul::urdf::JointValues q = viewer_->CurrentJointValues();
         q[simulqt::FromQ(name)] = static_cast<float>(value);
@@ -144,20 +157,39 @@ void SimulView::SetUiScale(double scale) {
     emit uiScaleChanged(scale);
 }
 
+int SimulView::AddShapeWithDialog(ShapeDialog::Shape shape, const double* pos) {
+    double auto_pos[3] = {0.8 * viewer_->ModelCount(), 0, 0};   // 자리를 안 주면 기존 모델 옆
+    ShapeDialog dlg(this, shape, pos ? pos : nullptr);
+    if (!pos) {
+        dlg.SetPosition(0, auto_pos[0]);
+    }
+    if (dlg.exec() != QDialog::Accepted) return -1;
+    QString err;
+    const int idx = dlg.Apply(viewer_, &err);
+    if (idx < 0) emit shapeAddFailed(err);
+    return idx;
+}
+
 QMenu* SimulView::NewAddMenu(QWidget* parent) {
     QMenu* add = new QMenu(QString::fromUtf8("추가"), parent);
+    // 누르면 크기/위치/색/질량을 묻는 창이 뜬다. "빠른 추가"는 묻지 않고 기본 크기로 바로 올린다.
+    connect(add->addAction(QString::fromUtf8("박스...")), &QAction::triggered, this, [this]() { AddShapeWithDialog(ShapeDialog::kBox); });
+    connect(add->addAction(QString::fromUtf8("원통...")), &QAction::triggered, this, [this]() { AddShapeWithDialog(ShapeDialog::kCylinder); });
+    connect(add->addAction(QString::fromUtf8("구...")), &QAction::triggered, this, [this]() { AddShapeWithDialog(ShapeDialog::kSphere); });
+    add->addSeparator();
+    QMenu* quick = add->addMenu(QString::fromUtf8("빠른 추가 (기본 크기)"));
     // 기본 도형: 이름은 shape 종류, 위치는 개수만큼 x 로 비켜 놓고 z 는 높이 절반 위(중력이 켜져 있으면 바닥에 내려앉는다)
-    connect(add->addAction(QString::fromUtf8("박스 (0.5 x 0.5 x 0.5 m)")), &QAction::triggered, this, [this]() {
+    connect(quick->addAction(QString::fromUtf8("박스 (0.5 x 0.5 x 0.5 m)")), &QAction::triggered, this, [this]() {
         const float pose[6] = {0.8f * static_cast<float>(viewer_->ModelCount()), 0, 0.25f, 0, 0, 0};
         QString err;
         if (viewer_->AddBox("box", 0.5, 0.5, 0.5, pose, QColor(120, 160, 220), 5.0, &err) < 0) emit shapeAddFailed(err);
     });
-    connect(add->addAction(QString::fromUtf8("원통 (반지름 0.25 x 길이 0.5 m)")), &QAction::triggered, this, [this]() {
+    connect(quick->addAction(QString::fromUtf8("원통 (반지름 0.25 x 길이 0.5 m)")), &QAction::triggered, this, [this]() {
         const float pose[6] = {0.8f * static_cast<float>(viewer_->ModelCount()), 0, 0.25f, 0, 0, 0};
         QString err;
         if (viewer_->AddCylinder("cylinder", 0.25, 0.5, pose, QColor(220, 150, 110), 5.0, &err) < 0) emit shapeAddFailed(err);
     });
-    connect(add->addAction(QString::fromUtf8("구 (반지름 0.25 m)")), &QAction::triggered, this, [this]() {
+    connect(quick->addAction(QString::fromUtf8("구 (반지름 0.25 m)")), &QAction::triggered, this, [this]() {
         const float pose[6] = {0.8f * static_cast<float>(viewer_->ModelCount()), 0, 0.25f, 0, 0, 0};
         QString err;
         if (viewer_->AddSphere("sphere", 0.25, pose, QColor(130, 200, 150), 5.0, &err) < 0) emit shapeAddFailed(err);

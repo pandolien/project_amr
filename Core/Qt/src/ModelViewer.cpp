@@ -1304,6 +1304,17 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
 }
 
 void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
+    // 거의 움직이지 않고 뗀 오른쪽 버튼 = 메뉴 요청 (끌었다면 카메라 이동이었다)
+    if (e->button() == Qt::RightButton) {
+        if (!dragged_) {
+            QVector3D ro, rd, p(0, 0, 0);
+            if (mouseRay(e->pos(), &ro, &rd) && RayPlane(ro, rd, QVector3D(0, 0, 0), QVector3D(0, 0, 1), &p)) {
+                if (!(p.length() < 1000.0f)) p = QVector3D(0, 0, 0);   // 지평선 쪽을 눌러 터무니없이 먼 점이 나온 경우
+            }
+            emit viewContextMenuRequested(e->globalPos(), p.x(), p.y());
+        }
+        return;
+    }
     // 거의 움직이지 않고 뗀 왼쪽 버튼 = 클릭: 그 자리의 물체를 선택한다
     if (e->button() != Qt::LeftButton) return;
     if (dragAxis_ >= 0 || dragRing_ >= 0) {  // 화살표/링을 끌던 중이었다: 선택은 그대로 두고 끝낸다
