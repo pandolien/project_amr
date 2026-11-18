@@ -2,6 +2,7 @@
 #define CORECQT_MODELVIEWER_H
 
 #include <QMatrix4x4>
+#include <QHash>
 #include <QImage>
 #include <QOpenGLBuffer>
 #include <QOpenGLTexture>
@@ -187,7 +188,8 @@ private:
         float color[4];
         float metallic, roughness;      // PBR 재질 (glTF 에서 읽거나 기본값)
         simul::Array<float> extra;      // 정점마다 uv(2) + 색 rgba(4). 텍스처나 정점 색이 있을 때만 채운다
-        QImage image;                   // 기본 색 텍스처 (디코딩한 것, 비어 있으면 없음)
+        QImage image;                   // 기본 색 텍스처 (디코딩한 것, 비어 있으면 없음). 같은 이미지를 쓰는 primitive 끼리 같은 데이터를 나눠 쓴다
+        QString imageKey;               // 같은 이미지인지 알아보는 이름 (파일 경로 또는 내용의 해시)
         bool hasVertexColor;
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
@@ -222,6 +224,7 @@ private:
     QMatrix4x4 viewMatrix() const;
 
     simul::Array<simul::UniquePtr<Item> > items_;
+    QHash<QString, QImage> imageCache_;   // 디코딩한 텍스처 (장면을 다시 합칠 때마다 큰 이미지를 다시 풀지 않게). 모두 닫으면 비운다
     bool buffersDirty_;
     bool hasRobot_;
     simul::urdf::Robot robot_;

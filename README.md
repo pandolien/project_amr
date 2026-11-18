@@ -323,6 +323,7 @@ std::vector<simul::dynamics::LinkContribution> parts = simul::dynamics::GravityC
 - Blinn-Phong: Lambert + 하이라이트(하프벡터와 광택도).
 - PBR: Cook-Torrance (D: GGX, G: Smith, F: Schlick) + 하늘/바닥 그라데이션 환경 반사. 재질은 금속성/거칠기 두 값이며, glTF 파일에 있으면 그 값을 쓰고 없으면(URDF 기본 도형, STL 등) 금속성 0, 거칠기 0.45 입니다. 셰이더에 항마다 한국어 주석이 있습니다.
 - glTF/GLB 색: 재질 색(baseColorFactor), 정점 색(`COLOR_0`), 기본 색 텍스처(GLB 안에 든 이미지, data URI, 파일 옆의 PNG/JPEG)를 곱해서 그린다. 텍스처는 `TEXCOORD_0` 가 있어야 입혀지고, 읽지 못하면 경고에 이유가 남는다. URDF 에서 `<material><color>` 를 주면 그 색이 우선이다. 아직 안 읽는 것: 금속/거칠기 텍스처, 노멀 맵, 발광, `KHR_texture_transform`.
+- 큰 파일 로드: 같은 파일은 한 번만 파싱한다(`LoadMeshCached`, 크기와 수정 시각이 같으면 메모리에서 재사용, 약 1GB 한도). 장면에 모델을 더할 때마다 앞의 모델을 다시 읽지 않고, 같은 텍스처를 쓰는 조각은 이미지 하나와 GL 텍스처 하나를 나눠 쓴다.
 
 ## 다른 Qt 프로그램에 3D 뷰 붙이기 (`SimulView`)
 
