@@ -203,11 +203,13 @@ private:
         QImage image;                   // 기본 색 텍스처 (디코딩한 것, 비어 있으면 없음). 같은 이미지를 쓰는 primitive 끼리 같은 데이터를 나눠 쓴다
         QString imageKey;               // 같은 이미지인지 알아보는 이름 (파일 경로 또는 내용의 해시)
         bool hasVertexColor;
+        int alphaMode;                  // 재질의 알파 모드 (0 불투명, 1 마스크, 2 블렌드)
+        float alphaCutoff;
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
         QOpenGLBuffer evbo;             // extra 를 올린 버퍼
         QSharedPointer<QOpenGLTexture> tex;
-        Item() : link(-1), bvhOk(false), hasVertexColor(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer), evbo(QOpenGLBuffer::VertexBuffer) {
+        Item() : link(-1), bvhOk(false), hasVertexColor(false), alphaMode(0), alphaCutoff(0.5f), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer), evbo(QOpenGLBuffer::VertexBuffer) {
             color[0] = color[1] = color[2] = 0.75f;
             color[3] = 1.0f;
             metallic = 0.0f;

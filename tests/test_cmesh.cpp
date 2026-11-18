@@ -298,7 +298,7 @@ void testGlbColorsAndTextures() {
         "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"COLOR_0\":1,\"TEXCOORD_0\":2},\"material\":0}]}],"
         "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}}},"
         "{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":1}}},"
-        "{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":2}}}],"
+        "{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":2}},\"alphaMode\":\"MASK\",\"alphaCutoff\":0.3}],"
         "\"textures\":[{\"source\":0},{\"source\":1},{\"source\":2}],"
         "\"images\":[{\"bufferView\":3,\"mimeType\":\"image/png\"},{\"uri\":\"data:image/png;base64,QUJDRA==\"},{\"uri\":\"maps/tex%20a.png\"}],"
         "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},"
@@ -319,6 +319,8 @@ void testGlbColorsAndTextures() {
         check(pr.uvs.size() == 6 && nearly(pr.uvs[2], 1), "uv read");
     }
     check(s.IsValid() && s.materials.size() == 3, "scene with colors valid");
+    check(s.materials.size() == 3 && s.materials[2].alphaMode == 1 && nearly(s.materials[2].alphaCutoff, 0.3), "MASK alpha mode and cutoff read");
+    check(s.materials.size() == 3 && s.materials[0].alphaMode == 0 && nearly(s.materials[0].alphaCutoff, 0.5), "alpha mode defaults to opaque");
     if (s.materials.size() == 3) {
         check(s.materials[0].baseColorImage.size() == 8 && s.materials[0].baseColorImage[0] == 'I' && s.materials[0].baseColorTexture.empty(), "embedded image bytes kept");
         check(s.materials[1].baseColorImage.size() == 4 && s.materials[1].baseColorImage[0] == 'A' && s.materials[1].baseColorImage[3] == 'D', "data URI decoded");

@@ -28,7 +28,9 @@ struct Material {
     simul::String baseColorTexture;  // 외부 이미지 파일 경로 (glTF 는 파일 기준으로 풀어 둔다). 없으면 빈 문자열
     simul::Array<unsigned char> baseColorImage;  // GLB 안에 들어 있거나 data URI 인 이미지의 원본 바이트 (PNG/JPEG). 디코딩은 쓰는 쪽(뷰어)이 한다
     bool doubleSided;
-    Material() : metallic(0.0f), roughness(1.0f), doubleSided(false) {}
+    int alphaMode;       // 0 불투명 (알파 무시), 1 마스크 (알파가 alphaCutoff 보다 작은 곳은 뚫린다), 2 블렌드 (반투명). glTF 기본은 0
+    float alphaCutoff;
+    Material() : metallic(0.0f), roughness(1.0f), doubleSided(false), alphaMode(0), alphaCutoff(0.5f) {}
 };
 
 // 삼각형 메시 하나 (glTF 의 primitive 에 해당)
