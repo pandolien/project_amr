@@ -79,6 +79,7 @@ bool ResolveMeshPath(const simul::String& filename, const simul::String& baseDir
 
 bool LoadGeometryScene(const Geometry& g, const simul::String& baseDir, const LoadOptions& opt, Scene* out,
                        simul::String* error, simul::Map<simul::String, Scene>* cache) {
+    (void)cache;
     if (error) error->clear();
     if (!out) return false;
     if (g.type == kGeomBox) {
@@ -100,24 +101,20 @@ bool LoadGeometryScene(const Geometry& g, const simul::String& baseDir, const Lo
         detail::SetError(error, "메시 파일을 찾을 수 없습니다 (" + g.filename + ")");
         return false;
     }
-    Scene sc;
-    simul::Map<simul::String, Scene>::iterator it;
-    if (cache && (it = cache->find(path)) != cache->end()) {
-        sc = it->second;
-    } else {
+    // 읽은 파일은 LoadMeshCached 가 기억해 두므로 같은 파일을 다시 읽어도 파싱하지 않는다 (cache 인자는 쓰지 않는다)
+    Scene& sc = *out;
+    {
         simul::String err;
-        if (!LoadMesh(path, &sc, &err)) {
+        if (!LoadMeshCached(path, &sc, &err)) {
             detail::SetError(error, err);
             return false;
         }
-        if (cache) cache->insert(simul::MakePair(path, sc));
     }
     // URDF 의 scale 은 파일 좌표축 기준이므로 축 변환보다 먼저 적용한다
     if (g.scale[0] != 1.0f || g.scale[1] != 1.0f || g.scale[2] != 1.0f)
         sc.ApplyRootTransform(dhMat::Scale(g.scale[0], g.scale[1], g.scale[2]));
     const simul::String ext = detail::LowerExtension(path);
     if (opt.glbYUpToZUp && (ext == "glb" || ext == "gltf")) sc.ApplyRootTransform(dhMat::RotX(static_cast<float>(dhRad(90.0))));
-    *out = sc;
     return true;
 }
 
@@ -147,7 +144,7 @@ bool LoadRobotMeshes(const Robot& robot, const LoadOptions& opt, RobotMeshes* ou
                 allOk = false;
                 continue;
             }
-            out->visuals.push_back(lv);
+            out->visuals.push_back(simul::Move(lv));   // 큰 장면을 복사하지 않고 넘긴다
         }
     }
     return allOk;

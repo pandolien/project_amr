@@ -50,9 +50,8 @@ bool World::Add(const String& path, String* error) {
         if (!LoadUrdf(path, &e.robot, error)) return false;
     } else {
         // 메시 파일 하나 -> 링크 하나, visual 하나짜리 로봇. 형식은 파일 확장자로 판별한다 (읽는 것은 Build 뒤 LoadRobotMeshes).
-        Scene probe;
         String err;
-        if (!LoadMesh(path, &probe, &err)) {
+        if (!LoadMeshCached(path, nullptr, &err)) {   // 읽을 수 있는 파일인지만 본다 (캐시에 남아 뒤의 본 읽기가 다시 파싱하지 않는다)
             if (error) *error = err;
             return false;
         }

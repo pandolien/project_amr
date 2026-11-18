@@ -328,6 +328,29 @@ void testGlbColorsAndTextures() {
     remove(path.c_str());
 }
 
+// 같은 파일을 다시 읽으면 캐시에서 주고, 파일이 바뀌면 다시 읽는다
+void testMeshCache() {
+    ClearMeshCache();
+    const simul::String path = tu::Tmp("simul_test_cache.obj");
+    const char* one = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+    const char* two = "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nf 1 2 3\nf 2 4 3\n";
+    simul::WriteFileBytes(path, one, strlen(one));
+    Scene a, b;
+    simul::String err;
+    check(LoadMeshCached(path, &a, &err) && a.TriangleCount() == 1, "cached load reads the file");
+    check(LoadMeshCached(path, &b, &err) && b.TriangleCount() == 1, "second cached load works");
+    b.meshes.clear();   // 돌려준 것을 고쳐도 캐시는 그대로다
+    Scene c;
+    check(LoadMeshCached(path, &c, &err) && c.TriangleCount() == 1, "editing the returned copy does not change the cache");
+    check(LoadMeshCached(path, nullptr, &err), "null out only warms the cache");
+    simul::WriteFileBytes(path, two, strlen(two));   // 크기가 달라져 옛 항목은 쓰지 않는다
+    Scene d;
+    check(LoadMeshCached(path, &d, &err) && d.TriangleCount() == 2, "changed file is read again");
+    check(!LoadMeshCached(tu::Tmp("simul_missing_cache.obj"), &d, &err) && !err.empty(), "missing file fails through the cache");
+    remove(path.c_str());
+    ClearMeshCache();
+}
+
 int main() {
     testPrimitives();
     testSceneUtil();
@@ -336,6 +359,7 @@ int main() {
     testGlbHierarchy();
     testGlbErrors();
     testGlbColorsAndTextures();
+    testMeshCache();
     if (g_fail == 0) printf("test_cmesh: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

@@ -246,6 +246,7 @@ void ModelViewer::Clear() {
 void ModelViewer::addScene(const simul::Scene& scene, int link, const dhMat& local, const float* colorOverride, ItemList* dst) {
     ItemList& out = dst ? *dst : items_;
     const simul::Array<dhMat> world = scene.WorldTransforms();
+    QHash<int, QPair<QString, QImage> > matImage;   // 재질 번호 -> (이미지 이름, 디코딩한 이미지)
     for (size_t n = 0; n < scene.nodes.size(); n++) {
         const simul::SceneNode& node = scene.nodes[n];
         if (node.mesh < 0 || static_cast<size_t>(node.mesh) >= scene.meshes.size()) continue;
@@ -265,12 +266,31 @@ void ModelViewer::addScene(const simul::Scene& scene, int link, const dhMat& loc
             it->indices = prim.indices;
             const bool hasUv = prim.uvs.size() == nv * 2, hasVc = prim.colors.size() == nv * 4;
             const simul::Material* mat = (!colorOverride && prim.material >= 0 && static_cast<size_t>(prim.material) < scene.materials.size()) ? &scene.materials[static_cast<size_t>(prim.material)] : nullptr;
-            if (mat) {   // 텍스처 이미지: 파일 안(GLB/data URI)의 바이트, 아니면 파일 경로
-                if (!mat->baseColorImage.empty()) it->image.loadFromData(mat->baseColorImage.data(), static_cast<uint>(mat->baseColorImage.size()));
-                else if (!mat->baseColorTexture.empty()) it->image.load(simulqt::ToQ(mat->baseColorTexture));
-                if (it->image.isNull() && (!mat->baseColorImage.empty() || !mat->baseColorTexture.empty()))
-                    if (&out == &items_) warnings_ << QString::fromUtf8("텍스처 이미지를 읽을 수 없습니다: ") + (mat->baseColorTexture.empty() ? QString::fromUtf8("(파일 안의 이미지)") : simulqt::ToQ(mat->baseColorTexture));
-                if (!hasUv) it->image = QImage();   // uv 가 없으면 입힐 수 없다
+            if (mat && hasUv) {   // 텍스처 이미지: 재질마다 한 번만 풀고, 같은 이미지는 다음에 다시 합칠 때도 다시 풀지 않는다
+                const int mi = prim.material;
+                if (!matImage.contains(mi)) {
+                    QString key;
+                    QImage img;
+                    if (!mat->baseColorImage.empty()) {
+                        key = QString("mem:%1:%2").arg(mat->baseColorImage.size()).arg(qHashBits(mat->baseColorImage.data(), mat->baseColorImage.size()));
+                        if (!imageCache_.contains(key)) {
+                            QImage d;
+                            d.loadFromData(mat->baseColorImage.data(), static_cast<uint>(mat->baseColorImage.size()));
+                            imageCache_.insert(key, d);
+                        }
+                    } else if (!mat->baseColorTexture.empty()) {
+                        key = "file:" + simulqt::ToQ(mat->baseColorTexture);
+                        if (!imageCache_.contains(key)) imageCache_.insert(key, QImage(simulqt::ToQ(mat->baseColorTexture)));
+                    }
+                    if (!key.isEmpty()) {
+                        img = imageCache_.value(key);
+                        if (img.isNull() && &out == &items_)
+                            warnings_ << QString::fromUtf8("텍스처 이미지를 읽을 수 없습니다: ") + (mat->baseColorTexture.empty() ? QString::fromUtf8("(파일 안의 이미지)") : simulqt::ToQ(mat->baseColorTexture));
+                    }
+                    matImage.insert(mi, qMakePair(key, img));
+                }
+                it->imageKey = matImage.value(mi).first;
+                it->image = matImage.value(mi).second;
             }
             it->hasVertexColor = hasVc && !colorOverride;
             if (!it->image.isNull() || it->hasVertexColor) {
@@ -703,6 +723,8 @@ bool ModelViewer::LoadFile(const QString& path, QString* error) {
 void ModelViewer::CloseAll() {
     world_.Clear();
     Clear();
+    imageCache_.clear();
+    simul::ClearMeshCache();
     emit modelChanged();
     emit robotChanged();
 }
@@ -941,6 +963,7 @@ void ModelViewer::uploadBuffers() {
 }
 
 void ModelViewer::uploadItems(ItemList& list) {
+    QHash<QString, QSharedPointer<QOpenGLTexture> > texByKey;
     for (size_t i = 0; i < list.size(); i++) {
         Item& it = *list[i];
         if (it.vbo.isCreated()) it.vbo.destroy();
@@ -961,10 +984,14 @@ void ModelViewer::uploadItems(ItemList& list) {
             it.evbo.allocate(it.extra.data(), static_cast<int>(it.extra.size() * sizeof(float)));
             it.evbo.release();
         }
-        if (!it.image.isNull()) {
-            it.tex.reset(new QOpenGLTexture(it.image.mirrored(), QOpenGLTexture::GenerateMipMaps));   // glTF 의 uv 원점은 왼쪽 위라서 위아래를 뒤집어 올린다
-            it.tex->setWrapMode(QOpenGLTexture::Repeat);
-            it.tex->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear, QOpenGLTexture::Linear);
+        if (!it.image.isNull()) {   // 같은 이미지를 쓰는 primitive 는 GL 텍스처 하나를 나눠 쓴다
+            if (!texByKey.contains(it.imageKey)) {
+                QSharedPointer<QOpenGLTexture> t(new QOpenGLTexture(it.image.mirrored(), QOpenGLTexture::GenerateMipMaps));   // glTF 의 uv 원점은 왼쪽 위라서 위아래를 뒤집어 올린다
+                t->setWrapMode(QOpenGLTexture::Repeat);
+                t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear, QOpenGLTexture::Linear);
+                texByKey.insert(it.imageKey, t);
+            }
+            it.tex = texByKey.value(it.imageKey);
         }
     }
 }

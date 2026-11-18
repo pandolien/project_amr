@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "CBase/Util.h"
 
@@ -66,7 +67,11 @@ public:
         if (c <= cap_) return;
         if (c > (~static_cast<size_t>(0)) / 2 / sizeof(T)) abort();  // 크기 계산이 넘치는 터무니없는 요청 (음수를 size_t 로 넘긴 경우 등)
         T* nd = new T[c]();
-        for (size_t i = 0; i < n_; i++) nd[i] = Move(d_[i]);
+        if (__is_trivially_copyable(T)) {   // float, 정수 같은 단순한 값: 한꺼번에 옮긴다 (큰 메시를 읽을 때 원소별 대입이 병목이었다)
+            if (n_ > 0) memcpy(static_cast<void*>(nd), static_cast<const void*>(d_), n_ * sizeof(T));
+        } else {
+            for (size_t i = 0; i < n_; i++) nd[i] = Move(d_[i]);
+        }
         delete[] d_;
         d_ = nd;
         cap_ = c;
@@ -121,8 +126,23 @@ public:
         for (size_t i = 0; i < n; i++) d_[i] = copy;
         n_ = n;
     }
+    // 같은 타입의 범위는 단순한 값이면 memcpy 로 복사한다
+    void assign(const T* first, const T* last) {
+        if (__is_trivially_copyable(T)) {
+            Array tmp;
+            const size_t n = static_cast<size_t>(last - first);
+            tmp.reserve(n);
+            if (n > 0) memcpy(static_cast<void*>(tmp.d_), static_cast<const void*>(first), n * sizeof(T));
+            tmp.n_ = n;
+            swap(tmp);
+            return;
+        }
+        assignEach(first, last);
+    }
     template <class U>
-    void assign(const U* first, const U* last) {
+    void assign(const U* first, const U* last) { assignEach(first, last); }
+    template <class U>
+    void assignEach(const U* first, const U* last) {
         Array tmp;  // 자기 자신의 일부를 넣는 경우에도 안전하도록 새 배열에 먼저 만든다
         tmp.reserve(static_cast<size_t>(last - first));
         for (const U* p = first; p != last; ++p) tmp.push_back(T(*p));

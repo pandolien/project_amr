@@ -35,6 +35,12 @@ bool LoadDaeFromString(const simul::String& xml, Scene* out, simul::String* erro
 // 확장자(.glb .gltf .stl .obj .dae, 대소문자 무시)로 형식을 골라 읽는다
 bool LoadMesh(const simul::String& path, Scene* out, simul::String* error);
 
+// LoadMesh 와 같지만 최근에 읽은 파일은 메모리에 두었다가 다시 쓴다 (파일의 크기와 수정 시각이 같을 때만).
+// 같은 파일을 연달아 읽는 곳(장면에 더하기, 시각용 읽기, 충돌 모델 만들기)이 큰 파일을 여러 번 파싱하지 않게 한다.
+// out 이 NULL 이면 캐시에만 채운다. 돌려주는 Scene 은 복사본이라 마음대로 고쳐도 된다. 메모리는 약 1GB 까지만 쓰고, 넘치면 오래된 것부터 버린다.
+bool LoadMeshCached(const simul::String& path, Scene* out, simul::String* error);
+void ClearMeshCache();
+
 }  // namespace simul
 
 #endif  // CORE_CMESH_MESHLOADER_H
