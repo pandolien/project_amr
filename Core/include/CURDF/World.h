@@ -22,7 +22,10 @@ struct WorldEntry {
     dhMat placement;         // 월드 기준 자세 (모델이 둘 이상일 때 attach 관절의 origin)
     simul::String rootName;  // Build() 결과에서 이 모델의 루트 링크 이름
     simul::Array<simul::String> linkNames;  // Build() 결과에서 이 모델에 속한 링크 이름들
+    Robot base;              // 크기를 바꾸기 전의 원래 로봇 (robot 은 여기에 크기 배율을 적용한 것)
     double unitScale = 1.0;  // 메시 크기 배율 (SetMeshScale 로 정한 값). 파일이 mm 이면 0.001
+    double modelScale = 1.0; // 모델 전체 배율 (SetModelScale)
+    bool massScales = true;
 };
 
 class World {
@@ -43,6 +46,9 @@ public:
     // 지금 배율이 아니라 "원래 크기 기준"의 절대 배율이다 (두 번 불러도 겹쳐지지 않는다). 상자/원통/구 같은 기본 도형은 건드리지 않는다.
     bool SetMeshScale(size_t i, double s);
     double MeshScale(size_t i) const { return entries_[i].unitScale; }
+    // 모델 전체(길이, 관절 위치, 도형, 메시)를 s 배로 한다. massScales 이면 질량도 s^3 으로 (urdf::ScaleRobot 참고). 원래 크기 기준의 절대 배율이다.
+    bool SetModelScale(size_t i, double s, bool massScales = true);
+    double ModelScale(size_t i) const { return entries_[i].modelScale; }
 
     // 합친 Robot 을 만든다 (Add/Remove 뒤에 다시 부른다). 비어 있으면 false.
     bool Build(const LoadOptions& opt, Robot* out, simul::String* error);
@@ -55,6 +61,7 @@ public:
     simul::String AttachJointName(size_t i) const { return entries_[i].name + "_attach"; }
 
 private:
+    void applyScales(WorldEntry* e) const;   // base 에 모델 배율과 메시 배율을 적용해 robot 을 다시 만든다
     simul::Array<WorldEntry> entries_;
     bool forceComposite_ = false;
 };

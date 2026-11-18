@@ -995,6 +995,21 @@ bool ModelViewer::SetModelUnitScale(int index, double s) {
     return true;
 }
 
+bool ModelViewer::SetModelScale(int index, double s, bool massScales) {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return false;
+    if (!world_.SetModelScale(static_cast<size_t>(index), s, massScales)) return false;
+    QString err;
+    const dhMat keep = ModelPose(index);
+    if (!rebuildWorld(&err, true)) return false;
+    SetModelPose(index, keep);
+    return true;
+}
+
+double ModelViewer::ModelScale(int index) const {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return 1.0;
+    return world_.ModelScale(static_cast<size_t>(index));
+}
+
 double ModelViewer::ModelUnitScale(int index) const {
     if (index < 0 || static_cast<size_t>(index) >= world_.size()) return 1.0;
     return world_.MeshScale(static_cast<size_t>(index));

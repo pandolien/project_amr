@@ -1,4 +1,5 @@
 #include "CURDF/World.h"
+#include "CURDF/Scale.h"
 
 #include "CBase/Map.h"
 #include "CBase/Text.h"
@@ -75,6 +76,7 @@ bool World::Add(const String& path, String* error) {
         name = base + "_" + ToString(n);
     }
     e.name = name;
+    e.base = e.robot;
     entries_.push_back(e);
     return true;
 }
@@ -95,6 +97,7 @@ bool World::AddRobot(const String& name, const Robot& robot, String* error) {
         unique = base + "_" + ToString(n);
     }
     e.name = unique;
+    e.base = e.robot;
     entries_.push_back(e);
     return true;
 }
@@ -106,22 +109,36 @@ void World::Remove(size_t index) {
     entries_ = keep;
 }
 
-bool World::SetMeshScale(size_t i, double s) {
-    if (i >= entries_.size() || !(s > 0.0) || !(s < 1e9)) return false;
-    WorldEntry& e = entries_[i];
-    const float ratio = static_cast<float>(s / e.unitScale);   // 지금 적용된 배율에서 원하는 배율로 가는 비율
-    for (size_t l = 0; l < e.robot.links.size(); l++) {
-        Link& link = e.robot.links[l];
-        for (size_t v = 0; v < link.visuals.size(); v++) {
-            Geometry& g = link.visuals[v].geometry;
-            if (g.type == kGeomMesh) for (int k = 0; k < 3; k++) g.scale[k] *= ratio;
-        }
-        for (size_t c = 0; c < link.collisions.size(); c++) {
-            Geometry& g = link.collisions[c].geometry;
-            if (g.type == kGeomMesh) for (int k = 0; k < 3; k++) g.scale[k] *= ratio;
+void World::applyScales(WorldEntry* e) const {
+    ScaleRobot(e->base, e->modelScale, e->massScales, &e->robot);
+    if (e->unitScale != 1.0) {   // 메시만 따로 곱한다 (mm 로 만든 파일 같은 것)
+        const float u = static_cast<float>(e->unitScale);
+        for (size_t l = 0; l < e->robot.links.size(); l++) {
+            Link& link = e->robot.links[l];
+            for (size_t v = 0; v < link.visuals.size(); v++) {
+                Geometry& g = link.visuals[v].geometry;
+                if (g.type == kGeomMesh) for (int k = 0; k < 3; k++) g.scale[k] *= u;
+            }
+            for (size_t c = 0; c < link.collisions.size(); c++) {
+                Geometry& g = link.collisions[c].geometry;
+                if (g.type == kGeomMesh) for (int k = 0; k < 3; k++) g.scale[k] *= u;
+            }
         }
     }
-    e.unitScale = s;
+}
+
+bool World::SetMeshScale(size_t i, double s) {
+    if (i >= entries_.size() || !(s > 0.0) || !(s < 1e9)) return false;
+    entries_[i].unitScale = s;
+    applyScales(&entries_[i]);
+    return true;
+}
+
+bool World::SetModelScale(size_t i, double s, bool massScales) {
+    if (i >= entries_.size() || !(s > 0.0) || !(s < 1e9)) return false;
+    entries_[i].modelScale = s;
+    entries_[i].massScales = massScales;
+    applyScales(&entries_[i]);
     return true;
 }
 

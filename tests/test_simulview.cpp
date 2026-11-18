@@ -208,6 +208,25 @@ int main(int argc, char** argv) {
             v->RemoveModel(mm);
             QFile::remove(objPath);
         }
+        // 크기 배율: 기본 도형도 된다 (질량 s^3). 속성 위젯의 크기 칸이 엔진을 제어한다.
+        {
+            const int sbox = v->AddBox("scalebox", 0.4, 0.4, 0.4, nullptr, QColor(), 8.0, nullptr);
+            CHECK(sbox >= 0 && simul::Abs(static_cast<float>(v->ModelScale(sbox)) - 1.0f) < 1e-6f, "scale starts at 1");
+            CHECK(v->SetModelScale(sbox, 2.0) && simul::Abs(static_cast<float>(v->ModelScale(sbox)) - 2.0f) < 1e-6f, "scale set to 2");
+            float massSum = 0;
+            for (size_t i = 0; i < v->Robot().links.size(); i++)
+                if (v->Robot().links[i].name == "scalebox" || v->Robot().links[i].name.find("scalebox") != simul::String::npos) massSum += v->Robot().links[i].inertial.mass;
+            CHECK(simul::Abs(massSum - 64.0f) < 1e-2f, "mass is 8 kg x 2^3 after doubling");
+            {
+                PropertiesPanel ext(v);
+                v->SetSelectedLink(v->Robot().FindLink("scalebox"));
+                CHECK(ext.Model() == sbox && simul::Abs(static_cast<float>(ext.Field(6)->value()) - 2.0f) < 1e-4f, "panel shows the model scale");
+                ext.Field(6)->setValue(0.5);
+                CHECK(simul::Abs(static_cast<float>(v->ModelScale(sbox)) - 0.5f) < 1e-4f, "scale field controls the engine");
+            }
+            CHECK(!v->SetModelScale(sbox, 0.0) && !v->SetModelScale(99, 2.0), "bad scale or model index rejected");
+            v->RemoveModel(sbox);
+        }
         // 장면 -> URDF 하나로 저장 -> 다시 읽기
         {
             const QString out = QString::fromUtf8(tu::Tmp("simul_view_scene.urdf").c_str());

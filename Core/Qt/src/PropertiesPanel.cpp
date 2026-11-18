@@ -5,7 +5,7 @@
 #include "CoreQt/ModelViewer.h"
 
 PropertiesPanel::PropertiesPanel(ModelViewer* viewer, QWidget* parent) : QWidget(parent), viewer_(viewer), name_(nullptr), model_(-1), updating_(false) {
-    for (int i = 0; i < 6; i++) spin_[i] = nullptr;
+    for (int i = 0; i < 7; i++) spin_[i] = nullptr;
     QFormLayout* form = new QFormLayout(this);
     name_ = new QLabel(this);
     QFont bold = name_->font();
@@ -35,6 +35,21 @@ PropertiesPanel::PropertiesPanel(ModelViewer* viewer, QWidget* parent) : QWidget
             viewer_->SetModelPlacement6(model_, v);   // 엔진 제어: 모델의 월드 위치/회전
         });
     }
+    {   // 크기 배율: 모델 전체(길이, 관절 위치, 도형, 메시, 질량)를 원래 크기의 몇 배로 할지
+        QDoubleSpinBox* sp = new QDoubleSpinBox(this);
+        sp->setKeyboardTracking(false);
+        sp->setRange(0.001, 1000.0);
+        sp->setDecimals(3);
+        sp->setSingleStep(0.1);
+        sp->setValue(1.0);
+        sp->setToolTip(QString::fromUtf8("원래 크기의 몇 배인지. 길이와 질량이 함께 바뀝니다 (질량은 배율의 세제곱)"));
+        spin_[6] = sp;
+        form->addRow(QString::fromUtf8("크기 배율 (x)"), sp);
+        connect(sp, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged), this, [this](double s) {
+            if (updating_ || model_ < 0) return;
+            viewer_->SetModelScale(model_, s);   // 엔진 제어: 모델 전체 크기
+        });
+    }
     // 엔진 쪽 변화를 따라간다
     connect(viewer_, &ModelViewer::selectionChanged, this, &PropertiesPanel::refresh);
     connect(viewer_, &ModelViewer::selectionPicked, this, &PropertiesPanel::refresh);
@@ -53,13 +68,15 @@ void PropertiesPanel::refresh() {
     if (model < 0) {
         name_->setText(QString::fromUtf8("(선택 없음)"));
         for (int i = 0; i < 6; i++) spin_[i]->setValue(0.0);
+        spin_[6]->setValue(1.0);
     } else {
         float v[6];
         viewer_->ModelPlacement6(model, v);
         name_->setText(viewer_->ModelName(model));
         for (int i = 0; i < 6; i++)
             if (!spin_[i]->hasFocus()) spin_[i]->setValue(static_cast<double>(v[i]));   // 입력 중인 칸은 건드리지 않는다
+        if (!spin_[6]->hasFocus()) spin_[6]->setValue(viewer_->ModelScale(model));
     }
-    for (int i = 0; i < 6; i++) spin_[i]->setEnabled(model >= 0);
+    for (int i = 0; i < 7; i++) spin_[i]->setEnabled(model >= 0);
     updating_ = false;
 }
