@@ -159,7 +159,7 @@ const float kDefaultRough = 0.45f;
 
 ModelViewer::ModelViewer(QWidget* parent)
     : QOpenGLWidget(parent), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
-      dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
+      dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
     selectedModel_ = false;
@@ -966,6 +966,12 @@ static QString LengthText(double m) {
     return QString::number(m / 1000.0, 'g', 3) + " km";
 }
 
+void ModelViewer::SetFrameStatsVisible(bool on) {
+    frameStatsVisible_ = on;
+    refreshScaleInfo();
+    update();
+}
+
 void ModelViewer::SetScaleInfoVisible(bool on) {
     scaleInfoVisible_ = on;
     refreshScaleInfo();
@@ -980,7 +986,9 @@ void ModelViewer::refreshScaleInfo() {
     const bool show = scaleInfoVisible_ && !items_.empty();
     scaleInfo_->setVisible(show);
     if (!show) return;
-    scaleInfo_->setText(QString::fromUtf8("격자 한 칸 %1  ·  카메라 거리 %2").arg(LengthText(static_cast<double>(gridCell_)), LengthText(static_cast<double>(dist_))));
+    QString text = QString::fromUtf8("격자 한 칸 %1  ·  카메라 거리 %2").arg(LengthText(static_cast<double>(gridCell_)), LengthText(static_cast<double>(dist_)));
+    if (frameStatsVisible_) text += QString::fromUtf8("  ·  %1 FPS, 그리기 %2 ms").arg(fps_, 0, 'f', 0).arg(paintMs_, 0, 'f', 1);
+    if (scaleInfo_->text() != text) scaleInfo_->setText(text);
     scaleInfo_->adjustSize();
     scaleInfo_->move(8, height() - scaleInfo_->height() - 8);
 }
@@ -1201,6 +1209,25 @@ void ModelViewer::drawLidar() {
 }
 
 void ModelViewer::paintGL() {
+    QElapsedTimer paintTimer;
+    paintTimer.start();
+    paintScene();
+    // 프레임 정보: 0.5 초마다 평균을 낸다
+    if (!statClock_.isValid()) statClock_.start();
+    statFrames_++;
+    statPaintSum_ += static_cast<double>(paintTimer.nsecsElapsed()) / 1.0e6;
+    const double elapsed = static_cast<double>(statClock_.elapsed());
+    if (elapsed >= 500.0) {
+        fps_ = static_cast<double>(statFrames_) * 1000.0 / elapsed;
+        paintMs_ = statPaintSum_ / statFrames_;
+        statFrames_ = 0;
+        statPaintSum_ = 0.0;
+        statClock_.start();
+        if (frameStatsVisible_) refreshScaleInfo();
+    }
+}
+
+void ModelViewer::paintScene() {
     glClearColor(0.16f, 0.17f, 0.20f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (!prog_ || !prog_->isLinked()) return;

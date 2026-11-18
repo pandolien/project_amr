@@ -38,8 +38,7 @@ Common Prepare(const urdf::Robot& robot, const urdf::JointValues& q, const Gravi
     }
     // 자식이 먼저 오도록 order 를 거꾸로 훑는다
     for (size_t o = robot.order.size(); o-- > 0;) {
-        const urdf::Joint& j = robot.joints[static_cast<size_t>(robot.order[o])];
-        const int pi = robot.FindLink(j.parent), ci = robot.FindLink(j.child);
+        const int pi = robot.JointParent(static_cast<size_t>(robot.order[o])), ci = robot.JointChild(static_cast<size_t>(robot.order[o]));
         if (pi < 0 || ci < 0) continue;
         c.sm[static_cast<size_t>(pi)] += c.sm[static_cast<size_t>(ci)];
         c.smp[static_cast<size_t>(pi)] = c.smp[static_cast<size_t>(pi)] + c.smp[static_cast<size_t>(ci)];
@@ -49,7 +48,7 @@ Common Prepare(const urdf::Robot& robot, const urdf::JointValues& q, const Gravi
     for (size_t ji = 0; ji < robot.joints.size(); ji++) {
         const urdf::Joint& j = robot.joints[ji];
         if (!j.IsMovable()) continue;
-        const int ci = robot.FindLink(j.child);
+        const int ci = robot.JointChild(ji);
         if (ci < 0) continue;
         const double M = c.sm[static_cast<size_t>(ci)];
         if (j.IsAngular()) {
@@ -76,7 +75,7 @@ JointTorques GravityTorques(const urdf::Robot& robot, const urdf::JointValues& q
         size_t cur = ji;
         double factor = 1.0;
         for (size_t depth = 0; depth < robot.joints.size() && robot.joints[cur].hasMimic; depth++) {
-            const int m = robot.FindJoint(robot.joints[cur].mimicJoint);
+            const int m = robot.JointMimic(cur);
             if (m < 0) break;
             factor *= static_cast<double>(robot.joints[cur].mimicMultiplier);
             cur = static_cast<size_t>(m);
@@ -98,7 +97,7 @@ simul::Array<JointLoad> GravityLoads(const urdf::Robot& robot, const urdf::Joint
         l.movable = j.IsMovable();
         l.mimic = j.hasMimic;
         l.torque = c.own[ji];
-        const int ci = robot.FindLink(j.child);
+        const int ci = robot.JointChild(ji);
         if (ci < 0) continue;
         const double M = c.sm[static_cast<size_t>(ci)];
         const V3 force = c.g * (-M);
@@ -132,8 +131,8 @@ simul::Array<LinkContribution> GravityContributions(const urdf::Robot& robot, co
         stack.pop_back();
         subtree.push_back(l);
         for (size_t k = 0; k < robot.joints.size(); k++)
-            if (robot.FindLink(robot.joints[k].parent) == l) {
-                const int ch = robot.FindLink(robot.joints[k].child);
+            if (robot.JointParent(k) == l) {
+                const int ch = robot.JointChild(k);
                 if (ch >= 0) stack.push_back(ch);
             }
     }

@@ -128,6 +128,7 @@ void StructurePanel::onCurrentChanged(QTreeWidgetItem* cur) {
 
 void StructurePanel::SetRobot(const simul::urdf::Robot& robot) {
     Clear();
+    hitState_.clear();
     linkItems_.assign(robot.links.size(), nullptr);
     if (robot.root < 0) return;
 
@@ -213,9 +214,12 @@ void StructurePanel::SetCollidingLinks(const simul::Array<int>& links) {
     simul::Array<bool> hit(linkItems_.size(), false);
     for (size_t i = 0; i < links.size(); i++)
         if (links[i] >= 0 && static_cast<size_t>(links[i]) < hit.size()) hit[static_cast<size_t>(links[i])] = true;
+    // 시뮬레이션 중에는 자주 불린다. 항목을 바꾸면 트리 전체가 다시 배치되므로 상태가 바뀐 링크만 만진다.
+    const bool sameSize = hitState_.size() == hit.size();
     for (size_t i = 0; i < linkItems_.size(); i++) {
         QTreeWidgetItem* it = linkItems_[i];
         if (!it) continue;
+        if (sameSize && hitState_[i] == hit[i]) continue;
         QFont f = it->font(0);
         f.setBold(hit[i]);
         for (int c = 0; c < columnCount(); c++) {
@@ -223,6 +227,7 @@ void StructurePanel::SetCollidingLinks(const simul::Array<int>& links) {
             it->setForeground(c, hit[i] ? QBrush(dark_ ? kHit : QColor(220, 50, 50)) : (dark_ && c > 0 ? QBrush(kMuted) : QBrush()));
         }
     }
+    hitState_ = hit;
 }
 
 void StructurePanel::SelectLink(int link) {
@@ -235,6 +240,7 @@ void StructurePanel::SelectLink(int link) {
 }
 
 void StructurePanel::SetJointNotes(const simul::Map<simul::String, simul::Pair<QString, bool> >& notes) {
+    const int kWarnRole = Qt::UserRole + 2;   // 열 2 항목에 지금 경고 표시 중인지 기억한다
     for (size_t i = 0; i < linkItems_.size(); i++) {
         QTreeWidgetItem* it = linkItems_[i];
         if (!it) continue;
@@ -242,13 +248,19 @@ void StructurePanel::SetJointNotes(const simul::Map<simul::String, simul::Pair<Q
         if (jn.isEmpty()) continue;
         simul::Map<simul::String, simul::Pair<QString, bool> >::const_iterator n = notes.find(simulqt::FromQ(jn));
         if (n == notes.end()) {
-            it->setText(2, QString());
+            if (!it->text(2).isEmpty()) it->setText(2, QString());
             continue;
         }
-        it->setText(2, n->second.first);
-        it->setForeground(2, n->second.second ? QBrush(dark_ ? kHit : QColor(220, 50, 50)) : (dark_ ? QBrush(kMuted) : QBrush()));
+        // 글자와 경고 상태가 그대로면 건드리지 않는다 (setFont/setForeground 는 값이 같아도 트리를 다시 배치시킨다)
+        const bool warn = n->second.second;
+        const bool known = it->data(2, kWarnRole).isValid();
+        const bool sameWarn = known && it->data(2, kWarnRole).toBool() == warn;
+        if (it->text(2) != n->second.first) it->setText(2, n->second.first);
+        if (sameWarn) continue;
+        it->setData(2, kWarnRole, warn);
+        it->setForeground(2, warn ? QBrush(dark_ ? kHit : QColor(220, 50, 50)) : (dark_ ? QBrush(kMuted) : QBrush()));
         QFont f = it->font(2);
-        f.setBold(n->second.second);
+        f.setBold(warn);
         it->setFont(2, f);
     }
 }
