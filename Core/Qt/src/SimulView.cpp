@@ -3,6 +3,8 @@
 #include <QActionGroup>
 #include <QDragEnterEvent>
 #include <QFileDialog>
+#include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QToolButton>
 #include <QDropEvent>
@@ -48,6 +50,7 @@ SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), view
     connect(viewer_, &ModelViewer::structureChanged, this, &SimulView::refreshTree);
     connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { tree_->SetCollidingLinks(viewer_->CollidingLinks()); });
     connect(viewer_, &ModelViewer::selectionChanged, this, [this](int link) { tree_->SelectLink(link); });
+    buildProperties();
     connect(viewer_, &ModelViewer::selectionPicked, this, [this](int link, bool) { tree_->SelectLink(link); });
     placeTimer_ = new QTimer(this);
     connect(placeTimer_, &QTimer::timeout, this, &SimulView::placePanel);
@@ -73,6 +76,7 @@ void SimulView::SetFeatures(unsigned features) {
     menuBar_->setVisible((features & kMenu) != 0);
     layoutMenuBar();
     updateTreeVisibility();
+    refreshProperties();
     if (features & kSelectionPanel) refreshPanel();
     else overlay_->hide();
     if (features != before) emit featuresChanged(features);
@@ -104,6 +108,90 @@ void SimulView::updateTreeVisibility() {
     if (show != treePanel_->isVisibleTo(viewer_)) {
         treePanel_->setVisible(show);
         if (show) treePanel_->raise();
+    }
+}
+
+// ---- 속성 창 ----
+
+void SimulView::applyPropertiesStyle() {
+    const int f = static_cast<int>(12 * uiScale_ + 0.5), pad = static_cast<int>(3 * uiScale_ + 0.5);
+    propBody_->setStyleSheet(QString(
+        "QLabel { color: #c5cad6; background: transparent; font-size: %1px; }"
+        "QLabel#propName { color: #f2f4f8; font-weight: bold; }"
+        "QDoubleSpinBox { background: rgba(255,255,255,18); color: #f2f4f8; border: 1px solid rgba(255,255,255,40); border-radius: 4px; padding: %2px 4px; font-size: %1px; selection-background-color: #2f4a72; }"
+        "QDoubleSpinBox:focus { border: 1px solid #6aa9ff; }"
+        "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 0; border: none; }")
+                              .arg(f).arg(pad));
+}
+
+void SimulView::buildProperties() {
+    propBody_ = new QWidget;
+    QFormLayout* form = new QFormLayout(propBody_);
+    form->setContentsMargins(12, 10, 12, 10);
+    form->setHorizontalSpacing(10);
+    form->setVerticalSpacing(6);
+    propName_ = new QLabel(propBody_);
+    propName_->setObjectName("propName");
+    form->addRow(QString::fromUtf8("모델"), propName_);
+    const char* names[6] = {"위치 x (m)", "위치 y (m)", "위치 z (m)", "회전 roll (°)", "회전 pitch (°)", "회전 yaw (°)"};
+    for (int i = 0; i < 6; i++) {
+        QDoubleSpinBox* sp = new QDoubleSpinBox(propBody_);
+        sp->setKeyboardTracking(false);   // Enter 나 다른 칸으로 옮길 때, 또는 화살표를 누를 때만 적용한다
+        if (i < 3) {
+            sp->setRange(-100000.0, 100000.0);
+            sp->setDecimals(3);
+            sp->setSingleStep(0.05);
+        } else {
+            sp->setRange(-180.0, 180.0);
+            sp->setDecimals(1);
+            sp->setSingleStep(5.0);
+            sp->setWrapping(true);
+        }
+        propSpin_[i] = sp;
+        form->addRow(QString::fromUtf8(names[i]), sp);
+        connect(sp, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged), this, [this](double) {
+            if (propUpdating_ || propModel_ < 0) return;
+            float v[6];
+            for (int k = 0; k < 6; k++) v[k] = static_cast<float>(propSpin_[k]->value());
+            viewer_->SetModelPlacement6(propModel_, v);   // 모델의 위치/회전을 월드 기준으로 바꾼다
+        });
+    }
+    propPanel_ = new FloatingPanel(QString::fromUtf8("속성"), propBody_, viewer_);
+    applyPropertiesStyle();
+    connect(propPanel_, &FloatingPanel::closeRequested, this, [this]() { SetPropertiesVisible(false); });
+    connect(viewer_, &ModelViewer::selectionChanged, this, [this]() { refreshProperties(); });
+    connect(viewer_, &ModelViewer::selectionPicked, this, [this]() { refreshProperties(); });
+    connect(viewer_, &ModelViewer::robotChanged, this, [this]() { refreshProperties(); });
+    connect(viewer_, &ModelViewer::modelChanged, this, [this]() { refreshProperties(); });
+    connect(viewer_, &ModelViewer::objectMoved, this, [this]() { refreshProperties(); });
+}
+
+// 선택한 링크가 속한 모델의 배치를 보여 준다. 켜져 있고 보여 줄 모델이 있을 때만 창이 보인다.
+void SimulView::refreshProperties() {
+    if (!propPanel_) return;
+    int model = -1;
+    if (viewer_->SelectedLink() >= 0) model = viewer_->ModelOfLink(viewer_->SelectedLink());
+    const bool show = (features_ & kProperties) && model >= 0 && model < viewer_->ModelCount();
+    propModel_ = show ? model : -1;
+    if (show) {
+        float v[6];
+        viewer_->ModelPlacement6(model, v);
+        propUpdating_ = true;
+        propName_->setText(viewer_->ModelName(model));
+        for (int i = 0; i < 6; i++)
+            if (!propSpin_[i]->hasFocus() || !propSpin_[i]->isVisible()) propSpin_[i]->setValue(static_cast<double>(v[i]));   // 입력 중인 칸은 건드리지 않는다
+        propUpdating_ = false;
+        if (!propPlaced_ && viewer_->width() > 0) {
+            const int top = (features_ & kMenu) ? menuBar_->height() : 0;
+            propPanel_->SetTopInset(top);
+            const QSize sz(static_cast<int>(250 * uiScale_), static_cast<int>(250 * uiScale_));
+            propPanel_->PlaceDefault(QPoint(viewer_->width() - sz.width() - 8, 8 + top), sz);
+            propPlaced_ = true;
+        }
+    }
+    if (show != propPanel_->isVisibleTo(viewer_)) {
+        propPanel_->setVisible(show);
+        if (show) propPanel_->raise();
     }
 }
 
@@ -139,6 +227,8 @@ void SimulView::SetUiScale(double scale) {
     overlay_->SetScale(scale);
     tree_->SetUiScale(scale);
     treePanel_->SetScale(scale);
+    propPanel_->SetScale(scale);
+    applyPropertiesStyle();
     layoutMenuBar();
     placePanel();
     emit uiScaleChanged(scale);
@@ -251,6 +341,10 @@ void SimulView::layoutMenuBar() {
     if (treePanel_) {
         treePanel_->SetTopInset((features_ & kMenu) ? menuBar_->height() : 0);
         treePanel_->Clamp();
+    }
+    if (propPanel_) {
+        propPanel_->SetTopInset((features_ & kMenu) ? menuBar_->height() : 0);
+        propPanel_->Clamp();
     }
 }
 

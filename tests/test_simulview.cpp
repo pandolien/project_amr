@@ -165,6 +165,25 @@ int main(int argc, char** argv) {
         // 트리에서 링크를 고르면 뷰의 선택이 바뀐다
         emit view.tree()->linkSelected(armRoot);
         CHECK(v->SelectedLink() == armRoot, "tree selection reaches viewer");
+        // 속성 창: 선택하면 보이고, 숫자를 고치면 모델 배치가 바뀐다. 함수로 끄고 켠다
+        {
+            view.SetPropertiesVisible(true);
+            v->SetSelectedLink(armRoot);
+            QApplication::processEvents();
+            CHECK(view.propertiesPanel()->isVisibleTo(view.viewer()), "properties panel visible when a model is selected");
+            QList<QDoubleSpinBox*> spins = view.propertiesPanel()->findChildren<QDoubleSpinBox*>();
+            CHECK(spins.size() == 6, "properties has 6 fields");
+            if (spins.size() == 6) {
+                spins[0]->setValue(1.5);   // 위치 x
+                spins[5]->setValue(30.0);  // 회전 yaw
+                float pl[6];
+                v->ModelPlacement6(v->ModelOfLink(armRoot), pl);
+                CHECK(simul::Abs(pl[0] - 1.5f) < 1e-3f && simul::Abs(pl[5] - 30.0f) < 0.05f, "typing a value moves/rotates the model");
+            }
+            view.SetPropertiesVisible(false);
+            CHECK(!view.propertiesPanel()->isVisibleTo(view.viewer()), "properties off by function");
+            view.SetPropertiesVisible(true);
+        }
         view.SetMenuVisible(false);
         view.SetSelectionPanelVisible(false);
         CHECK(!view.MenuVisible() && !view.SelectionPanelVisible(), "menu/panel off by function");

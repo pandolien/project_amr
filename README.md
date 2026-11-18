@@ -342,6 +342,7 @@ connect(view->viewer(), &ModelViewer::modelDragFinished, host, &Host::onMoved); 
 | `kMouseEdit` | 좌표계 화살표 이동, 회전 링, IK 끌기 (끄면 보기와 선택만) |
 | `kDropFiles` | 파일을 끌어다 놓아 추가 (`filesDropped` 를 받는 쪽이 없으면 바로 추가) |
 | `kMenu` | 3D 화면 **위쪽에 뜨는 메뉴줄** (기본: 파일 열기/모두 닫기, 보기, 물리). 호스트가 `SetMenus(QList<QMenu*>)` 로 자기 메뉴를 그대로 보이거나 `AddMenu(title)` 로 하나 더할 수 있다 |
+| `kProperties` | 3D 화면 안에 뜨는 **속성 창**. 선택한 링크가 속한 모델의 위치(x, y, z m)와 회전(roll, pitch, yaw 도)을 숫자로 보고 고친다. Enter 나 다른 칸으로 옮길 때 적용된다. 켜는/끄는 함수: `SetPropertiesVisible` |
 | `kTree` | 3D 화면 안에 뜨는 **구조 트리 창** (제목줄을 끌어 옮기고, 오른쪽 아래로 크기 조절, ✕ 로 닫기). 클릭하면 선택, 충돌 링크는 빨갛게. 보여 줄 모델이 없으면 저절로 숨는다. 오른쪽 클릭은 `linkContextMenuRequested` 로 알려 주고, 받는 쪽이 없으면 "제거" 메뉴를 쓴다 |
 
 GL 안에 들어 있는 UI 는 프로그램에서 함수로 켜고 끈다:
