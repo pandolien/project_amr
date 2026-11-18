@@ -2,7 +2,10 @@
 #define CORECQT_MODELVIEWER_H
 
 #include <QMatrix4x4>
+#include <QImage>
 #include <QOpenGLBuffer>
+#include <QOpenGLTexture>
+#include <QSharedPointer>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLWidget>
@@ -195,9 +198,14 @@ private:
         simul::TriangleBvh bvh;
         float color[4];
         float metallic, roughness;      // PBR 재질 (glTF 에서 읽거나 기본값)
+        simul::Array<float> extra;      // 정점마다 uv(2) + 색 rgba(4). 텍스처나 정점 색이 있을 때만 채운다
+        QImage image;                   // 기본 색 텍스처 (디코딩한 것, 비어 있으면 없음)
+        bool hasVertexColor;
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
-        Item() : link(-1), bvhOk(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer) {
+        QOpenGLBuffer evbo;             // extra 를 올린 버퍼
+        QSharedPointer<QOpenGLTexture> tex;
+        Item() : link(-1), bvhOk(false), hasVertexColor(false), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer), evbo(QOpenGLBuffer::VertexBuffer) {
             color[0] = color[1] = color[2] = 0.75f;
             color[3] = 1.0f;
             metallic = 0.0f;

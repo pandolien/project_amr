@@ -25,7 +25,8 @@ struct Material {
     Color baseColor;
     float metallic;
     float roughness;
-    simul::String baseColorTexture;  // 외부 이미지 경로. 없거나 임베디드이면 빈 문자열
+    simul::String baseColorTexture;  // 외부 이미지 파일 경로 (glTF 는 파일 기준으로 풀어 둔다). 없으면 빈 문자열
+    simul::Array<unsigned char> baseColorImage;  // GLB 안에 들어 있거나 data URI 인 이미지의 원본 바이트 (PNG/JPEG). 디코딩은 쓰는 쪽(뷰어)이 한다
     bool doubleSided;
     Material() : metallic(0.0f), roughness(1.0f), doubleSided(false) {}
 };
@@ -35,6 +36,7 @@ struct Primitive {
     simul::Array<float> positions;   // xyz * 정점 수
     simul::Array<float> normals;     // xyz * 정점 수. 비어 있으면 ComputeNormals() 로 만든다
     simul::Array<float> uvs;         // uv * 정점 수. 없으면 비어 있음
+    simul::Array<float> colors;      // 정점 색 rgba(0..1) * 정점 수 (glTF COLOR_0). 없으면 비어 있음
     simul::Array<uint32_t> indices;  // 삼각형 인덱스 (3개씩)
     int material;                   // Scene::materials 인덱스, 없으면 -1
 
