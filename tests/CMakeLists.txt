@@ -111,3 +111,8 @@ target_link_libraries(test_curdf_write PRIVATE Core)
 simul_set_warnings(test_curdf_write)
 target_compile_definitions(test_curdf_write PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_curdf_write COMMAND test_curdf_write)
+
+add_executable(test_cprocess test_cprocess.cpp)
+target_link_libraries(test_cprocess PRIVATE Core)
+simul_set_warnings(test_cprocess)
+add_test(NAME test_cprocess COMMAND test_cprocess)
