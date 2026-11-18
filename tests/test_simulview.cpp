@@ -1,7 +1,9 @@
 // SimulView(다른 Qt 프로그램에 붙이는 3D 뷰 부품)가 main.cpp 없이 혼자 동작하는지 본다.
 // 창을 띄우지 않고 (QT_QPA_PLATFORM=offscreen) 위젯 API 와 시그널만 확인한다.
 #include <QApplication>
+#include <QMenu>
 #include <QSlider>
+#include <QToolButton>
 #include <stdio.h>
 
 #include "CBase/Math.h"
@@ -60,6 +62,34 @@ int main(int argc, char** argv) {
     // 선택을 풀면 패널이 사라진다
     v->SetSelectedLink(-1);
     CHECK(view.selectionPanel()->isHidden(), "panel hidden without selection");
+
+    // 3D 화면 안의 메뉴줄: 기본 메뉴 3개 (파일/보기/물리), 호스트 메뉴로 바꾸기, 하나 더하기, 끄기
+    {
+        QFrame* bar = view.findChild<QFrame*>("simulMenuBar");
+        CHECK(bar && !bar->isHidden(), "menu bar shown by default (kAll)");
+        CHECK(bar->findChildren<QToolButton*>().size() == 3, "3 built-in menus");
+        QMenu host("호스트");
+        QAction* ran = host.addAction("실행");
+        bool hit = false;
+        QObject::connect(ran, &QAction::triggered, [&]() { hit = true; });
+        view.SetMenus(QList<QMenu*>() << &host);
+        CHECK(bar->findChildren<QToolButton*>().size() == 1, "host menu replaces the built-in ones");
+        ran->trigger();
+        CHECK(hit, "host action works through the in-view menu");
+        view.ResetMenus();
+        QMenu* extra = view.AddMenu("추가");
+        extra->addAction("x");
+        CHECK(bar->findChildren<QToolButton*>().size() == 4, "AddMenu appends one");
+        view.EnableFeature(SimulView::kMenu, false);
+        CHECK(bar->isHidden(), "menu bar hidden when feature is off");
+        view.EnableFeature(SimulView::kMenu, true);
+        // 기본 메뉴의 "모두 닫기" 가 장면을 비운다
+        QList<QAction*> acts = view.findChildren<QAction*>();
+        QAction* closeAll = nullptr;
+        for (int i = 0; i < acts.size(); i++) if (acts[i]->text() == "모두 닫기") closeAll = acts[i];
+        CHECK(closeAll != nullptr, "found 모두 닫기");
+        if (closeAll) { CHECK(v->ModelCount() == 2, "still two models"); closeAll->trigger(); CHECK(v->ModelCount() == 0, "menu closes all"); }
+    }
 
     // 모두 닫기
     v->CloseAll();

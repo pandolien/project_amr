@@ -1,6 +1,9 @@
 #ifndef CORECQT_SIMULVIEW_H
 #define CORECQT_SIMULVIEW_H
 
+#include <QFrame>
+#include <QList>
+#include <QMenu>
 #include <QStringList>
 #include <QTimer>
 #include <QWidget>
@@ -21,13 +24,20 @@ public:
         kSelectionPanel = 1,   // 클릭한 물체 옆의 정보 + 관절 슬라이더 패널
         kMouseEdit = 2,        // 좌표계 화살표 이동, 회전 링, IK 끌기 (끄면 보기와 선택만)
         kDropFiles = 4,        // 파일을 끌어다 놓아 추가
-        kAll = kSelectionPanel | kMouseEdit | kDropFiles
+        kMenu = 8,             // 3D 화면 위쪽에 뜨는 메뉴줄 (파일/보기/물리). 호스트의 메뉴를 넣으려면 SetMenus
+        kAll = kSelectionPanel | kMouseEdit | kDropFiles | kMenu
     };
 
     explicit SimulView(QWidget* parent = nullptr, unsigned features = kAll);
 
     ModelViewer* viewer() const { return viewer_; }
     SelectionOverlay* selectionPanel() const { return overlay_; }
+
+    // 3D 화면 안의 메뉴줄 (kMenu). 기본으로 파일/보기/물리 메뉴가 들어 있다.
+    // 호스트가 자기 메뉴를 보이고 싶으면 SetMenus 로 통째로 바꾸고(소유권은 호스트), AddMenu 로 하나만 더할 수도 있다.
+    void SetMenus(const QList<QMenu*>& menus);
+    QMenu* AddMenu(const QString& title);   // 이 부품이 소유하는 메뉴를 하나 더한다
+    void ResetMenus();                       // 기본 메뉴로 되돌린다
 
     unsigned Features() const { return features_; }
     void SetFeatures(unsigned features);
@@ -37,7 +47,7 @@ public:
 signals:
     // 선택 패널의 슬라이더로 관절 값을 바꿨다 (값은 이미 viewer() 에 반영되었다. 호스트의 다른 UI 를 맞출 때 쓴다)
     void jointEdited(const QString& jointName, double value);
-    // kDropFiles 가 켜진 채 파일이 놓였다. 받는 쪽이 없으면 viewer()->AddFile 로 바로 추가한다.
+    // 파일을 더하려 한다 (kDropFiles 로 놓았거나, 메뉴의 열기로 골랐다). 받는 쪽이 없으면 viewer()->AddFile 로 바로 추가한다.
     void filesDropped(const QStringList& paths);
 
 protected:
@@ -46,15 +56,23 @@ protected:
     void resizeEvent(QResizeEvent* e) override;
 
 private slots:
+    void buildMenuBar();
     void refreshPanel();   // 선택이 바뀌었을 때: 내용을 새로 채운다
     void syncPanel();      // 같은 선택에서 자세/관절 값이 바뀌었을 때: 숫자와 슬라이더만 갱신
     void placePanel();     // 카메라가 움직여도 물체 옆을 따라다닌다
 
 private:
     QString panelInfo(int link) const;
+    QList<QMenu*> defaultMenus();
+    void layoutMenuBar();
+    void applyMenus();
 
     ModelViewer* viewer_;
     SelectionOverlay* overlay_;
+    QFrame* menuBar_;
+    QList<QMenu*> menus_;          // 지금 메뉴줄에 보이는 메뉴
+    QList<QMenu*> ownedMenus_;     // 이 부품이 만든 것 (호스트가 SetMenus 로 바꾸면 쓰지 않는다)
+    bool customMenus_;
     QTimer* placeTimer_;
     unsigned features_;
     int panelLink_;   // 패널이 지금 보여주는 링크 (-1 이면 없음)

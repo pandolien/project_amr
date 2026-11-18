@@ -7,7 +7,7 @@
 #include "CBase/Util.h"
 #include "3d/Units.h"
 
-SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), moved_(false), dragging_(false), title_(nullptr), info_(nullptr), rowsBox_(nullptr) {
+SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), topInset_(0), moved_(false), dragging_(false), title_(nullptr), info_(nullptr), rowsBox_(nullptr) {
     setObjectName("selectionOverlay");
     setStyleSheet(
         "#selectionOverlay { background: rgba(28, 30, 38, 225); border: 1px solid rgba(255,255,255,70); border-radius: 8px; }"
@@ -118,7 +118,7 @@ void SelectionOverlay::mousePressEvent(QMouseEvent* e) {
 
 void SelectionOverlay::mouseMoveEvent(QMouseEvent* e) {
     if (!dragging_ || !parentWidget()) return;
-    const QRect area = parentWidget()->rect().adjusted(6, 6, -6, -6);
+    const QRect area = parentWidget()->rect().adjusted(6, 6 + topInset_, -6, -6);
     QPoint p = mapToParent(e->pos()) - grab_;
     p.setX(simul::Max(area.left(), simul::Min(p.x(), area.right() - width())));
     p.setY(simul::Max(area.top(), simul::Min(p.y(), area.bottom() - height())));
@@ -135,7 +135,7 @@ void SelectionOverlay::PlaceNear(const QPoint& anchor) {
     anchor_ = anchor;
     if (dragging_ || !parentWidget()) return;   // 끌고 있는 동안에는 손을 따른다
     adjustSize();
-    const QRect area = parentWidget()->rect().adjusted(6, 6, -6, -6);
+    const QRect area = parentWidget()->rect().adjusted(6, 6 + topInset_, -6, -6);
     int x, y;
     if (moved_) {
         x = anchor.x() + offset_.x();

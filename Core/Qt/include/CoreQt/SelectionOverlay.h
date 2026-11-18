@@ -32,6 +32,7 @@ public:
     void ShowValues(const simul::urdf::JointValues& q);
     void PlaceNear(const QPoint& anchor);   // anchor(부모 좌표) 오른쪽에 놓고, 부모 안에 들어오게 민다
     bool HasJoints() const { return !rows_.isEmpty(); }
+    void SetTopInset(int px) { topInset_ = px; }   // 위쪽에 이만큼은 비워 둔다 (메뉴줄 아래로 들어가지 않게)
     void ResetOffset() { moved_ = false; }   // 끌어서 옮긴 자리를 잊고 기본 자리(물체 오른쪽)로 돌아간다
 
 signals:
@@ -54,6 +55,7 @@ private:
     void setSlider(Row& r, double v);
     void updateLabel(Row& r);
 
+    int topInset_;
     bool moved_;           // 사용자가 끌어서 옮겼는가
     QPoint offset_;        // 옮겼다면 물체 위치 기준 상대 위치
     QPoint anchor_;        // 마지막으로 받은 물체 위치

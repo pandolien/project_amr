@@ -390,7 +390,7 @@ public:
         resize(o.width, o.height);
         setAcceptDrops(true);
 
-        view_ = new SimulView(this);   // 3D 뷰 부품 (ModelViewer + 선택 패널). 메뉴, 도크, 로그는 이 프로그램(호스트)이 따로 만든다
+        view_ = new SimulView(this, SimulView::kSelectionPanel | SimulView::kMouseEdit | SimulView::kDropFiles);   // 3D 뷰 부품 (ModelViewer + 선택 패널). 메뉴, 도크, 로그는 이 프로그램(호스트)이 따로 만든다
         viewer_ = view_->viewer();
         for (size_t i = 0; i < o.packages.size(); i++)
             viewer_->LoadOptions().packagePaths.push_back(simul::MakePair(o.packages[i].first, o.packages[i].second));
@@ -489,6 +489,7 @@ public:
         QMenu* phys = menuBar()->addMenu(QString::fromUtf8("물리"));      // 중력, 모터, 낙하
         QMenu* sensorMenu = menuBar()->addMenu(QString::fromUtf8("센서"));  // 라이다 표시
         QMenu* help = menuBar()->addMenu(QString::fromUtf8("도움말"));
+        nativeMenus_ << file << view << phys << sensorMenu << help;   // 3D 화면만 보기에서는 이 메뉴들을 3D 화면 안의 메뉴줄에 그대로 보여 준다
         QAction* fit = view->addAction(QString::fromUtf8("화면에 맞춤"));
         fit->setShortcut(Qt::Key_F);
         QObject::connect(fit, &QAction::triggered, viewer_, &ModelViewer::FitView);
@@ -1043,6 +1044,8 @@ private:
     void setUiHidden(bool on) {
         if (on == uiHidden_) return;
         uiHidden_ = on;
+        view_->SetMenus(nativeMenus_);   // 같은 메뉴(동작, 체크 상태 포함)를 3D 화면 위에 띄운다
+        view_->EnableFeature(SimulView::kMenu, on);
         const QList<QDockWidget*> docks = findChildren<QDockWidget*>();
         if (on) {
             hiddenDocks_.clear();
@@ -1136,6 +1139,7 @@ private:
     LidarPlot* lidarPlot_ = nullptr;
     QDockWidget* lidarDock_ = nullptr;
     JointPanel* panel_;
+    QList<QMenu*> nativeMenus_;
     QAction* menuAct_ = nullptr;
     QAction* onlyViewAct_ = nullptr;
     bool uiHidden_ = false;           // 3D 화면만 보는 중
