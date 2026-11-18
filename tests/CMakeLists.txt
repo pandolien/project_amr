@@ -23,6 +23,12 @@ simul_set_warnings(test_cworld)
 target_compile_definitions(test_cworld PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_cworld COMMAND test_cworld)
 
+add_executable(test_curdf_scale test_curdf_scale.cpp)
+target_link_libraries(test_curdf_scale PRIVATE Core)
+simul_set_warnings(test_curdf_scale)
+target_compile_definitions(test_curdf_scale PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
+add_test(NAME test_curdf_scale COMMAND test_curdf_scale)
+
 add_executable(test_ckinematics test_ckinematics.cpp)
 target_link_libraries(test_ckinematics PRIVATE Core)
 simul_set_warnings(test_ckinematics)

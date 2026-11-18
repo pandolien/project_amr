@@ -8,6 +8,7 @@
 #include <QToolButton>
 #include <stdio.h>
 
+#include "TestUtil.h"
 #include "3d/Units.h"
 #include "3d/dhPose.h"
 #include "CBase/Math.h"
@@ -115,7 +116,7 @@ int main(int argc, char** argv) {
         {
             const int before = v->ModelCount();
             const dhPose pose(dhVector(0.5f, -0.25f, 0.1f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(10, 20, 30)));
-            simul::String qerr;
+            QString qerr;
             CHECK(v->AddFile(arm, &qerr), "add a model for the quaternion placement test");
             const int box = before;
             v->SetModelPlacement(box, pose);
@@ -150,7 +151,7 @@ int main(int argc, char** argv) {
         // 크기 배율: 길이와 질량(s^3)이 함께 바뀐다
         {
             const int before = v->ModelCount();
-            simul::String serr;
+            QString serr;
             CHECK(v->AddFile(arm, &serr), "add a model for the scale test");
             const int sm = before;
             auto totalMass = [&]() { float m = 0; for (size_t i = 0; i < v->Robot().links.size(); i++) if (v->ModelOfLink(static_cast<int>(i)) == sm) m += v->Robot().links[i].inertial.mass; return m; };
