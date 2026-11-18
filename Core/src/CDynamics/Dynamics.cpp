@@ -69,7 +69,7 @@ struct Rnea {
         for (size_t o = 0; o < robot.order.size(); o++) {
             const size_t ji = static_cast<size_t>(robot.order[o]);
             const urdf::Joint& j = robot.joints[ji];
-            const int pi = robot.FindLink(j.parent), ci = robot.FindLink(j.child);
+            const int pi = robot.JointParent(ji), ci = robot.JointChild(ji);
             if (pi < 0 || ci < 0) continue;
             const size_t p = static_cast<size_t>(pi), c = static_cast<size_t>(ci);
             double jd = 0.0, jdd = 0.0;
@@ -114,7 +114,7 @@ struct Rnea {
         for (size_t o = robot.order.size(); o-- > 0;) {
             const size_t ji = static_cast<size_t>(robot.order[o]);
             const urdf::Joint& j = robot.joints[ji];
-            const int pi = robot.FindLink(j.parent), ci = robot.FindLink(j.child);
+            const int pi = robot.JointParent(ji), ci = robot.JointChild(ji);
             if (pi < 0 || ci < 0) continue;
             const size_t p = static_cast<size_t>(pi), c = static_cast<size_t>(ci);
             if (j.IsMovable()) tauJoint[ji] = j.IsAngular() ? Dot(k.axisW[ji], n[c]) : Dot(k.axisW[ji], f[c]);

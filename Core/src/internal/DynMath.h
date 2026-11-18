@@ -88,7 +88,7 @@ inline Kinematics Forward(const urdf::Robot& robot, const urdf::JointValues& q, 
     for (size_t o = 0; o < robot.order.size(); o++) {
         const int ji = robot.order[o];
         const urdf::Joint& j = robot.joints[static_cast<size_t>(ji)];
-        const int pi = robot.FindLink(j.parent), ci = robot.FindLink(j.child);
+        const int pi = robot.JointParent(static_cast<size_t>(ji)), ci = robot.JointChild(static_cast<size_t>(ji));
         if (pi < 0 || ci < 0) continue;
         const M3 Rj = k.R[static_cast<size_t>(pi)] * RotOf(j.origin);                       // 관절 좌표계 (움직이기 전)
         const V3 oj = k.R[static_cast<size_t>(pi)] * TransOf(j.origin) + k.p[static_cast<size_t>(pi)];
@@ -121,7 +121,7 @@ inline MasterOf FindMaster(const urdf::Robot& robot, size_t ji) {
     r.index = static_cast<int>(ji);
     r.factor = 1.0;
     for (size_t depth = 0; depth < robot.joints.size() && robot.joints[static_cast<size_t>(r.index)].hasMimic; depth++) {
-        const int m = robot.FindJoint(robot.joints[static_cast<size_t>(r.index)].mimicJoint);
+        const int m = robot.JointMimic(static_cast<size_t>(r.index));
         if (m < 0) break;
         r.factor *= static_cast<double>(robot.joints[static_cast<size_t>(r.index)].mimicMultiplier);
         r.index = m;

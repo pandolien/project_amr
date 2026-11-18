@@ -2,6 +2,7 @@
 #define CORECQT_MODELVIEWER_H
 
 #include <QMatrix4x4>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QLabel>
 #include <QImage>
@@ -84,6 +85,11 @@ public:
     void SetScaleInfoVisible(bool on);
     bool ScaleInfoVisible() const { return scaleInfoVisible_; }
     double GridCell() const { return static_cast<double>(gridCell_); }   // 격자 한 칸 (m)
+    // 프레임 정보: 화면 왼쪽 아래 표시에 "60 FPS, 그리기 3.2 ms" 를 덧붙인다 (프레임이 떨어지는지, 그리기 때문인지 다른 일 때문인지 가늠하는 용도)
+    void SetFrameStatsVisible(bool on);
+    bool FrameStatsVisible() const { return frameStatsVisible_; }
+    double FramesPerSecond() const { return fps_; }       // 최근 약 0.5 초 동안 평균 (그린 프레임 수 / 시간)
+    double PaintMilliseconds() const { return paintMs_; }  // 그리기 한 번에 걸린 평균 시간 (ms, GL 명령을 보내는 데 걸린 시간)
     bool SelectionScreenPos(QPoint* out) const;   // 선택한 것의 원점이 3D 화면 어디에 보이는가 (화면 안이 아니어도 값은 나온다)
     bool CanRotateSelection() const;
     bool worldAxes() const { return !ringLocal_ && CanRotateSelection(); }  // 화살표와 링을 월드 축에 둔다
@@ -321,7 +327,13 @@ private:
     float dist_, yaw_, pitch_;      // 카메라 거리 m, 방위각/고도각 radian
     QLabel* scaleInfo_;
     bool scaleInfoVisible_;
+    bool frameStatsVisible_;
+    double fps_, paintMs_;
+    int statFrames_;
+    double statPaintSum_;
+    QElapsedTimer statClock_;
     void refreshScaleInfo();
+    void paintScene();
     QPoint lastPos_;
 
     bool showBoxes_;

@@ -33,6 +33,27 @@ int Robot::FindLink(const simul::String& n) const {
     return -1;
 }
 
+int Robot::JointParent(size_t ji) const {
+    const Joint& j = joints[ji];
+    if (j.parentIdx >= 0 && static_cast<size_t>(j.parentIdx) < links.size() && links[static_cast<size_t>(j.parentIdx)].name == j.parent) return j.parentIdx;
+    j.parentIdx = FindLink(j.parent);
+    return j.parentIdx;
+}
+
+int Robot::JointChild(size_t ji) const {
+    const Joint& j = joints[ji];
+    if (j.childIdx >= 0 && static_cast<size_t>(j.childIdx) < links.size() && links[static_cast<size_t>(j.childIdx)].name == j.child) return j.childIdx;
+    j.childIdx = FindLink(j.child);
+    return j.childIdx;
+}
+
+int Robot::JointMimic(size_t ji) const {
+    const Joint& j = joints[ji];
+    if (j.mimicIdx >= 0 && static_cast<size_t>(j.mimicIdx) < joints.size() && joints[static_cast<size_t>(j.mimicIdx)].name == j.mimicJoint) return j.mimicIdx;
+    j.mimicIdx = FindJoint(j.mimicJoint);
+    return j.mimicIdx;
+}
+
 int Robot::FindJoint(const simul::String& n) const {
     for (size_t i = 0; i < joints.size(); i++) if (joints[i].name == n) return static_cast<int>(i);
     return -1;
@@ -57,7 +78,7 @@ float ValueRec(const Robot& r, const JointValues& q, int idx, bool clampToLimits
     const Joint& j = r.joints[static_cast<size_t>(idx)];
     float v = 0.0f;
     if (j.hasMimic && depth < r.joints.size()) {
-        const int m = r.FindJoint(j.mimicJoint);
+        const int m = r.JointMimic(static_cast<size_t>(idx));
         if (m >= 0) v = j.mimicMultiplier * ValueRec(r, q, m, clampToLimits, depth + 1) + j.mimicOffset;
     } else {
         JointValues::const_iterator it = q.find(j.name);
@@ -79,7 +100,7 @@ simul::Array<dhMat> Robot::LinkTransforms(const JointValues& q, bool clampToLimi
     for (size_t k = 0; k < order.size(); k++) {
         const int ji = order[k];
         const Joint& j = joints[static_cast<size_t>(ji)];
-        const int p = FindLink(j.parent), c = FindLink(j.child);
+        const int p = JointParent(static_cast<size_t>(ji)), c = JointChild(static_cast<size_t>(ji));
         if (p < 0 || c < 0) continue;
         dhMat motion;
         const float v = EffectiveJointValue(q, ji, clampToLimits);

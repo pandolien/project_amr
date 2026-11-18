@@ -87,7 +87,10 @@ struct Joint {
     bool hasMimic;
     simul::String mimicJoint;
     float mimicMultiplier, mimicOffset;
-    Joint() : type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
+    // 링크/관절을 이름으로 찾은 번호를 기억해 둔다 (Robot::JointParent/JointChild/JointMimic 이 채운다).
+    // 매 프레임 도는 동역학이 문자열 검색을 반복하지 않게 하려는 것이고, 이름이 바뀌어 맞지 않으면 알아서 다시 찾는다.
+    mutable int parentIdx, childIdx, mimicIdx;
+    Joint() : parentIdx(-1), childIdx(-1), mimicIdx(-1), type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
               damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
     // 회전/이동으로 움직이는 관절인가 (fixed, floating, planar 는 움직이지 않는 것으로 취급)
     bool IsMovable() const { return type == kJointRevolute || type == kJointContinuous || type == kJointPrismatic; }
@@ -133,6 +136,10 @@ struct Robot {
     void Clear();
     int FindLink(const simul::String& n) const;   // 없으면 -1
     int FindJoint(const simul::String& n) const;  // 없으면 -1
+    // 관절 ji 의 부모/자식 링크 번호, mimic 대상 관절 번호 (없으면 -1). FindLink/FindJoint 와 결과는 같지만 한 번 찾은 번호를 기억한다 (빠른 반복용).
+    int JointParent(size_t ji) const;
+    int JointChild(size_t ji) const;
+    int JointMimic(size_t ji) const;
     // 사용자가 직접 움직이는 관절 (movable 이면서 mimic 이 아닌 것)의 joint 인덱스
     simul::Array<int> ActuatedJoints() const;
     // 관절 값을 limit 으로 제한한 뒤 순기구학을 계산한다. 결과는 links 와 같은 순서의 월드 변환.

@@ -48,6 +48,7 @@ private:
     bool dark_ = false;
     double scale_ = 1.0;
     simul::Array<QTreeWidgetItem*> linkItems_;  // 링크 인덱스 -> 항목
+    simul::Array<bool> hitState_;               // 링크마다 지금 충돌로 표시 중인가 (바뀐 링크만 다시 칠하려고)
 };
 
 #endif  // CORECQT_STRUCTUREPANEL_H

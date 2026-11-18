@@ -32,6 +32,7 @@ void InitConsole() {
 }
 
 struct Options {
+    bool showFps = false;   // 화면에 FPS 와 그리기 시간을 표시
     simul::String file;
     simul::Array<simul::String> moreFiles;  // 둘째 파일부터 (모두 한 장면에 올린다)
     struct Place { simul::String model; double v[4]; };   // --place 모델=x,y,z[,회전도]
@@ -96,6 +97,7 @@ void PrintUsage(const char* exe) {
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
+        "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
@@ -136,6 +138,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         const bool hasNext = i + 1 < argc;
+        if (a == "--fps") { o->showFps = true; continue; }
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
         if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
         if (a == "--select" && hasNext) { o->select = argv[++i]; continue; }
@@ -707,6 +710,7 @@ public:
 
     void startHidden(const Options& o) {
         if (o.hideMenu) menuAct_->setChecked(false);
+        if (o.showFps) viewer_->SetFrameStatsVisible(true);
         if (o.uiScale != 1.0) view_->SetUiScale(o.uiScale);
         if (o.onlyView) onlyViewAct_->setChecked(true);
     }
@@ -999,7 +1003,11 @@ private:
         const simul::urdf::JointValues q = sim_.Values();
         viewer_->SetJointValues(q);
         panel_->ShowValues(q);
-        updateTorques(q);
+        // 모터 토크와 구조 트리의 글자는 사람이 읽는 속도면 충분하다 (초당 10번). 매 프레임 계산하고 문자열을 만들면 관절이 많은 장면에서 프레임이 떨어진다.
+        if (!torqueClock_.isValid() || torqueClock_.elapsed() >= 100) {
+            updateTorques(q);
+            torqueClock_.start();
+        }
         updateSelectionLabel();
     }
 
@@ -1048,7 +1056,8 @@ private:
         const simul::urdf::Robot& robot = viewer_->Robot();
         const simul::dynamics::JointTorques motor = simul::dynamics::GravityTorques(robot, q, gravity_);
         panel_->SetTorques(motor);
-        dock_->setWindowTitle(QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5));
+        const QString dockTitle = QString::fromUtf8("관절  (중력 %1, %2, %3 m/s²)").arg(gravity_.x, 0, 'g', 5).arg(gravity_.y, 0, 'g', 5).arg(gravity_.z, 0, 'g', 5);
+        if (dock_->windowTitle() != dockTitle) dock_->setWindowTitle(dockTitle);
 
         const simul::Array<simul::dynamics::JointLoad> loads = simul::dynamics::GravityLoads(robot, q, gravity_);
         simul::Map<simul::String, simul::Pair<QString, bool> > notes;
@@ -1136,12 +1145,13 @@ private:
             lastCollisions_ = d;
         }
         const int cand = static_cast<int>(viewer_->AabbCandidates().size());
-        if (d.isEmpty()) {
-            collisionLabel_->setText(QString::fromUtf8("충돌 없음 (AABB 후보 %1건)").arg(cand));
-            collisionLabel_->setStyleSheet(QString());
-        } else {
-            collisionLabel_->setText(QString::fromUtf8("OBB 충돌 %1건: %2 (AABB 후보 %3건)").arg(d.size()).arg(d.join(", ")).arg(cand));
-            collisionLabel_->setStyleSheet("color: #d33; font-weight: bold;");
+        const bool hit = !d.isEmpty();
+        const QString text = hit ? QString::fromUtf8("OBB 충돌 %1건: %2 (AABB 후보 %3건)").arg(d.size()).arg(d.join(", ")).arg(cand)
+                                 : QString::fromUtf8("충돌 없음 (AABB 후보 %1건)").arg(cand);
+        if (collisionLabel_->text() != text) collisionLabel_->setText(text);
+        if (hit != collisionLabelHit_) {   // 스타일시트를 바꾸면 위젯을 다시 꾸미므로 상태가 바뀔 때만 한다
+            collisionLabel_->setStyleSheet(hit ? QString("color: #d33; font-weight: bold;") : QString());
+            collisionLabelHit_ = hit;
         }
     }
 
@@ -1196,6 +1206,7 @@ private:
     QDockWidget* logDock_ = nullptr;
     QSet<QString> loggedWarnings_;
     QStringList lastCollisions_;
+    bool collisionLabelHit_ = false;
     SimulView* view_ = nullptr;
     QDockWidget* dock_;
     StructurePanel* tree_;
@@ -1203,6 +1214,7 @@ private:
     simul::dynamics::Simulator sim_;
     QTimer* simTimer_;
     QElapsedTimer simClock_;
+    QElapsedTimer torqueClock_;   // 시뮬레이션 중 토크 표시를 마지막으로 갱신한 때
     bool motorsOff_;
     bool simManual_;   // --simulate: 타이머 없이 runSimulation 으로만 진행
     QString infoMessage_;   // 선택이 없을 때 상태바에 보이는 파일 정보
