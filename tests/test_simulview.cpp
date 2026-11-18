@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
     {
         QFrame* bar = view.findChild<QFrame*>("simulMenuBar");
         CHECK(bar && !bar->isHidden(), "menu bar shown by default (kAll)");
-        CHECK(bar->findChildren<QToolButton*>().size() == 3, "3 built-in menus");
+        CHECK(bar->findChildren<QToolButton*>().size() == 4, "4 built-in menus (file, view, add, physics)");
         QMenu host("호스트");
         QAction* ran = host.addAction("실행");
         bool hit = false;
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
         view.ResetMenus();
         QMenu* extra = view.AddMenu("추가");
         extra->addAction("x");
-        CHECK(bar->findChildren<QToolButton*>().size() == 4, "AddMenu appends one");
+        CHECK(bar->findChildren<QToolButton*>().size() == 5, "AddMenu appends one");
         view.EnableFeature(SimulView::kMenu, false);
         CHECK(bar->isHidden(), "menu bar hidden when feature is off");
         view.EnableFeature(SimulView::kMenu, true);
@@ -99,6 +99,29 @@ int main(int argc, char** argv) {
     // 구조 트리 창: 모델이 있으면 보이고, 함수로 끄고 켠다
     {
         CHECK(v->AddFile(arm, &err) && v->AddFile(room, &err), "re-add models");
+        // 기본 도형 추가: 박스/원통/구가 모델로 올라가고, 위치와 이름이 지정되며, 잘못된 크기는 거절된다
+        {
+            const int before = v->ModelCount();
+            const float pose[6] = {2.0f, 1.0f, 0.5f, 0, 0, 90.0f};
+            QString aerr;
+            const int box = v->AddBox("crate", 0.4, 0.6, 0.8, pose, QColor(200, 100, 50), 3.0, &aerr);
+            CHECK(box == before && v->ModelCount() == before + 1, "box added as a model");
+            float got[6];
+            v->ModelPlacement6(box, got);
+            CHECK(simul::Abs(got[0] - 2.0f) < 1e-3f && simul::Abs(got[1] - 1.0f) < 1e-3f && simul::Abs(got[5] - 90.0f) < 0.1f, "box placed at the given pose");
+            CHECK(v->ModelName(box) == "crate", "box keeps its name");
+            const int cyl = v->AddCylinder("pipe", 0.1, 1.2, nullptr, QColor(), 2.0, &aerr);
+            const int sph = v->AddSphere("ball", 0.2, nullptr, QColor(), 1.0, &aerr);
+            CHECK(cyl >= 0 && sph >= 0 && v->ModelCount() == before + 3, "cylinder and sphere added");
+            const int dup = v->AddBox("crate", 1, 1, 1, nullptr, QColor(), 1.0, &aerr);
+            CHECK(dup >= 0 && v->ModelName(dup) != "crate", "same name gets a unique one");
+            CHECK(v->AddBox("bad", 0.0, 1, 1, nullptr, QColor(), 1.0, &aerr) < 0 && !aerr.isEmpty(), "zero-size box is rejected with a message");
+            CHECK(v->ModelCount() == before + 4, "rejected shape leaves the scene unchanged");
+            v->RemoveModel(dup);
+            v->RemoveModel(sph);
+            v->RemoveModel(cyl);
+            v->RemoveModel(box);
+        }
         // 장면 -> URDF 하나로 저장 -> 다시 읽기
         {
             const QString out = QString::fromUtf8(tu::Tmp("simul_view_scene.urdf").c_str());

@@ -80,6 +80,26 @@ bool World::Add(const String& path, String* error) {
     return true;
 }
 
+bool World::AddRobot(const String& name, const Robot& robot, String* error) {
+    if (robot.links.empty() || robot.root < 0) {
+        if (error) *error = "비어 있는 로봇은 추가할 수 없습니다";
+        return false;
+    }
+    WorldEntry e;
+    e.robot = robot;
+    const String base = name.empty() ? String("model") : name;
+    String unique = base;
+    for (int n = 2;; n++) {
+        bool dup = false;
+        for (size_t i = 0; i < entries_.size(); i++) if (entries_[i].name == unique) dup = true;
+        if (!dup) break;
+        unique = base + "_" + ToString(n);
+    }
+    e.name = unique;
+    entries_.push_back(e);
+    return true;
+}
+
 void World::Remove(size_t index) {
     if (index >= entries_.size()) return;
     Array<WorldEntry> keep;

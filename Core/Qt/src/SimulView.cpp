@@ -144,6 +144,27 @@ void SimulView::SetUiScale(double scale) {
     emit uiScaleChanged(scale);
 }
 
+QMenu* SimulView::NewAddMenu(QWidget* parent) {
+    QMenu* add = new QMenu(QString::fromUtf8("추가"), parent);
+    // 기본 도형: 이름은 shape 종류, 위치는 개수만큼 x 로 비켜 놓고 z 는 높이 절반 위(중력이 켜져 있으면 바닥에 내려앉는다)
+    connect(add->addAction(QString::fromUtf8("박스 (0.5 x 0.5 x 0.5 m)")), &QAction::triggered, this, [this]() {
+        const float pose[6] = {0.8f * static_cast<float>(viewer_->ModelCount()), 0, 0.25f, 0, 0, 0};
+        QString err;
+        if (viewer_->AddBox("box", 0.5, 0.5, 0.5, pose, QColor(120, 160, 220), 5.0, &err) < 0) emit shapeAddFailed(err);
+    });
+    connect(add->addAction(QString::fromUtf8("원통 (반지름 0.25 x 길이 0.5 m)")), &QAction::triggered, this, [this]() {
+        const float pose[6] = {0.8f * static_cast<float>(viewer_->ModelCount()), 0, 0.25f, 0, 0, 0};
+        QString err;
+        if (viewer_->AddCylinder("cylinder", 0.25, 0.5, pose, QColor(220, 150, 110), 5.0, &err) < 0) emit shapeAddFailed(err);
+    });
+    connect(add->addAction(QString::fromUtf8("구 (반지름 0.25 m)")), &QAction::triggered, this, [this]() {
+        const float pose[6] = {0.8f * static_cast<float>(viewer_->ModelCount()), 0, 0.25f, 0, 0, 0};
+        QString err;
+        if (viewer_->AddSphere("sphere", 0.25, pose, QColor(130, 200, 150), 5.0, &err) < 0) emit shapeAddFailed(err);
+    });
+    return add;
+}
+
 // 호스트 없이도 쓸 수 있는 기본 메뉴: ModelViewer 만으로 되는 것만 넣는다
 QList<QMenu*> SimulView::defaultMenus() {
     QList<QMenu*> list;
@@ -214,6 +235,7 @@ QList<QMenu*> SimulView::defaultMenus() {
         connect(a, &QAction::triggered, this, [this, k]() { viewer_->SetRingLocal(k == 1); });
     }
     list << view;
+    list << NewAddMenu(this);
 
     QMenu* phys = new QMenu(QString::fromUtf8("물리"), this);
     QAction* fall = phys->addAction(QString::fromUtf8("중력 낙하"));

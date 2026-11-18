@@ -36,6 +36,8 @@ struct Options {
     simul::Array<simul::String> moreFiles;  // 둘째 파일부터 (모두 한 장면에 올린다)
     struct Place { simul::String model; double v[4]; };   // --place 모델=x,y,z[,회전도]
     simul::Array<Place> places;
+    struct Shape { char kind; simul::String name; double a[3]; double pos[3]; };   // --add-box/--add-cylinder/--add-sphere 이름=크기[@x,y,z]
+    simul::Array<Shape> shapes;
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     simul::String exportUrdf;  // --export-urdf 파일: 장면을 URDF 하나로 저장하고 끝낸다
@@ -97,6 +99,7 @@ void PrintUsage(const char* exe) {
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --export-urdf 파일 열린 모델들(--place 반영)을 URDF 하나로 합쳐 저장하고 끝낸다 (창 없이 쓰려면 QT_QPA_PLATFORM=offscreen)\n"
+        "  --add-box 이름=가로,세로,높이[@x,y,z]  / --add-cylinder 이름=반지름,길이[@x,y,z] / --add-sphere 이름=반지름[@x,y,z]  파일 없이 기본 도형을 장면에 올린다 (여러 번 가능)\n"
         "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
@@ -168,6 +171,36 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--export-urdf" && hasNext) { o->exportUrdf = argv[++i]; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
+        if ((a == "--add-box" || a == "--add-cylinder" || a == "--add-sphere") && hasNext) {
+            const simul::String v = argv[++i];
+            const size_t eq = v.find('=');
+            Options::Shape sh;
+            sh.kind = a == "--add-box" ? 'b' : (a == "--add-cylinder" ? 'c' : 's');
+            sh.a[0] = sh.a[1] = sh.a[2] = 0;
+            sh.pos[0] = sh.pos[1] = sh.pos[2] = 0;
+            const int need = sh.kind == 'b' ? 3 : (sh.kind == 'c' ? 2 : 1);
+            bool ok = eq != simul::String::npos && eq > 0;
+            if (ok) {
+                simul::String size = v.substr(eq + 1);
+                const size_t at = size.find('@');
+                if (at != simul::String::npos) {
+                    ok = sscanf(size.c_str() + at + 1, "%lf,%lf,%lf", &sh.pos[0], &sh.pos[1], &sh.pos[2]) == 3;
+                    size = size.substr(0, at);
+                } else {
+                    sh.pos[2] = -1e30;   // 위치를 안 주면 높이의 절반 위에 놓는다
+                }
+                int n = 0;
+                if (ok) n = sscanf(size.c_str(), "%lf,%lf,%lf", &sh.a[0], &sh.a[1], &sh.a[2]);
+                ok = ok && n == need;
+            }
+            if (!ok) {
+                fprintf(stderr, "%s 는 이름=크기[@x,y,z] 형식입니다 (박스 가로,세로,높이 / 원통 반지름,길이 / 구 반지름. 예: --add-box crate=0.5,0.5,0.5@2,0,0.25)\n", a.c_str());
+                return 2;
+            }
+            sh.name = v.substr(0, eq);
+            o->shapes.push_back(sh);
+            continue;
+        }
         if (a == "--place" && hasNext) {
             const simul::String v = argv[++i];
             const size_t eq = v.find('=');
@@ -504,10 +537,13 @@ public:
         quit->setShortcut(QKeySequence::Quit);
         QObject::connect(quit, &QAction::triggered, this, &QWidget::close);
         QMenu* view = menuBar()->addMenu(QString::fromUtf8("보기"));      // 화면에 보이는 것
+        QMenu* addMenu = view_->NewAddMenu(this);   // 박스, 원통, 구 추가
+        menuBar()->addMenu(addMenu);
+        QObject::connect(view_, &SimulView::shapeAddFailed, this, [this](const QString& e) { logError(QString::fromUtf8("도형 추가 실패: %1").arg(e)); });
         QMenu* phys = menuBar()->addMenu(QString::fromUtf8("물리"));      // 중력, 모터, 낙하
         QMenu* sensorMenu = menuBar()->addMenu(QString::fromUtf8("센서"));  // 라이다 표시
         QMenu* help = menuBar()->addMenu(QString::fromUtf8("도움말"));
-        nativeMenus_ << file << view << phys << sensorMenu << help;   // 3D 화면만 보기에서는 이 메뉴들을 3D 화면 안의 메뉴줄에 그대로 보여 준다
+        nativeMenus_ << file << view << addMenu << phys << sensorMenu << help;   // 3D 화면만 보기에서는 이 메뉴들을 3D 화면 안의 메뉴줄에 그대로 보여 준다
         QAction* fit = view->addAction(QString::fromUtf8("화면에 맞춤"));
         fit->setShortcut(Qt::Key_F);
         QObject::connect(fit, &QAction::triggered, viewer_, &ModelViewer::FitView);
@@ -760,6 +796,23 @@ public:
             viewer_->SetModelPlacement(found, static_cast<float>(o.places[i].v[0]), static_cast<float>(o.places[i].v[1]), static_cast<float>(o.places[i].v[2]), static_cast<float>(o.places[i].v[3]));
         }
         if (!o.places.empty()) afterLoad(QString::fromUtf8("배치 적용"));
+    }
+
+    // 명령행의 --add-box/--add-cylinder/--add-sphere 를 장면에 올린다
+    void applyShapes(const Options& o) {
+        for (size_t i = 0; i < o.shapes.size(); i++) {
+            const Options::Shape& s = o.shapes[i];
+            const double height = s.kind == 'b' ? s.a[2] : (s.kind == 'c' ? s.a[1] : 2.0 * s.a[0]);
+            const float pose[6] = {static_cast<float>(s.pos[0]), static_cast<float>(s.pos[1]), s.pos[2] < -1e29 ? static_cast<float>(height / 2.0) : static_cast<float>(s.pos[2]), 0, 0, 0};
+            const QString name = simulqt::ToQ(s.name);
+            QString err;
+            int idx = -1;
+            if (s.kind == 'b') idx = viewer_->AddBox(name, s.a[0], s.a[1], s.a[2], pose, QColor(120, 160, 220), 5.0, &err);
+            else if (s.kind == 'c') idx = viewer_->AddCylinder(name, s.a[0], s.a[1], pose, QColor(220, 150, 110), 5.0, &err);
+            else idx = viewer_->AddSphere(name, s.a[0], pose, QColor(130, 200, 150), 5.0, &err);
+            if (idx < 0) { fprintf(stderr, "경고: 도형 '%s' 추가 실패: %s\n", s.name.c_str(), err.toUtf8().constData()); logError(QString::fromUtf8("도형 추가 실패: %1").arg(err)); }
+        }
+        if (!o.shapes.empty()) afterLoad(QString::fromUtf8("도형 추가"));
     }
 
     // 명령행에서 받은 관절 값을 적용한다 (각도 관절은 degree 로 받아 rad 로 바꾼다)
@@ -1243,6 +1296,7 @@ int main(int argc, char** argv) {
             w.applyMove(o);
         }
     }
+    if (!o.shapes.empty()) w.applyShapes(o);
     if (!o.exportUrdf.empty()) {   // 확인용/배치용: 합친 장면을 URDF 로 저장하고 끝낸다
         if (!w.exportUrdf(QString::fromLocal8Bit(o.exportUrdf.c_str()))) return 1;
         printf("URDF 저장: %s\n", o.exportUrdf.c_str());

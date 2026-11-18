@@ -28,6 +28,8 @@ class World {
 public:
     // 파일을 읽어 맨 뒤에 추가한다. .urdf 는 URDF 로, 그 밖은 메시 하나짜리 로봇으로 읽는다.
     bool Add(const simul::String& path, simul::String* error);
+    // 파일 없이 만든 로봇(예: MakePrimitiveRobot)을 맨 뒤에 추가한다. 이름이 겹치면 숫자를 붙인다. 추가된 모델의 장면 이름은 entry(size()-1).name.
+    bool AddRobot(const simul::String& name, const Robot& robot, simul::String* error);
     void Remove(size_t index);
     void Clear() { entries_.clear(); forceComposite_ = false; }
     // 모델이 하나여도 가상 "world" 아래에 매달아 합친다 (회전처럼 attach 관절로 자세를 표현해야 할 때)

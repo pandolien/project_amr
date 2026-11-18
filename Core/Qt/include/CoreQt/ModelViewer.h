@@ -8,6 +8,7 @@
 #include <QOpenGLWidget>
 #include <QPoint>
 #include <QElapsedTimer>
+#include <QColor>
 #include <QString>
 #include <QTimer>
 #include <QVector3D>
@@ -23,6 +24,7 @@
 #include "CCollision/Bvh.h"
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
+#include "CURDF/Primitives.h"
 #include "CURDF/World.h"
 
 // 3D 모델 / URDF 로봇 뷰어 (QOpenGLWidget, OpenGL 2.1 호환, Qt 5.12).
@@ -39,6 +41,11 @@ public:
     // 모델을 한 장면에 여러 개 올린다. 파일을 열면 이전 것을 지우지 않고 추가한다 (URDF, 또는 STL/OBJ/DAE/glTF 한 개).
     // 둘 이상이면 가상 "world" 링크 아래에 모델마다 고정 관절로 매달리고, 이름이 겹치는 링크/관절에는 "<모델>/" 이 붙는다.
     bool AddFile(const QString& path, QString* error = nullptr);
+    // 파일 없이 기본 도형을 장면에 모델로 추가한다 (색, 질량 포함). 돌려주는 값은 모델 번호이고 실패하면 -1.
+    // pose 는 x, y, z (m), roll, pitch, yaw (도) 이고 null 이면 원점이다. 중력 낙하가 켜져 있으면 바닥으로 떨어진다.
+    int AddBox(const QString& name, double sx, double sy, double sz, const float* pose6 = nullptr, const QColor& color = QColor(150, 165, 190), double mass = 1.0, QString* error = nullptr);
+    int AddCylinder(const QString& name, double radius, double length, const float* pose6 = nullptr, const QColor& color = QColor(150, 165, 190), double mass = 1.0, QString* error = nullptr);
+    int AddSphere(const QString& name, double radius, const float* pose6 = nullptr, const QColor& color = QColor(150, 165, 190), double mass = 1.0, QString* error = nullptr);
     bool LoadFile(const QString& path, QString* error = nullptr);  // 모두 지우고 이 파일 하나만 올린다
     void CloseAll();
     void RemoveModel(int index);
@@ -237,6 +244,8 @@ private:
     bool lidarDraw_;
     simul::urdf::World world_;      // 올려 둔 모델들 (합친 결과가 robot_)
     bool rebuildWorld(QString* error, bool keepView = false);
+    bool commitAdd(bool hadOne, QString* error);                 // World 에 모델을 추가한 뒤 합치기 (실패하면 추가를 취소)
+    int addPrimitive(const simul::urdf::PrimitiveSpec& spec, const QString& name, const float* pose6, QString* error);
     bool ensureComposite();                 // 모델 하나를 world 아래로 옮긴다 (이동량은 attach 관절로)
     int hitRing(const QPoint& pos, float* angle) const;   // 마우스 아래의 회전 링 (0 x, 1 y, 2 z, 없으면 -1)
     void drawRings(const QMatrix4x4& proj, const QMatrix4x4& view);

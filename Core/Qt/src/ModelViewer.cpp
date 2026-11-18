@@ -588,6 +588,10 @@ bool ModelViewer::AddFile(const QString& path, QString* error) {
         if (error) *error = simulqt::ToQ(err);
         return false;
     }
+    return commitAdd(hadOne, error);
+}
+
+bool ModelViewer::commitAdd(bool hadOne, QString* error) {
     if (hadOne) {  // 하나일 때 오브젝트 위치로 옮겨 둔 것을 첫 모델의 배치로 넘긴다 (둘 이상이면 배치는 attach 관절이 가진다)
         world_.SetPlacement(0, dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z));
         objectPos_ = dhVector(0, 0, 0);
@@ -603,6 +607,52 @@ bool ModelViewer::AddFile(const QString& path, QString* error) {
         return false;
     }
     return true;
+}
+
+int ModelViewer::addPrimitive(const simul::urdf::PrimitiveSpec& spec, const QString& name, const float* pose6, QString* error) {
+    simul::urdf::Robot robot;
+    simul::String err;
+    const simul::String base = name.isEmpty() ? simul::String("shape") : simulqt::FromQ(name);
+    if (!simul::urdf::MakePrimitiveRobot(base, spec, &robot, &err)) {
+        if (error) *error = simulqt::ToQ(err);
+        return -1;
+    }
+    const bool hadOne = world_.size() == 1 && !world_.Composite();
+    if (!world_.AddRobot(base, robot, &err)) {
+        if (error) *error = simulqt::ToQ(err);
+        return -1;
+    }
+    if (!commitAdd(hadOne, error)) return -1;
+    const int index = static_cast<int>(world_.size()) - 1;
+    if (pose6) SetModelPlacement6(index, pose6);
+    return index;
+}
+
+int ModelViewer::AddBox(const QString& name, double sx, double sy, double sz, const float* pose6, const QColor& color, double mass, QString* error) {
+    simul::urdf::PrimitiveSpec s;
+    s.type = simul::urdf::kGeomBox;
+    s.size[0] = static_cast<float>(sx); s.size[1] = static_cast<float>(sy); s.size[2] = static_cast<float>(sz);
+    s.mass = static_cast<float>(mass);
+    s.color = simul::Color(static_cast<float>(color.redF()), static_cast<float>(color.greenF()), static_cast<float>(color.blueF()), static_cast<float>(color.alphaF()));
+    return addPrimitive(s, name, pose6, error);
+}
+
+int ModelViewer::AddCylinder(const QString& name, double radius, double length, const float* pose6, const QColor& color, double mass, QString* error) {
+    simul::urdf::PrimitiveSpec s;
+    s.type = simul::urdf::kGeomCylinder;
+    s.radius = static_cast<float>(radius); s.length = static_cast<float>(length);
+    s.mass = static_cast<float>(mass);
+    s.color = simul::Color(static_cast<float>(color.redF()), static_cast<float>(color.greenF()), static_cast<float>(color.blueF()), static_cast<float>(color.alphaF()));
+    return addPrimitive(s, name, pose6, error);
+}
+
+int ModelViewer::AddSphere(const QString& name, double radius, const float* pose6, const QColor& color, double mass, QString* error) {
+    simul::urdf::PrimitiveSpec s;
+    s.type = simul::urdf::kGeomSphere;
+    s.radius = static_cast<float>(radius);
+    s.mass = static_cast<float>(mass);
+    s.color = simul::Color(static_cast<float>(color.redF()), static_cast<float>(color.greenF()), static_cast<float>(color.blueF()), static_cast<float>(color.alphaF()));
+    return addPrimitive(s, name, pose6, error);
 }
 
 bool ModelViewer::LoadFile(const QString& path, QString* error) {

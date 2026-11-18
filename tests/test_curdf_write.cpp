@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "CURDF/UrdfWriter.h"
+#include "CURDF/Primitives.h"
 #include "CURDF/World.h"
 #include "TestUtil.h"
 
@@ -123,9 +124,50 @@ void testScene() {
     check(again.links[static_cast<size_t>(again.root)].name == "world", "scene root is world");
 }
 
+// 기본 도형(박스, 원통, 구): 관성이 공식대로 계산되고, 장면에 올려 URDF 로 저장했다 다시 읽어도 같다
+void testPrimitives() {
+    PrimitiveSpec box;
+    box.type = kGeomBox;
+    box.size[0] = 0.4f; box.size[1] = 0.6f; box.size[2] = 0.8f;
+    box.mass = 12.0f;
+    Robot b;
+    String err;
+    check(MakePrimitiveRobot("crate", box, &b, &err), "make box");
+    check(near(b.links[0].inertial.ixx, 12.0 / 12.0 * (0.36 + 0.64)) && near(b.links[0].inertial.izz, 12.0 / 12.0 * (0.16 + 0.36)), "box inertia");
+    PrimitiveSpec cyl;
+    cyl.type = kGeomCylinder; cyl.radius = 0.1f; cyl.length = 1.0f; cyl.mass = 6.0f;
+    Robot c;
+    check(MakePrimitiveRobot("pipe", cyl, &c, &err), "make cylinder");
+    check(near(c.links[0].inertial.izz, 0.5 * 6.0 * 0.01) && near(c.links[0].inertial.ixx, 6.0 / 12.0 * (3 * 0.01 + 1.0)), "cylinder inertia");
+    PrimitiveSpec sph;
+    sph.type = kGeomSphere; sph.radius = 0.5f; sph.mass = 5.0f;
+    Robot sp;
+    check(MakePrimitiveRobot("ball", sph, &sp, &err), "make sphere");
+    check(near(sp.links[0].inertial.ixx, 0.4 * 5.0 * 0.25), "sphere inertia");
+    PrimitiveSpec bad = box;
+    bad.size[1] = 0.0f;
+    Robot x;
+    check(!MakePrimitiveRobot("bad", bad, &x, &err) && !err.empty(), "zero size is rejected");
+
+    World w;
+    check(w.Add(kData + "arm.urdf", &err), "add arm");
+    check(w.AddRobot("crate", b, &err) && w.AddRobot("crate", b, &err) && w.AddRobot("pipe", c, &err) && w.AddRobot("ball", sp, &err), "add shapes to the world");
+    check(w.entry(2).name == "crate_2", "duplicate shape name gets a number");
+    dhMat p;
+    p.v[12] = 1.0f; p.v[13] = 2.0f; p.v[14] = 0.4f;
+    w.SetPlacement(1, p);
+    Robot scene, again;
+    check(w.Build(LoadOptions(), &scene, &err), "build scene with shapes");
+    const String out = tu::Tmp("simul_write_shapes.urdf");
+    check(SaveUrdf(scene, out, &err), "save scene with shapes");
+    check(LoadUrdf(out, &again, &err), ("reload scene with shapes: " + err).c_str());
+    sameRobot(scene, again, "shapes");
+}
+
 }  // namespace
 
 int main() {
+    testPrimitives();
     roundTrip(kData + "arm.urdf");
     roundTrip(kData + "arm_gripper.urdf");
     roundTrip(kData + "lidar_room.urdf");

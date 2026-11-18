@@ -39,6 +39,9 @@ public:
     // 3D 화면 안의 메뉴줄 (kMenu). 기본으로 파일/보기/물리 메뉴가 들어 있다.
     // 호스트가 자기 메뉴를 보이고 싶으면 SetMenus 로 통째로 바꾸고(소유권은 호스트), AddMenu 로 하나만 더할 수도 있다.
     void SetMenus(const QList<QMenu*>& menus);
+    // "추가" 메뉴를 새로 만든다: 박스, 원통, 구를 장면에 더한다 (기본 크기, 위치는 겹치지 않게 옆으로 비켜 놓는다).
+    // 호스트 메뉴줄에 그대로 끼울 수 있다. 직접 만들려면 ModelViewer::AddBox / AddCylinder / AddSphere 를 부르면 된다.
+    QMenu* NewAddMenu(QWidget* parent);
     QMenu* AddMenu(const QString& title);   // 이 부품이 소유하는 메뉴를 하나 더한다
     void ResetMenus();                       // 기본 메뉴로 되돌린다
 
@@ -61,6 +64,7 @@ public:
     bool HasFeature(Feature f) const { return (features_ & f) != 0; }
 
 signals:
+    void shapeAddFailed(const QString& error);     // "추가" 메뉴의 도형 추가가 실패했다
     void urdfSaved(const QString& path);          // 기본 메뉴의 "장면을 URDF 로 저장"이 성공했다
     void urdfSaveFailed(const QString& error);
     void uiScaleChanged(double scale);
