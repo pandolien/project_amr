@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!-- 물류 공정 예제: 물건(box)이 A 지점에서 B 지점까지 직선 레일(item_slide, 0~3 m)을 따라 움직인다. 로봇 없음.
+     뷰어에서 열고 item_slide 관절 값을 0 → 3 으로 움직이면 물건이 A 에서 B 로 간다. 단위 m. -->
+<robot name="logistics_ab">
+  <material name="floor"><color rgba="0.6 0.62 0.66 1"/></material>
+  <material name="pad_a"><color rgba="0.25 0.7 0.4 1"/></material>
+  <material name="pad_b"><color rgba="0.9 0.45 0.2 1"/></material>
+  <material name="cargo"><color rgba="0.25 0.5 0.9 1"/></material>
+
+  <!-- 바닥판 + A/B 지점 표시판 (A: x=0, B: x=3) -->
+  <link name="line_base">
+    <inertial><origin xyz="1.5 0 0"/><mass value="20.0"/><inertia ixx="1.0" ixy="0" ixz="0" iyy="5.0" iyz="0" izz="6.0"/></inertial>
+    <visual>
+      <origin xyz="1.5 0 -0.01"/>
+      <geometry><box size="4.0 0.8 0.02"/></geometry>
+      <material name="floor"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.005"/>
+      <geometry><box size="0.5 0.5 0.01"/></geometry>
+      <material name="pad_a"/>
+    </visual>
+    <visual>
+      <origin xyz="3 0 0.005"/>
+      <geometry><box size="0.5 0.5 0.01"/></geometry>
+      <material name="pad_b"/>
+    </visual>
+  </link>
+
+  <!-- 옮길 물건: A 지점 위(x=0)에서 시작 -->
+  <link name="item">
+    <inertial><origin xyz="0 0 0.1"/><mass value="2.0"/><inertia ixx="0.0133" ixy="0" ixz="0" iyy="0.0133" iyz="0" izz="0.0133"/></inertial>
+    <visual>
+      <origin xyz="0 0 0.1"/>
+      <geometry><box size="0.2 0.2 0.2"/></geometry>
+      <material name="cargo"/>
+    </visual>
+  </link>
+  <joint name="item_slide" type="prismatic">
+    <parent link="line_base"/><child link="item"/>
+    <origin xyz="0 0 0.01"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="3" effort="100" velocity="1"/>
+  </joint>
+</robot>
