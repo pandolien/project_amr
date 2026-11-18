@@ -356,6 +356,17 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 
 `viewer()` 로 모델 추가/제거(`AddFile`, `RemoveModel`, `CloseAll`), 위치/자세(`SetModelPlacement6`, `SetModelPose`), 관절 값(`SetJointValues`), 선택, 카메라, 표시 옵션(격자, 충돌 박스, 조명 방식, 라이다)을 모두 다룰 수 있습니다. 호스트가 받는 시그널: `robotChanged`, `selectionChanged`/`selectionPicked`, `jointValuesChanged`, `modelDragFinished`, `collisionsChanged`, `lidarScanned`, `structureChanged` 와 `SimulView::jointEdited`. 최소 예제는 `examples/embed_host.cpp`(빌드하면 `embed_host`), 동작 확인은 `tests/test_simulview.cpp`(창 없이, `QT_QPA_PLATFORM=offscreen`)입니다. 지금의 `simul_main` 도 같은 `SimulView` 를 쓰는 호스트 하나입니다.
 
+## URDF 합치기 (장면 내보내기)
+
+여러 URDF(AMR, 팔, 환경 등)를 한 장면에 올려 배치한 뒤, **하나의 URDF 파일**로 저장한다. 큰 시스템을 한 파일로 정리하는 용도다.
+
+- 앱: 파일 > **장면을 URDF 로 저장...**, 명령행 `--export-urdf out.urdf` (예: `simul_main arm.urdf lidar_room.urdf --place lidar_room=3,0,0 --export-urdf scene.urdf`)
+- 구조: 가상 링크 `world` 아래에 모델마다 고정 관절 `<모델이름>_attach` 로 매달리고, 그 관절의 `origin` 이 모델의 위치/회전이다. 이름이 겹치면 뒤에 온 모델에 `<모델>/` 가 붙는다.
+- 담기는 것: 링크, 관절(회전/직동/고정, 축, limit, 감쇠/마찰, mimic), 질량/관성, visual/collision(도형, 메시, scale, 색), 라이다 센서. 현재 관절 값(자세)은 URDF 에 없으므로 담기지 않는다.
+- 간결하게: 기본값과 같은 요소는 생략하고, 같은 재질은 `<robot>` 아래에 한 번만 정의해 이름으로 부른다. 메시 경로는 저장하는 파일 기준 상대 경로로 쓴다.
+- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdf(robot, path, &err)` / `UrdfToString`, 뷰어는 `ModelViewer::SaveUrdf(path)`, `SimulView` 기본 메뉴(파일)에도 같은 항목이 있다 (`urdfSaved` / `urdfSaveFailed` 신호).
+- 검증: 쓴 파일을 다시 읽어 링크/관절/질량·관성/형상/색이 같은지 `test_curdf_write` 가 확인한다 (회전 rpy 변환은 짐벌 락 근처 포함).
+
 ## 화면 구성 (도크, 메뉴 숨기기, 3D 화면만)
 
 - 구조, 관절, 로그, 라이다 그래프 도크는 제목줄을 끌어 **떼어 내서(플로팅) 아무 데나 놓거나**, 창 가장자리/다른 도크 위에 놓아 다시 붙이거나 탭으로 겹칠 수 있고, X 로 닫을 수 있습니다(`보기` 메뉴에서 다시 켭니다).

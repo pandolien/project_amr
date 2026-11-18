@@ -8,7 +8,10 @@
 #include <stdio.h>
 
 #include "CBase/Math.h"
+#include "CoreQt/QtString.h"
 #include "CoreQt/SimulView.h"
+#include "CURDF/UrdfWriter.h"
+#include "TestUtil.h"
 
 static int failures = 0;
 #define CHECK(c, msg) do { if (!(c)) { fprintf(stderr, "FAIL: %s (%s:%d)\n", msg, __FILE__, __LINE__); failures++; } } while (0)
@@ -95,6 +98,16 @@ int main(int argc, char** argv) {
     // 구조 트리 창: 모델이 있으면 보이고, 함수로 끄고 켠다
     {
         CHECK(v->AddFile(arm, &err) && v->AddFile(room, &err), "re-add models");
+        // 장면 -> URDF 하나로 저장 -> 다시 읽기
+        {
+            const QString out = QString::fromUtf8(tu::Tmp("simul_view_scene.urdf").c_str());
+            QString serr;
+            CHECK(v->SaveUrdf(out, &serr), "scene saved as URDF");
+            simul::urdf::Robot back;
+            simul::String perr;
+            CHECK(simul::urdf::LoadUrdf(simulqt::FromQ(out), &back, &perr), "saved scene reloads");
+            CHECK(back.links.size() == v->Robot().links.size() && back.joints.size() == v->Robot().joints.size(), "saved scene has the same structure");
+        }
         view.show();
         view.resize(900, 600);
         QApplication::processEvents();

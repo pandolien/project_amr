@@ -61,6 +61,8 @@ public:
     bool HasFeature(Feature f) const { return (features_ & f) != 0; }
 
 signals:
+    void urdfSaved(const QString& path);          // 기본 메뉴의 "장면을 URDF 로 저장"이 성공했다
+    void urdfSaveFailed(const QString& error);
     void uiScaleChanged(double scale);
     void featuresChanged(unsigned features);   // 켜진 기능이 바뀌었다 (X 로 창을 닫은 경우 포함): 호스트의 체크 표시를 맞출 때 쓴다
     // 구조 트리에서 링크를 오른쪽 클릭했다 (link -1 은 링크가 아닌 곳). 받는 쪽이 없으면 모델의 루트 링크에서 "제거" 메뉴만 보인다.

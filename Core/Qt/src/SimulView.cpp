@@ -156,6 +156,14 @@ QList<QMenu*> SimulView::defaultMenus() {
         if (receivers(SIGNAL(filesDropped(QStringList))) > 0) emit filesDropped(paths);
         else for (int i = 0; i < paths.size(); i++) viewer_->AddFile(paths[i]);
     });
+    QAction* save = file->addAction(QString::fromUtf8("장면을 URDF 로 저장..."));
+    connect(save, &QAction::triggered, this, [this]() {
+        const QString path = QFileDialog::getSaveFileName(this, QString::fromUtf8("지금 장면을 URDF 하나로 저장"), QString(), QString::fromUtf8("URDF (*.urdf)"));
+        if (path.isEmpty()) return;
+        QString err;
+        if (viewer_->SaveUrdf(path, &err)) emit urdfSaved(path);
+        else emit urdfSaveFailed(err);
+    });
     connect(file->addAction(QString::fromUtf8("모두 닫기")), &QAction::triggered, viewer_, &ModelViewer::CloseAll);
     list << file;
 

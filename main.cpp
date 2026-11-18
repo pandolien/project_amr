@@ -38,6 +38,7 @@ struct Options {
     simul::Array<Place> places;
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
+    simul::String exportUrdf;  // --export-urdf 파일: 장면을 URDF 하나로 저장하고 끝낸다
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
@@ -95,6 +96,7 @@ void PrintUsage(const char* exe) {
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
+        "  --export-urdf 파일 열린 모델들(--place 반영)을 URDF 하나로 합쳐 저장하고 끝낸다 (창 없이 쓰려면 QT_QPA_PLATFORM=offscreen)\n"
         "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
@@ -163,6 +165,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (a == "--only-view") { o->onlyView = true; continue; }
+        if (a == "--export-urdf" && hasNext) { o->exportUrdf = argv[++i]; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
         if (a == "--place" && hasNext) {
@@ -486,6 +489,11 @@ public:
             afterLoad(QString());
             setWindowTitle("Project Simul");
         });
+        QAction* exportAct = file->addAction(QString::fromUtf8("장면을 URDF 로 저장..."));
+        QObject::connect(exportAct, &QAction::triggered, this, [this]() {
+            const QString p = QFileDialog::getSaveFileName(this, QString::fromUtf8("지금 장면(모델과 배치)을 URDF 하나로 저장"), QString(), QString::fromUtf8("URDF (*.urdf)"));
+            if (!p.isEmpty()) exportUrdf(p);
+        });
         file->addSeparator();
         QAction* quit = file->addAction(QString::fromUtf8("종료"));
         quit->setShortcut(QKeySequence::Quit);
@@ -696,6 +704,19 @@ public:
         if (o.hideMenu) menuAct_->setChecked(false);
         if (o.uiScale != 1.0) view_->SetUiScale(o.uiScale);
         if (o.onlyView) onlyViewAct_->setChecked(true);
+    }
+
+    // 지금 장면을 URDF 하나로 저장한다. 성공하면 true (실패는 로그와 상태줄에 남긴다)
+    bool exportUrdf(const QString& path) {
+        QString err;
+        if (!viewer_->SaveUrdf(path, &err)) {
+            logError(QString::fromUtf8("URDF 저장 실패: %1").arg(err));
+            return false;
+        }
+        const QString msg = QString::fromUtf8("URDF 저장: %1 (모델 %2개, 링크 %3, 관절 %4)").arg(path).arg(viewer_->ModelCount()).arg(viewer_->Robot().links.size()).arg(viewer_->Robot().joints.size());
+        log_->Info(msg);
+        statusBar()->showMessage(msg);
+        return true;
     }
 
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
@@ -1210,6 +1231,11 @@ int main(int argc, char** argv) {
             w.applySelect(o);
             w.applyMove(o);
         }
+    }
+    if (!o.exportUrdf.empty()) {   // 확인용/배치용: 합친 장면을 URDF 로 저장하고 끝낸다
+        if (!w.exportUrdf(QString::fromLocal8Bit(o.exportUrdf.c_str()))) return 1;
+        printf("URDF 저장: %s\n", o.exportUrdf.c_str());
+        return 0;
     }
     w.startHidden(o);
     if (!o.shot.empty() || !o.shotWindow.empty()) {

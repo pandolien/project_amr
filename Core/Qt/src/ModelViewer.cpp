@@ -2,6 +2,8 @@
 #include "CoreQt/QtString.h"
 #include "CoreQt/ModelViewer.h"
 
+#include "CURDF/UrdfWriter.h"
+
 #include <QFileInfo>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -303,6 +305,22 @@ void ModelViewer::SetRobot(const simul::urdf::Robot& robot, const simul::urdf::R
     FitView();
     emit modelChanged();
     emit robotChanged();
+}
+
+bool ModelViewer::SaveUrdf(const QString& path, QString* error) const {
+    if (!hasRobot_) {
+        if (error) *error = QString::fromUtf8("저장할 모델이 없습니다");
+        return false;
+    }
+    simul::urdf::WriteOptions opt;
+    opt.robotName = robot_.name.empty() || robot_.name == "world" ? simul::String("scene") : robot_.name;
+    simul::String err;
+    const simul::String p = simulqt::FromQ(path);
+    if (!simul::urdf::SaveUrdf(robot_, p, &err, opt)) {
+        if (error) *error = simulqt::ToQ(err);
+        return false;
+    }
+    return true;
 }
 
 void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
