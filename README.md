@@ -342,7 +342,6 @@ connect(view->viewer(), &ModelViewer::modelDragFinished, host, &Host::onMoved); 
 | `kMouseEdit` | 좌표계 화살표 이동, 회전 링, IK 끌기 (끄면 보기와 선택만) |
 | `kDropFiles` | 파일을 끌어다 놓아 추가 (`filesDropped` 를 받는 쪽이 없으면 바로 추가) |
 | `kMenu` | 3D 화면 **위쪽에 뜨는 메뉴줄** (기본: 파일 열기/모두 닫기, 보기, 물리). 호스트가 `SetMenus(QList<QMenu*>)` 로 자기 메뉴를 그대로 보이거나 `AddMenu(title)` 로 하나 더할 수 있다 |
-| `kProperties` | 3D 화면 안에 뜨는 **속성 창**. 선택한 링크가 속한 모델의 위치(x, y, z m)와 회전(roll, pitch, yaw 도)을 숫자로 보고 고친다. Enter 나 다른 칸으로 옮길 때 적용된다. 켜는/끄는 함수: `SetPropertiesVisible` |
 | `kTree` | 3D 화면 안에 뜨는 **구조 트리 창** (제목줄을 끌어 옮기고, 오른쪽 아래로 크기 조절, ✕ 로 닫기). 클릭하면 선택, 충돌 링크는 빨갛게. 보여 줄 모델이 없으면 저절로 숨는다. 오른쪽 클릭은 `linkContextMenuRequested` 로 알려 주고, 받는 쪽이 없으면 "제거" 메뉴를 쓴다 |
 
 GL 안에 들어 있는 UI 는 프로그램에서 함수로 켜고 끈다:
@@ -367,6 +366,12 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 간결하게: 기본값과 같은 요소는 생략하고, 같은 재질은 `<robot>` 아래에 한 번만 정의해 이름으로 부른다. 메시 경로는 저장하는 파일 기준 상대 경로로 쓴다.
 - 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdf(robot, path, &err)` / `UrdfToString`, 뷰어는 `ModelViewer::SaveUrdf(path)`, `SimulView` 기본 메뉴(파일)에도 같은 항목이 있다 (`urdfSaved` / `urdfSaveFailed` 신호).
 - 검증: 쓴 파일을 다시 읽어 링크/관절/질량·관성/형상/색이 같은지 `test_curdf_write` 가 확인한다 (회전 rpy 변환은 짐벌 락 근처 포함).
+
+## 엔진 밖에서 제어하는 위젯 (PropertiesPanel)
+
+3D 화면(엔진)은 그리기와 조작만 맡고, 속성 같은 입력 UI 는 엔진 밖에 호스트가 둔다. `PropertiesPanel(ModelViewer*)` 는 그 예다.
+엔진의 공개 함수와 신호만 쓰고 3D 화면 안에는 들어가지 않는다: 선택(`SelectedLink`, `selectionChanged` 등)을 따라가 모델의 이름과 위치/회전을 보여 주고,
+숫자를 고치면 `SetModelPlacement6` 로 엔진을 제어한다. 도크, 사이드 패널, 별도 창 어디에든 놓을 수 있다 (`simul_main` 은 오른쪽 도크, P 키).
 
 ## 화면 구성 (도크, 메뉴 숨기기, 3D 화면만)
 

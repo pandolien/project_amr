@@ -6,8 +6,6 @@
 #include <QMenu>
 #include <QStringList>
 #include <QTimer>
-#include <QDoubleSpinBox>
-#include <QLabel>
 #include <QWidget>
 
 #include "CoreQt/ModelViewer.h"
@@ -30,8 +28,7 @@ public:
         kDropFiles = 4,        // 파일을 끌어다 놓아 추가
         kMenu = 8,             // 3D 화면 위쪽에 뜨는 메뉴줄 (파일/보기/물리). 호스트의 메뉴를 넣으려면 SetMenus
         kTree = 16,            // 3D 화면 안에 뜨는 구조 트리 창 (링크 계층, 클릭하면 선택, 충돌 링크는 빨갛게). 비어 있으면 저절로 숨는다
-        kProperties = 32,      // 3D 화면 안에 뜨는 속성 창: 선택한 모델의 위치(x,y,z m)와 회전(roll,pitch,yaw 도)을 숫자로 보고 고친다
-        kAll = kSelectionPanel | kMouseEdit | kDropFiles | kMenu | kTree | kProperties
+        kAll = kSelectionPanel | kMouseEdit | kDropFiles | kMenu | kTree
     };
 
     explicit SimulView(QWidget* parent = nullptr, unsigned features = kAll);
@@ -55,9 +52,6 @@ public:
     // 3D 화면 안 UI(메뉴줄, 구조 트리, 선택 패널)의 크기 배율. 1.0 이 기본이고 0.6~2.5 로 제한한다.
     void SetUiScale(double scale);
     double UiScale() const { return uiScale_; }
-    void SetPropertiesVisible(bool on) { EnableFeature(kProperties, on); }
-    bool PropertiesVisible() const { return HasFeature(kProperties); }
-    FloatingPanel* propertiesPanel() const { return propPanel_; }
     StructurePanel* tree() const { return tree_; }              // 구조 트리 (호스트가 SetJointNotes 같은 걸 직접 쓸 수 있다)
     FloatingPanel* treePanel() const { return treePanel_; }
 
@@ -95,9 +89,6 @@ private:
     QList<QMenu*> defaultMenus();
     void layoutMenuBar();
     void updateTreeVisibility();
-    void buildProperties();
-    void refreshProperties();     // 선택/배치가 바뀌었을 때 속성 창의 값을 다시 읽는다
-    void applyPropertiesStyle();
     void applyMenus();
 
     ModelViewer* viewer_;
@@ -105,13 +96,6 @@ private:
     StructurePanel* tree_;
     FloatingPanel* treePanel_;
     bool treePlaced_;
-    FloatingPanel* propPanel_ = nullptr;
-    QLabel* propName_ = nullptr;
-    QDoubleSpinBox* propSpin_[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-    QWidget* propBody_ = nullptr;
-    int propModel_ = -1;
-    bool propUpdating_ = false;
-    bool propPlaced_ = false;
     double uiScale_;
     void applyMenuBarStyle();
     QFrame* menuBar_;

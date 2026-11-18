@@ -363,6 +363,7 @@ int PrintInfo(const Options& o) {
 #include <QInputDialog>
 #include "CoreQt/SimulView.h"
 #include "CoreQt/LogView.h"
+#include "CoreQt/PropertiesPanel.h"
 #include <QSet>
 #include <QLineEdit>
 #include <QLabel>
@@ -396,7 +397,7 @@ public:
         resize(o.width, o.height);
         setAcceptDrops(true);
 
-        view_ = new SimulView(this, SimulView::kSelectionPanel | SimulView::kMouseEdit | SimulView::kDropFiles | SimulView::kTree | SimulView::kProperties);   // 3D 뷰 부품 (ModelViewer + 선택 패널). 메뉴, 도크, 로그는 이 프로그램(호스트)이 따로 만든다
+        view_ = new SimulView(this, SimulView::kSelectionPanel | SimulView::kMouseEdit | SimulView::kDropFiles | SimulView::kTree);   // 3D 뷰 부품 (ModelViewer + 선택 패널). 메뉴, 도크, 로그는 이 프로그램(호스트)이 따로 만든다
         viewer_ = view_->viewer();
         for (size_t i = 0; i < o.packages.size(); i++)
             viewer_->LoadOptions().packagePaths.push_back(simul::MakePair(o.packages[i].first, o.packages[i].second));
@@ -447,6 +448,10 @@ public:
         logDock_->setWidget(log_);
         addDockWidget(Qt::BottomDockWidgetArea, logDock_);
         logDock_->hide();
+        // 속성: 엔진(3D 화면) 밖의 독립 위젯. 엔진의 공개 함수와 신호만으로 제어한다 (3D 화면 안에는 들어가지 않는다)
+        propDock_ = new QDockWidget(QString::fromUtf8("속성"), this);
+        propDock_->setWidget(new PropertiesPanel(viewer_));
+        addDockWidget(Qt::RightDockWidgetArea, propDock_);
         QObject::connect(viewer_, &ModelViewer::modelDragFinished, this, [this](int model, bool rotated) {
             float v[6];
             viewer_->ModelPlacement6(model, v);
@@ -583,6 +588,10 @@ public:
         QAction* jointDock = dock_->toggleViewAction();   // 오른쪽 관절 도크는 기본으로 숨긴다 (슬라이더는 클릭한 물체 옆 오버레이에 나온다)
         jointDock->setText(QString::fromUtf8("관절 도크 (전체 관절)"));
         view->insertAction(viewSep, jointDock);
+        QAction* propAct = propDock_->toggleViewAction();
+        propAct->setText(QString::fromUtf8("속성"));
+        propAct->setShortcut(Qt::Key_P);
+        view->insertAction(viewSep, propAct);
         QAction* logAct = logDock_->toggleViewAction();
         logAct->setText(QString::fromUtf8("로그"));
         logAct->setShortcut(Qt::Key_L);
@@ -1078,6 +1087,7 @@ private:
     }
     void configureDocks() {
         configureDock(dock_);
+        configureDock(propDock_);
         configureDock(logDock_);
         configureDock(lidarDock_);
     }
@@ -1188,6 +1198,7 @@ private:
     QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
     QDockWidget* logDock_ = nullptr;
+    QDockWidget* propDock_ = nullptr;
     QSet<QString> loggedWarnings_;
     QStringList lastCollisions_;
     SimulView* view_ = nullptr;
