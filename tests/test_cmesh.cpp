@@ -378,7 +378,10 @@ void testGlbSkinAndNan() {
 
     simul::Array<char> b2;
     const float q[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
-    for (int i = 0; i < 9; i++) testglb::putf(&b2, i == 4 ? 0.0f / 0.0f : q[i]);
+    float nanValue;   // 0.0f / 0.0f 는 MSVC 가 컴파일 오류(C2124)로 거부하므로 비트 패턴으로 만든다
+    const uint32_t nanBits = 0x7FC00000u;
+    memcpy(&nanValue, &nanBits, sizeof(nanValue));
+    for (int i = 0; i < 9; i++) testglb::putf(&b2, i == 4 ? nanValue : q[i]);
     simul::String js2 =
         "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
         "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],"
