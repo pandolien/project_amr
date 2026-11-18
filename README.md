@@ -375,6 +375,15 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 엔진의 공개 함수와 신호만 쓰고 3D 화면 안에는 들어가지 않는다: 선택(`SelectedLink`, `selectionChanged` 등)을 따라가 모델의 이름과 위치/회전을 보여 주고,
 숫자를 고치면 `SetModelPlacement6` 로 엔진을 제어한다. 도크, 사이드 패널, 별도 창 어디에든 놓을 수 있다 (`simul_main` 은 오른쪽 도크, P 키).
 
+## 단위와 카메라 (m, radian, 쿼터니언)
+
+엔진 안쪽은 길이 m, 각도 radian, 방향 쿼터니언(x, y, z, w)이고, degree 는 사람이 보는 화면과 입력에서만 쓴다 (`3d/Units.h`, `3d/dhPose.h`).
+
+- 카메라: `ModelViewer::SetCamera(target, distance, yaw, pitch)` (m, radian), `CameraTarget/CameraDistance/CameraYaw/CameraPitch`, 카메라 자신의 자세는 `CameraPose()` (눈의 위치 m + 방향 쿼터니언, x 가 앞, z 가 위). 마우스 조작량은 화면 기준이라 모델이 작든 크든 한 번 끌면 같은 만큼 움직인다.
+- 모델 배치: `SetModelPlacement(index, dhPose)` / `ModelPlacementPose(index)` (위치 m + 쿼터니언). degree 로 주고받는 `SetModelPlacement6` 은 입력 칸용이다.
+- 길이 기준 표시: 3D 화면 왼쪽 아래에 "격자 한 칸 10 cm · 카메라 거리 1.56 m". 처음 화면은 모델에 맞춰 자동으로 잡히므로(큰 건물도 작은 상자도 비슷한 크기로 보인다) 이 표시가 실제 크기를 알려 준다. `SetScaleInfoVisible(false)` 로 끈다. 아래 상태줄의 크기도 m 단위이고, 200 m 보다 크면 단위가 mm 가 아닌지 알려 준다.
+- 파일 단위 변환: mm/cm/inch 로 만든 모델 파일이 너무 크게 나오면 메뉴 **파일 > 선택한 모델의 길이 단위 변환**, 또는 `SetModelUnitScale(index, 0.001)`. 원래 크기 기준의 절대 배율이라 겹쳐지지 않는다. 기본 도형(상자/원통/구)에는 적용하지 않는다.
+
 ## 기본 도형 추가 (박스, 원통, 구)
 
 파일 없이 기본 도형을 장면에 모델로 올린다. 색과 질량(관성은 공식으로 계산)을 주고, 올라간 도형은 다른 모델처럼 옮기고 돌리고 중력으로 떨어지고 충돌하며, URDF 로 내보내면 함께 저장된다.
