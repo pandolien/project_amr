@@ -351,6 +351,42 @@ void testMeshCache() {
     ClearMeshCache();
 }
 
+// 스킨이 붙은 메시는 노드 변환을 무시한다 (뼈대 변형은 없이 기본 자세). NaN 좌표는 0 으로 바꾼다.
+void testGlbSkinAndNan() {
+    simul::Array<char> b;
+    const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);
+    simul::String json =
+        "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0,1]}],\"scene\":0,"
+        "\"nodes\":[{\"mesh\":0,\"skin\":0,\"translation\":[100,0,0],\"scale\":[5,5,5]},{\"name\":\"bone\"}],"
+        "\"skins\":[{\"joints\":[1]}],"
+        "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],"
+        "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}],"
+        "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}";
+    simul::Array<char> glb = testglb::MakeGlb(json, b);
+    Scene s;
+    simul::String err;
+    check(LoadGlbFromMemory(&glb[0], glb.size(), &s, &err), "skinned glb loads");
+    dhVector mn, mx;
+    check(s.ComputeBounds(&mn, &mx) && nearly(mn.x, 0) && nearly(mx.x, 1) && nearly(mx.y, 1), "skinned mesh ignores its node transform");
+    bool warned = false;
+    for (size_t i = 0; i < s.warnings.size(); i++) warned = warned || s.warnings[i].find("스킨") != simul::String::npos;
+    check(warned, "skin warning is recorded");
+    check(s.IsValid(), "scene with detached skinned node is valid");
+
+    simul::Array<char> b2;
+    const float q[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    for (int i = 0; i < 9; i++) testglb::putf(&b2, i == 4 ? 0.0f / 0.0f : q[i]);
+    simul::String js2 =
+        "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
+        "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],"
+        "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}],"
+        "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}";
+    glb = testglb::MakeGlb(js2, b2);
+    Scene s2;
+    check(LoadGlbFromMemory(&glb[0], glb.size(), &s2, &err) && s2.ComputeBounds(&mn, &mx) && mx.x < 10 && mn.y > -10, "NaN coordinate replaced so bounds stay finite");
+}
+
 int main() {
     testPrimitives();
     testSceneUtil();
@@ -360,6 +396,7 @@ int main() {
     testGlbErrors();
     testGlbColorsAndTextures();
     testMeshCache();
+    testGlbSkinAndNan();
     if (g_fail == 0) printf("test_cmesh: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

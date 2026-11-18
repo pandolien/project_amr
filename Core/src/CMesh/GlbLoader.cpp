@@ -147,6 +147,14 @@ int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primit
         return -1;
     }
 
+    {   // 숫자가 아닌 좌표(NaN, 무한대)가 하나라도 있으면 화면과 경계 계산이 통째로 망가지므로 0 으로 바꾸고 알린다
+        size_t bad = 0;
+        for (size_t i = 0; i < n * 3; i++) {
+            const float v = out->positions[i];
+            if (!(v - v == 0.0f)) { out->positions[i] = 0.0f; bad++; }
+        }
+        if (bad > 0) warnings->push_back("좌표 값이 숫자가 아닌 정점이 있어 0 으로 바꿨습니다 (" + simul::ToString(bad) + "개 값)");
+    }
     if (nor) {
         if (nor->type == cgltf_type_vec3 && nor->count == pos->count) {
             out->normals.assign(n * 3, 0.0f);
@@ -271,6 +279,33 @@ bool ConvertScene(const cgltf_data* d, const simul::String& baseDir, Scene* out,
         }
     }
 
+    // 스킨(뼈대)이 붙은 메시: glTF 규칙상 메시 노드의 변환은 무시하고 정점이 이미 장면 좌표에 있다 (뼈대 변형은 지원하지 않으므로 기본 자세로 그린다).
+    // 노드 변환을 그대로 곱하면 크기와 위치가 크게 어긋난다 (Blender/FBX 변환 파일에서 흔하다).
+    size_t skinned = 0;
+    simul::Array<int> detached;
+    for (size_t i = 0; i < nn; i++) {
+        if (d->nodes[i].skin && d->nodes[i].mesh) {
+            skinned++;
+            SceneNode& sn = out->nodes[i];
+            if (sn.parent >= 0) {
+                simul::Array<int>& sib = out->nodes[static_cast<size_t>(sn.parent)].children;
+                for (size_t k = 0; k < sib.size(); k++)
+                    if (sib[k] == static_cast<int>(i)) { sib.erase(sib.begin() + static_cast<ptrdiff_t>(k)); break; }
+                detached.push_back(static_cast<int>(i));
+            }
+            sn.parent = -1;
+            sn.local = dhMat();
+        }
+    }
+    if (skinned > 0)
+        out->warnings.push_back("스킨(뼈대)이 있는 메시 " + simul::ToString(skinned) + "개: 뼈대 움직임은 적용하지 않고 기본 자세로 그립니다");
+    if (d->animations_count > 0) out->warnings.push_back("애니메이션 " + simul::ToString(static_cast<size_t>(d->animations_count)) + "개는 무시합니다");
+    for (cgltf_size i = 0; i < d->extensions_used_count; i++) {
+        const char* e = d->extensions_used[i];
+        if (e && (strcmp(e, "KHR_mesh_quantization") == 0 || strcmp(e, "KHR_texture_basisu") == 0 || strcmp(e, "EXT_meshopt_compression") == 0 || strcmp(e, "KHR_draco_mesh_compression") == 0))
+            out->warnings.push_back(simul::String("확장 ") + e + " 을(를) 쓰는 파일입니다. 지원하지 않는 부분이 있으면 모양이나 색이 다르게 나올 수 있습니다");
+    }
+
     // 노드가 없고 메시만 있는 파일: 메시마다 루트 노드를 하나씩 만든다
     if (nn == 0) {
         for (size_t i = 0; i < out->meshes.size(); i++) {
@@ -295,6 +330,7 @@ bool ConvertScene(const cgltf_data* d, const simul::String& baseDir, Scene* out,
         }
     }
 
+    for (size_t i = 0; i < detached.size(); i++) out->roots.push_back(detached[i]);   // 부모에서 떼어 낸 스킨 메시도 그려야 한다
     if (!out->IsValid()) {
         detail::SetError(error, "변환된 장면의 구조가 올바르지 않습니다");
         return false;
