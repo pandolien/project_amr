@@ -48,6 +48,8 @@ const char* kFragmentShader =
     "uniform sampler2D uTex;\n"
     "uniform float uUseTex;\n"   // 1 이면 기본 색 텍스처를 곱한다
     "uniform float uUseVC;\n"    // 1 이면 정점 색을 곱한다
+    "uniform int uAlphaMode;\n"  // 0 불투명 (텍스처/정점 색의 알파는 무시), 1 마스크, 2 블렌드
+    "uniform float uCutoff;\n"
     "varying vec3 vN;\n"
     "varying vec3 vP;\n"
     "varying vec2 vUV;\n"
@@ -94,8 +96,11 @@ const char* kFragmentShader =
     "void main() {\n"
     "    if (uLit < 0.5) { gl_FragColor = uColor; return; }\n"
     "    vec4 base = uColor;\n"                                     // 재질 색 x 정점 색 x 텍스처 (glTF 의 baseColor 규칙)
+    "    float baseA = uColor.a;\n"
     "    if (uUseVC > 0.5) base *= vVC;\n"
     "    if (uUseTex > 0.5) base *= texture2D(uTex, vUV);\n"
+    "    if (uAlphaMode == 0) base.a = baseA;\n"                    // 불투명: 이미지의 알파는 무시 (안 그러면 알파가 0 인 자리가 구멍으로 보인다)
+    "    else if (uAlphaMode == 1) { if (base.a < uCutoff) discard; base.a = 1.0; }\n"   // 마스크: 기준보다 옅은 곳만 뚫는다
     "    vec3 N = normalize(vN);\n"
     "    if (!gl_FrontFacing) N = -N;\n"                     // 양면 렌더링: 뒷면은 법선을 뒤집는다
     "    vec3 V = normalize(-vP);\n"
@@ -290,6 +295,7 @@ void ModelViewer::addScene(const simul::Scene& scene, int link, const dhMat& loc
                 it->imageKey = matImage.value(mi).first;
                 it->image = matImage.value(mi).second;
             }
+            if (mat) { it->alphaMode = mat->alphaMode; it->alphaCutoff = mat->alphaCutoff; }
             it->hasVertexColor = hasVc && !colorOverride;
             if (!it->image.isNull() || it->hasVertexColor) {
                 it->extra.assign(nv * 6, 1.0f);
@@ -1062,6 +1068,7 @@ void ModelViewer::paintGL() {
     prog_->setUniformValue("uLit", 0.0f);
     prog_->setUniformValue("uUseTex", 0.0f);
     prog_->setUniformValue("uUseVC", 0.0f);
+    prog_->setUniformValue("uAlphaMode", 0);
     prog_->setUniformValue("uShading", shading_);
     prog_->setUniformValue("uMetal", kDefaultMetal);
     prog_->setUniformValue("uRough", kDefaultRough);
@@ -1135,7 +1142,7 @@ void ModelViewer::paintGL() {
     for (int pass = 0; pass < 2; pass++) {
         for (size_t i = 0; i < items_.size(); i++) {
             Item& it = *items_[i];
-            const bool translucent = it.color[3] < 0.99f;
+            const bool translucent = it.color[3] < 0.99f || (it.alphaMode == 2 && (it.tex || it.hasVertexColor));
             if ((pass == 0) == translucent) continue;
             if (!it.vbo.isCreated() || !it.ibo.isCreated()) continue;
             const QMatrix4x4 mv = view * ToQt(itemWorld(it));
@@ -1153,6 +1160,8 @@ void ModelViewer::paintGL() {
             const bool useTex = it.tex && it.evbo.isCreated(), useVc = it.hasVertexColor && it.evbo.isCreated();
             prog_->setUniformValue("uUseTex", useTex ? 1.0f : 0.0f);
             prog_->setUniformValue("uUseVC", useVc ? 1.0f : 0.0f);
+            prog_->setUniformValue("uAlphaMode", (useTex || useVc) ? it.alphaMode : 0);
+            prog_->setUniformValue("uCutoff", it.alphaCutoff);
             if (useTex) {
                 glActiveTexture(GL_TEXTURE0);
                 it.tex->bind();
@@ -1186,6 +1195,7 @@ void ModelViewer::paintGL() {
     }
     prog_->setUniformValue("uUseTex", 0.0f);
     prog_->setUniformValue("uUseVC", 0.0f);
+    prog_->setUniformValue("uAlphaMode", 0);
     if (lidarOn_ && lidarDraw_) {
         prog_->setUniformValue("uLit", 0.0f);
         prog_->setUniformValue("uMVP", proj * view);

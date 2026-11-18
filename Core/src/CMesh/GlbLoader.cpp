@@ -92,6 +92,8 @@ void ConvertMaterial(const cgltf_material* m, const simul::String& baseDir, Mate
     out->baseColor = Color(1.0f, 1.0f, 1.0f, 1.0f);  // glTF 기본값
     if (m->name) out->name = m->name;
     out->doubleSided = m->double_sided != 0;
+    out->alphaMode = m->alpha_mode == cgltf_alpha_mode_mask ? 1 : (m->alpha_mode == cgltf_alpha_mode_blend ? 2 : 0);
+    out->alphaCutoff = m->alpha_cutoff;
     if (m->has_pbr_metallic_roughness) {
         const cgltf_pbr_metallic_roughness& pbr = m->pbr_metallic_roughness;
         out->baseColor = Color(pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2],
