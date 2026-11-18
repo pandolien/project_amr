@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "CProcess/Process.h"
+#include "CURDF/Urdf.h"
 
 using namespace simul;
 using namespace simul::process;
@@ -87,12 +88,43 @@ void testTwoItems() {
     for (size_t i = 0; i < ev.size(); i++) if (ev[i].type == kEventArrived) arrived++;
     check(arrived == 2 && ev.size() == 4, "two starts and two arrivals recorded");
 }
+
+// 3D 파일(logistics_ab.urdf): 물건이 A(x=0)에서 B(x=3)까지 레일 관절로 움직인다. 공정의 지점과 같은 좌표다.
+void testLogisticsScene() {
+    urdf::Robot r;
+    String err;
+    const String path = String(SIMUL_TEST_DATA_DIR) + "/Object/samples/logistics_ab.urdf";
+    check(urdf::LoadUrdf(path, &r, &err), "load logistics_ab.urdf");
+    const int item = r.FindLink("item");
+    const int slide = r.FindJoint("item_slide");
+    check(item >= 0 && slide >= 0 && r.joints[static_cast<size_t>(slide)].type == urdf::kJointPrismatic, "item on a prismatic rail");
+    check(r.joints.size() == 1 && r.links.size() == 2, "no robot: only base and item");
+
+    Process p;
+    p.AddPoint("A", dhVector(0, 0, 0));
+    p.AddPoint("B", dhVector(3, 0, 0));
+    const int box = p.AddItem("box", "A");
+    p.Order(box, "B", 1.0);
+    for (int i = 0; i < 4 && !p.AllIdle(); i++) {
+        p.Step(1.0);   // 1 m/s 로 3 m = 3 s
+        urdf::JointValues q;
+        q["item_slide"] = static_cast<float>(p.GetItem(box).travelled);   // 공정의 이동 거리가 곧 레일 관절 값
+        const dhMat t = r.LinkTransforms(q)[static_cast<size_t>(item)];
+        check(near(t.v[12], p.GetItem(box).position.x, 1e-4), "rail joint puts the 3D item where the process says");
+    }
+    check(p.AllIdle(), "arrived");
+    urdf::JointValues qa, qb;
+    qa["item_slide"] = 0.0f;
+    qb["item_slide"] = 3.0f;
+    check(near(r.LinkTransforms(qa)[static_cast<size_t>(item)].v[12], 0.0, 1e-5) && near(r.LinkTransforms(qb)[static_cast<size_t>(item)].v[12], 3.0, 1e-5), "rail ends are points A and B");
+}
 }  // namespace
 
 int main() {
     testMoveAToB();
     testErrors();
     testTwoItems();
+    testLogisticsScene();
     if (g_fail == 0) printf("test_cprocess: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

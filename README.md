@@ -432,3 +432,13 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 - 물건 상태: `kItemWaiting`(지점에 놓임) → `kItemMoving` → `kItemArrived` (다시 `Order` 하면 또 보낼 수 있다)
 - `TimeToArrival(item)` 으로 남은 시간, `Time()` 으로 공정 시계를 본다.
 - 이름이 겹치거나, 없는 지점이거나, 속도가 0 이하이거나, 같은 지점으로 보내거나, 이동 중에 다시 보내면 `false` 와 이유를 돌려준다.
+
+### 3D 파일로 보기 (logistics_ab.urdf)
+
+`Data/Object/samples/logistics_ab.urdf` 는 같은 공정을 3D 파일 하나로 만든 것이다 (로봇 없음, 링크 2개 + 관절 1개).
+바닥판 위에 A 지점(초록, x=0)과 B 지점(주황, x=3 m)이 있고, 물건(파란 상자)이 직선 레일 관절 `item_slide`(0~3 m)에 달려 있다.
+관절 값이 곧 A 에서 간 거리라서, 공정의 `travelled` 를 그대로 넣으면 화면의 물건이 공정과 같은 위치에 온다.
+
+```
+./build/bin/simul_main Data/Object/samples/logistics_ab.urdf --joint item_slide=1.5   # 물건이 A 와 B 의 가운데
+```
