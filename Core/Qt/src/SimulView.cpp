@@ -156,6 +156,19 @@ QList<QMenu*> SimulView::defaultMenus() {
         if (receivers(SIGNAL(filesDropped(QStringList))) > 0) emit filesDropped(paths);
         else for (int i = 0; i < paths.size(); i++) viewer_->AddFile(paths[i]);
     });
+    QMenu* unit = file->addMenu(QString::fromUtf8("선택한 모델의 길이 단위 변환"));
+    {   // 파일이 mm/cm/inch 로 만들어져 너무 크게 보일 때: 메시를 m 로 맞춘다. 고른 모델(없으면 모델이 하나일 때 그것)에 적용한다.
+        const struct { const char* label; double scale; } kUnits[4] = {
+            {"mm 로 만든 파일 (x 0.001)", 0.001}, {"cm 로 만든 파일 (x 0.01)", 0.01}, {"inch 로 만든 파일 (x 0.0254)", 0.0254}, {"원래 크기 (x 1)", 1.0}};
+        for (int u = 0; u < 4; u++) {
+            const double scale = kUnits[u].scale;
+            connect(unit->addAction(QString::fromUtf8(kUnits[u].label)), &QAction::triggered, this, [this, scale]() {
+                int model = viewer_->HasSelection() ? viewer_->ModelOfLink(viewer_->SelectedLink()) : -1;
+                if (model < 0 && viewer_->ModelCount() == 1) model = 0;
+                if (model >= 0) viewer_->SetModelUnitScale(model, scale);
+            });
+        }
+    }
     connect(file->addAction(QString::fromUtf8("모두 닫기")), &QAction::triggered, viewer_, &ModelViewer::CloseAll);
     list << file;
 

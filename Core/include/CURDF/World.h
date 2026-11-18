@@ -22,6 +22,7 @@ struct WorldEntry {
     dhMat placement;         // 월드 기준 자세 (모델이 둘 이상일 때 attach 관절의 origin)
     simul::String rootName;  // Build() 결과에서 이 모델의 루트 링크 이름
     simul::Array<simul::String> linkNames;  // Build() 결과에서 이 모델에 속한 링크 이름들
+    double unitScale = 1.0;  // 메시 크기 배율 (SetMeshScale 로 정한 값). 파일이 mm 이면 0.001
 };
 
 class World {
@@ -36,6 +37,10 @@ public:
     size_t size() const { return entries_.size(); }
     const WorldEntry& entry(size_t i) const { return entries_[i]; }
     void SetPlacement(size_t i, const dhMat& placement) { entries_[i].placement = placement; }
+    // 모델의 메시(시각, 충돌)를 s 배로 만든다. 파일이 mm/cm/inch 단위일 때 m 로 맞추려고 쓴다 (mm 이면 0.001).
+    // 지금 배율이 아니라 "원래 크기 기준"의 절대 배율이다 (두 번 불러도 겹쳐지지 않는다). 상자/원통/구 같은 기본 도형은 건드리지 않는다.
+    bool SetMeshScale(size_t i, double s);
+    double MeshScale(size_t i) const { return entries_[i].unitScale; }
 
     // 합친 Robot 을 만든다 (Add/Remove 뒤에 다시 부른다). 비어 있으면 false.
     bool Build(const LoadOptions& opt, Robot* out, simul::String* error);

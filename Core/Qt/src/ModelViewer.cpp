@@ -2,6 +2,8 @@
 #include "CoreQt/QtString.h"
 #include "CoreQt/ModelViewer.h"
 
+#include "3d/dhEuler.h"
+
 #include <QFileInfo>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -156,7 +158,7 @@ const float kDefaultRough = 0.45f;
 
 ModelViewer::ModelViewer(QWidget* parent)
     : QOpenGLWidget(parent), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
-      dist_(3.0f), yaw_(-60.0f), pitch_(25.0f), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
+      dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
     selectedModel_ = false;
@@ -843,6 +845,7 @@ void ModelViewer::updateBounds() {
         radius_ = simul::Max(d * 0.5f, 1e-4f);
     }
     rebuildGrid();
+    refreshScaleInfo();
 }
 
 void ModelViewer::rebuildGrid() {
@@ -859,11 +862,75 @@ void ModelViewer::rebuildGrid() {
 }
 
 void ModelViewer::FitView() {
-    target_ = center_;
-    dist_ = radius_ * 2.8f;
-    yaw_ = -60.0f;
-    pitch_ = 25.0f;
+    // 모델을 감싸는 구가 세로 시야각(45 도)의 약 70% 를 차지하도록 거리를 잡는다. (예전에는 거의 꽉 차서 작은 물체도 화면을 가득 채웠고,
+    // 가까워서 모든 것이 크게 느껴졌다.) 화면 왼쪽 아래의 길이 표시가 실제 크기를 알려 준다.
+    target_ = center_ + QVector3D(objectPos_.x, objectPos_.y, objectPos_.z);   // 모델 하나를 오브젝트 위치로 옮겨 둔 경우도 그 자리를 본다
+    dist_ = radius_ * 3.6f;
+    yaw_ = -1.0471976f;     // -60 도
+    pitch_ = 0.43633232f;   // 25 도
+    refreshScaleInfo();
     update();
+}
+
+void ModelViewer::SetCamera(const dhVector& target, double distance, double yaw, double pitch) {
+    const float kMaxPitch = 89.0f * 3.14159265f / 180.0f;
+    target_ = QVector3D(target.x, target.y, target.z);
+    dist_ = simul::Max(static_cast<float>(distance), 1e-4f);
+    yaw_ = static_cast<float>(yaw);
+    pitch_ = simul::Max(-kMaxPitch, simul::Min(kMaxPitch, static_cast<float>(pitch)));
+    refreshScaleInfo();
+    update();
+}
+
+dhPose ModelViewer::CameraPose() const {
+    const float cy = simul::Cos(yaw_), sy = simul::Sin(yaw_), cp = simul::Cos(pitch_), sp = simul::Sin(pitch_);
+    const QVector3D eye = target_ + dist_ * QVector3D(cp * cy, cp * sy, sp);
+    // 앞(x) 이 눈에서 target 쪽이 되도록: 방위각 yaw + 180 도, 고도각 pitch (아래를 보면 +)
+    const dhEuler e(yaw_ + 3.14159265f, pitch_, 0.0f);
+    return dhPose(dhVector(eye.x(), eye.y(), eye.z()), e.GetQuat());
+}
+
+// 길이를 사람이 읽기 좋은 단위(mm, cm, m, km)로
+static QString LengthText(double m) {
+    const double a = m < 0 ? -m : m;
+    if (a < 0.01) return QString::number(m * 1000.0, 'g', 3) + " mm";
+    if (a < 1.0) return QString::number(m * 100.0, 'g', 3) + " cm";
+    if (a < 1000.0) return QString::number(m, 'g', 3) + " m";
+    return QString::number(m / 1000.0, 'g', 3) + " km";
+}
+
+void ModelViewer::SetScaleInfoVisible(bool on) {
+    scaleInfoVisible_ = on;
+    refreshScaleInfo();
+}
+
+void ModelViewer::refreshScaleInfo() {
+    if (!scaleInfo_) {
+        scaleInfo_ = new QLabel(this);
+        scaleInfo_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        scaleInfo_->setStyleSheet("QLabel { color: rgba(230,232,240,200); background: rgba(20,22,28,120); padding: 2px 8px; border-radius: 3px; font-size: 11px; }");
+    }
+    const bool show = scaleInfoVisible_ && !items_.empty();
+    scaleInfo_->setVisible(show);
+    if (!show) return;
+    scaleInfo_->setText(QString::fromUtf8("격자 한 칸 %1  ·  카메라 거리 %2").arg(LengthText(static_cast<double>(gridCell_)), LengthText(static_cast<double>(dist_))));
+    scaleInfo_->adjustSize();
+    scaleInfo_->move(8, height() - scaleInfo_->height() - 8);
+}
+
+bool ModelViewer::SetModelUnitScale(int index, double s) {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return false;
+    if (!world_.SetMeshScale(static_cast<size_t>(index), s)) return false;
+    QString err;
+    const dhMat keep = ModelPose(index);
+    if (!rebuildWorld(&err, true)) return false;
+    SetModelPose(index, keep);
+    return true;
+}
+
+double ModelViewer::ModelUnitScale(int index) const {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return 1.0;
+    return world_.MeshScale(static_cast<size_t>(index));
 }
 
 void ModelViewer::SetShowGrid(bool show) {
@@ -873,11 +940,15 @@ void ModelViewer::SetShowGrid(bool show) {
 
 QString ModelViewer::Summary() const {
     if (items_.empty()) return QString();
-    return QString("삼각형 %1개, 크기 %2 x %3 x %4")
-        .arg(triangleCount_)
-        .arg(static_cast<double>(extent_[0]), 0, 'g', 4)
-        .arg(static_cast<double>(extent_[1]), 0, 'g', 4)
-        .arg(static_cast<double>(extent_[2]), 0, 'g', 4);
+    QString text = QString::fromUtf8("삼각형 %1개, 크기 %2 x %3 x %4 m")
+                       .arg(triangleCount_)
+                       .arg(static_cast<double>(extent_[0]), 0, 'g', 4)
+                       .arg(static_cast<double>(extent_[1]), 0, 'g', 4)
+                       .arg(static_cast<double>(extent_[2]), 0, 'g', 4);
+    const double big = static_cast<double>(simul::Max(extent_[0], simul::Max(extent_[1], extent_[2])));
+    if (big > 200.0) text += QString::fromUtf8(" (200 m 보다 큽니다. 파일이 mm 단위라면 모델 단위 변환으로 0.001 배 하세요)");
+    else if (big > 0.0 && big < 0.005) text += QString::fromUtf8(" (5 mm 보다 작습니다. 파일이 m 단위가 아닐 수 있습니다)");
+    return text;
 }
 
 void ModelViewer::initializeGL() {
@@ -893,7 +964,7 @@ void ModelViewer::initializeGL() {
     buffersDirty_ = !items_.empty();
 }
 
-void ModelViewer::resizeGL(int, int) {}
+void ModelViewer::resizeGL(int, int) { refreshScaleInfo(); }
 
 void ModelViewer::uploadBuffers() {
     uploadItems(items_);
@@ -935,8 +1006,8 @@ void ModelViewer::uploadItems(ItemList& list) {
 }
 
 QMatrix4x4 ModelViewer::viewMatrix() const {
-    const float cy = simul::Cos(yaw_ * 3.14159265f / 180.0f), sy = simul::Sin(yaw_ * 3.14159265f / 180.0f);
-    const float cp = simul::Cos(pitch_ * 3.14159265f / 180.0f), sp = simul::Sin(pitch_ * 3.14159265f / 180.0f);
+    const float cy = simul::Cos(yaw_), sy = simul::Sin(yaw_);
+    const float cp = simul::Cos(pitch_), sp = simul::Sin(pitch_);
     const QVector3D eye = target_ + dist_ * QVector3D(cp * cy, cp * sy, sp);
     QMatrix4x4 v;
     v.lookAt(eye, target_, QVector3D(0, 0, 1));  // Z-up
@@ -1593,8 +1664,11 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
             emit objectMoved();
         }
     } else if (e->buttons() & Qt::LeftButton) {
-        yaw_ -= static_cast<float>(d.x()) * 0.4f;
-        pitch_ = simul::Max(-89.0f, simul::Min(89.0f, pitch_ + static_cast<float>(d.y()) * 0.4f));
+        const float kPerPixel = 0.4f * 3.14159265f / 180.0f;   // 한 픽셀에 0.4 도
+        const float kMaxPitch = 89.0f * 3.14159265f / 180.0f;
+        yaw_ -= static_cast<float>(d.x()) * kPerPixel;
+        pitch_ = simul::Max(-kMaxPitch, simul::Min(kMaxPitch, pitch_ + static_cast<float>(d.y()) * kPerPixel));
+        refreshScaleInfo();
         update();
     } else if (e->buttons() & (Qt::RightButton | Qt::MiddleButton)) {
         // 화면 기준 오른쪽/위 방향으로 이동
@@ -1602,12 +1676,14 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
         const QVector3D right(v(0, 0), v(0, 1), v(0, 2)), up(v(1, 0), v(1, 1), v(1, 2));
         const float s = dist_ * 0.0016f;
         target_ += (-static_cast<float>(d.x()) * right + static_cast<float>(d.y()) * up) * s;
+        refreshScaleInfo();
         update();
     }
 }
 
 void ModelViewer::wheelEvent(QWheelEvent* e) {
     dist_ = simul::Max(radius_ * 0.02f, dist_ * simul::Pow(0.9985f, static_cast<float>(e->angleDelta().y())));
+    refreshScaleInfo();
     update();
 }
 

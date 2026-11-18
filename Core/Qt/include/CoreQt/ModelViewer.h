@@ -3,6 +3,7 @@
 
 #include <QMatrix4x4>
 #include <QHash>
+#include <QLabel>
 #include <QImage>
 #include <QOpenGLBuffer>
 #include <QOpenGLTexture>
@@ -22,6 +23,7 @@
 #include <QStringList>
 
 #include "3d/dhMat.h"
+#include "3d/dhPose.h"
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
 #include "CCollision/Bvh.h"
@@ -58,6 +60,26 @@ public:
     void ModelPlacement6(int index, float v[6]) const;
     void SetModelPose(int index, const dhMat& pose);
     dhMat ModelPose(int index) const;
+    // 위치(m) + 단위 쿼터니언으로 주고받는 같은 함수 (엔진의 표준 자세 형식. degree 는 사람이 보는 화면에서만 쓴다)
+    void SetModelPlacement(int index, const dhPose& pose) { SetModelPose(index, pose.Normalized().ToMat()); }
+    dhPose ModelPlacementPose(int index) const { return dhPose::FromMat(ModelPose(index)); }
+    // 모델 파일의 길이 단위를 맞춘다: 메시를 s 배로 한다 (mm 로 만든 파일은 0.001, cm 는 0.01, inch 는 0.0254). 1.0 이 원래 크기. 기본 도형은 바뀌지 않는다.
+    bool SetModelUnitScale(int index, double s);
+    double ModelUnitScale(int index) const;
+
+    // ---- 카메라 (m, radian, 쿼터니언). 마우스로 돌리는 중심 궤도 카메라: target 을 distance 만큼 떨어져서 본다.
+    // yaw 는 target 둘레 z 축 회전, pitch 는 올려다보는 각 (+ 이면 카메라가 위에 있다). 둘 다 radian, pitch 는 +-89 도로 제한한다.
+    void SetCamera(const dhVector& target, double distance, double yaw, double pitch);
+    dhVector CameraTarget() const { return dhVector(target_.x(), target_.y(), target_.z()); }
+    double CameraDistance() const { return static_cast<double>(dist_); }
+    double CameraYaw() const { return static_cast<double>(yaw_); }
+    double CameraPitch() const { return static_cast<double>(pitch_); }
+    // 카메라 자신의 자세: 위치는 눈의 월드 좌표(m), 방향은 x 가 앞(보는 쪽), z 가 위인 단위 쿼터니언 (ROS 와 같은 규약)
+    dhPose CameraPose() const;
+    // 화면 왼쪽 아래에 "격자 한 칸 = 10 cm, 카메라까지 1.2 m" 같은 실제 길이 기준을 보인다 (모델 크기에 맞춰 화면이 자동으로 맞춰지므로 크기 감각을 잡아 준다)
+    void SetScaleInfoVisible(bool on);
+    bool ScaleInfoVisible() const { return scaleInfoVisible_; }
+    double GridCell() const { return static_cast<double>(gridCell_); }   // 격자 한 칸 (m)
     bool SelectionScreenPos(QPoint* out) const;   // 선택한 것의 원점이 3D 화면 어디에 보이는가 (화면 안이 아니어도 값은 나온다)
     bool CanRotateSelection() const;
     bool worldAxes() const { return !ringLocal_ && CanRotateSelection(); }  // 화살표와 링을 월드 축에 둔다
@@ -292,7 +314,10 @@ private:
     QVector3D center_;   // 모델 경계 상자의 중심/반지름 (월드)
     float radius_;
     QVector3D target_;   // 카메라가 보는 점
-    float dist_, yaw_, pitch_;
+    float dist_, yaw_, pitch_;      // 카메라 거리 m, 방위각/고도각 radian
+    QLabel* scaleInfo_;
+    bool scaleInfoVisible_;
+    void refreshScaleInfo();
     QPoint lastPos_;
 
     bool showBoxes_;

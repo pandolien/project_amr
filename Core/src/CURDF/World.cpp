@@ -86,6 +86,25 @@ void World::Remove(size_t index) {
     entries_ = keep;
 }
 
+bool World::SetMeshScale(size_t i, double s) {
+    if (i >= entries_.size() || !(s > 0.0) || !(s < 1e9)) return false;
+    WorldEntry& e = entries_[i];
+    const float ratio = static_cast<float>(s / e.unitScale);   // 지금 적용된 배율에서 원하는 배율로 가는 비율
+    for (size_t l = 0; l < e.robot.links.size(); l++) {
+        Link& link = e.robot.links[l];
+        for (size_t v = 0; v < link.visuals.size(); v++) {
+            Geometry& g = link.visuals[v].geometry;
+            if (g.type == kGeomMesh) for (int k = 0; k < 3; k++) g.scale[k] *= ratio;
+        }
+        for (size_t c = 0; c < link.collisions.size(); c++) {
+            Geometry& g = link.collisions[c].geometry;
+            if (g.type == kGeomMesh) for (int k = 0; k < 3; k++) g.scale[k] *= ratio;
+        }
+    }
+    e.unitScale = s;
+    return true;
+}
+
 bool World::Build(const LoadOptions& opt, Robot* out, String* error) {
     if (entries_.empty()) {
         if (error) *error = "올린 모델이 없습니다";

@@ -2,11 +2,14 @@
 // 창을 띄우지 않고 (QT_QPA_PLATFORM=offscreen) 위젯 API 와 시그널만 확인한다.
 #include <QMouseEvent>
 #include <QApplication>
+#include <QFile>
 #include <QMenu>
 #include <QSlider>
 #include <QToolButton>
 #include <stdio.h>
 
+#include "3d/Units.h"
+#include "3d/dhPose.h"
 #include "CBase/Math.h"
 #include "CoreQt/SimulView.h"
 
@@ -95,6 +98,55 @@ int main(int argc, char** argv) {
     // 구조 트리 창: 모델이 있으면 보이고, 함수로 끄고 켠다
     {
         CHECK(v->AddFile(arm, &err) && v->AddFile(room, &err), "re-add models");
+        // 카메라 (m, radian, 쿼터니언)와 위치+쿼터니언 배치
+        {
+            v->SetCamera(dhVector(1, 2, 0.5), 4.0, 0.7, 0.3);
+            CHECK(simul::Abs(static_cast<float>(v->CameraDistance()) - 4.0f) < 1e-5f && simul::Abs(static_cast<float>(v->CameraYaw()) - 0.7f) < 1e-5f && simul::Abs(static_cast<float>(v->CameraPitch()) - 0.3f) < 1e-5f, "camera getters return what was set (radian)");
+            const dhPose cam = v->CameraPose();
+            const dhVector fwd = cam * dhVector(1, 0, 0) - cam.position;   // 카메라 앞(x)이 가리키는 방향
+            const dhVector toTarget(1.0f - cam.position.x, 2.0f - cam.position.y, 0.5f - cam.position.z);
+            const float tl = simul::Sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z);
+            CHECK(simul::Abs(tl - 4.0f) < 1e-3f, "camera eye is at the distance from the target");
+            CHECK(simul::Abs(fwd.x - toTarget.x / tl) < 1e-3f && simul::Abs(fwd.y - toTarget.y / tl) < 1e-3f && simul::Abs(fwd.z - toTarget.z / tl) < 1e-3f, "camera x axis looks at the target");
+            v->SetCamera(dhVector(0, 0, 0), 1.0, 0.0, 3.0);
+            CHECK(v->CameraPitch() < 1.6, "pitch is limited below 90 degrees");
+            v->FitView();
+        }
+        {
+            const int before = v->ModelCount();
+            const dhPose pose(dhVector(0.5f, -0.25f, 0.1f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(10, 20, 30)));
+            simul::String qerr;
+            CHECK(v->AddFile(arm, &qerr), "add a model for the quaternion placement test");
+            const int box = before;
+            v->SetModelPlacement(box, pose);
+            const dhPose back = v->ModelPlacementPose(box);
+            CHECK(simul::Abs(back.position.x - 0.5f) < 1e-4f && simul::Abs(back.position.y + 0.25f) < 1e-4f, "quaternion placement keeps the position (m)");
+            const dhVector a = pose * dhVector(1, 0, 0), b = back * dhVector(1, 0, 0);
+            CHECK(simul::Abs(a.x - b.x) < 1e-4f && simul::Abs(a.y - b.y) < 1e-4f && simul::Abs(a.z - b.z) < 1e-4f, "quaternion placement keeps the orientation");
+            v->RemoveModel(box);
+            CHECK(v->ModelCount() == before, "quaternion test model removed");
+        }
+        // 길이 단위 변환: mm 로 만든 파일(1000 단위 상자)을 0.001 배 하면 1 m 가 된다
+        {
+            const QString objPath = QString::fromUtf8(tu::Tmp("simul_mm_cube.obj").c_str());
+            {
+                QFile f(objPath);
+                f.open(QIODevice::WriteOnly);
+                f.write("v 0 0 0\nv 1000 0 0\nv 1000 1000 0\nv 0 1000 0\nv 0 0 1000\nv 1000 0 1000\nv 1000 1000 1000\nv 0 1000 1000\n"
+                        "f 1 3 2\nf 1 4 3\nf 5 6 7\nf 5 7 8\nf 1 2 6\nf 1 6 5\nf 2 3 7\nf 2 7 6\nf 3 4 8\nf 3 8 7\nf 4 1 5\nf 4 5 8\n");
+            }
+            QString uerr;
+            const int before = v->ModelCount();
+            CHECK(v->AddFile(objPath, &uerr), "add a model that is 1000 units wide");
+            const int mm = v->ModelCount() - 1;
+            CHECK(v->ModelCount() == before + 1 && simul::Abs(static_cast<float>(v->ModelUnitScale(mm)) - 1.0f) < 1e-6f, "unit scale starts at 1");
+            CHECK(v->Summary().contains(QString::fromUtf8("200 m")), "summary warns that the model is huge");
+            CHECK(v->SetModelUnitScale(mm, 0.001) && simul::Abs(static_cast<float>(v->ModelUnitScale(mm)) - 0.001f) < 1e-9f, "unit scale set to 0.001");
+            CHECK(v->SetModelUnitScale(mm, 0.001) && simul::Abs(static_cast<float>(v->ModelUnitScale(mm)) - 0.001f) < 1e-9f, "setting the same scale twice does not stack");
+            CHECK(!v->SetModelUnitScale(mm, 0.0) && !v->SetModelUnitScale(99, 1.0), "bad scale or model index is rejected");
+            v->RemoveModel(mm);
+            QFile::remove(objPath);
+        }
         view.show();
         view.resize(900, 600);
         QApplication::processEvents();

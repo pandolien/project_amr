@@ -358,6 +358,15 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 
 `viewer()` 로 모델 추가/제거(`AddFile`, `RemoveModel`, `CloseAll`), 위치/자세(`SetModelPlacement6`, `SetModelPose`), 관절 값(`SetJointValues`), 선택, 카메라, 표시 옵션(격자, 충돌 박스, 조명 방식, 라이다)을 모두 다룰 수 있습니다. 호스트가 받는 시그널: `robotChanged`, `selectionChanged`/`selectionPicked`, `jointValuesChanged`, `modelDragFinished`, `collisionsChanged`, `lidarScanned`, `structureChanged` 와 `SimulView::jointEdited`. 최소 예제는 `examples/embed_host.cpp`(빌드하면 `embed_host`), 동작 확인은 `tests/test_simulview.cpp`(창 없이, `QT_QPA_PLATFORM=offscreen`)입니다. 지금의 `simul_main` 도 같은 `SimulView` 를 쓰는 호스트 하나입니다.
 
+## 단위와 카메라 (m, radian, 쿼터니언)
+
+엔진 안쪽은 길이 m, 각도 radian, 방향 쿼터니언(x, y, z, w)이고, degree 는 사람이 보는 화면과 입력에서만 쓴다 (`3d/Units.h`, `3d/dhPose.h`).
+
+- 카메라: `ModelViewer::SetCamera(target, distance, yaw, pitch)` (m, radian), `CameraTarget/CameraDistance/CameraYaw/CameraPitch`, 카메라 자신의 자세는 `CameraPose()` (눈의 위치 m + 방향 쿼터니언, x 가 앞, z 가 위). 마우스 조작량은 화면 기준이라 모델이 작든 크든 한 번 끌면 같은 만큼 움직인다.
+- 모델 배치: `SetModelPlacement(index, dhPose)` / `ModelPlacementPose(index)` (위치 m + 쿼터니언). degree 로 주고받는 `SetModelPlacement6` 은 입력 칸용이다.
+- 길이 기준 표시: 3D 화면 왼쪽 아래에 "격자 한 칸 10 cm · 카메라 거리 1.56 m". 처음 화면은 모델에 맞춰 자동으로 잡히므로(큰 건물도 작은 상자도 비슷한 크기로 보인다) 이 표시가 실제 크기를 알려 준다. `SetScaleInfoVisible(false)` 로 끈다. 아래 상태줄의 크기도 m 단위이고, 200 m 보다 크면 단위가 mm 가 아닌지 알려 준다.
+- 파일 단위 변환: mm/cm/inch 로 만든 모델 파일이 너무 크게 나오면 메뉴 **파일 > 선택한 모델의 길이 단위 변환**, 또는 `SetModelUnitScale(index, 0.001)`. 원래 크기 기준의 절대 배율이라 겹쳐지지 않는다. 기본 도형(상자/원통/구)에는 적용하지 않는다.
+
 ## 화면 구성 (도크, 메뉴 숨기기, 3D 화면만)
 
 - 구조, 관절, 로그, 라이다 그래프 도크는 제목줄을 끌어 **떼어 내서(플로팅) 아무 데나 놓거나**, 창 가장자리/다른 도크 위에 놓아 다시 붙이거나 탭으로 겹칠 수 있고, X 로 닫을 수 있습니다(`보기` 메뉴에서 다시 켭니다).
