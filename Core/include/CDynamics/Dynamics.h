@@ -52,6 +52,10 @@ class Simulator {
 public:
     Simulator();
     void Reset(const urdf::Robot& robot, const urdf::JointValues& q);  // 속도는 0 으로
+    // 로봇의 배치만 바뀌었다 (모델을 옮기거나 돌려서 attach 관절의 origin 이 달라졌다): 관절 값과 속도는 이름으로 유지하고
+    // 기구학을 새 로봇으로 바꾼다. 중력은 항상 루트(world) 좌표계 기준이므로, 돌린 모델도 바로 새 방향으로 중력을 받는다.
+    // 구동 관절 구성이 달라졌으면 Reset 과 같게 처음부터 시작한다.
+    void UpdateRobot(const urdf::Robot& robot);
     bool IsReady() const { return ready_; }
     void SetGravity(const Gravity& g) { gravity_ = g; }
     void SetOptions(const DynamicsOptions& o) { options_ = o; }

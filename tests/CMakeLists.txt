@@ -62,6 +62,7 @@ add_test(NAME test_ccollision COMMAND test_ccollision)
 add_executable(test_cdynamics test_cdynamics.cpp)
 target_link_libraries(test_cdynamics PRIVATE Core)
 simul_set_warnings(test_cdynamics)
+target_compile_definitions(test_cdynamics PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_cdynamics COMMAND test_cdynamics)
 
 # 샘플 URDF 를 창 없이 읽어 보는 스모크 테스트 (simul_main 이 만들어졌을 때만)

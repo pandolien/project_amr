@@ -426,6 +426,12 @@ public:
             updateTorques(q);
             updateSelectionLabel();
         });
+        // 모델을 옮기거나 돌리면 기구학(attach 관절)이 바뀐다: 시뮬레이션과 토크도 새 배치로 계산해야 중력이 항상 월드 -Z 로 작용한다
+        QObject::connect(viewer_, &ModelViewer::modelChanged, this, [this]() {
+            if (!viewer_->HasRobot()) return;
+            if (motorsOff_ && sim_.IsReady()) sim_.UpdateRobot(viewer_->Robot());
+            updateTorques();
+        });
         loadGizmo();
 
         panel_ = new JointPanel;

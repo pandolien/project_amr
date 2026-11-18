@@ -6,6 +6,8 @@
 #include "CBase/String.h"
 
 #include "CDynamics/Dynamics.h"
+#include "CURDF/World.h"
+#include "3d/dhMat.h"
 #include "CDynamics/FreeFall.h"
 #include "CDynamics/Gravity.h"
 #include "CURDF/Urdf.h"
@@ -704,9 +706,37 @@ void testJointLimitImpact() {
     check(simul::IsFinite(sim.TotalEnergy()), "energy stays finite");
 }
 
+// 시뮬레이션 도중 모델을 돌리면(attach 관절 origin 이 바뀜) UpdateRobot 으로 새 배치를 알리면 중력은 월드 -Z 기준으로 새 배치에 작용한다.
+// 샘플 팔을 X 축으로 90° 눕히면 shoulder_pitch 축(y)이 수직이 되어 처지지 않고, base_yaw 축(수평)이 처진다.
+void testGravityFollowsModelRotation() {
+    const simul::String file = simul::String(SIMUL_TEST_DATA_DIR) + "/Object/samples/arm.urdf";
+    simul::String err;
+    urdf::World upright;
+    check(upright.Add(file, &err), "add arm");
+    upright.SetForceComposite(true);
+    urdf::Robot a;
+    check(upright.Build(urdf::LoadOptions(), &a, &err), "build upright");
+    urdf::World lying;
+    lying.Add(file, &err);
+    lying.SetForceComposite(true);
+    lying.SetPlacement(0, dhMat::Quat(1.5707963f, dhVector(1, 0, 0)));
+    urdf::Robot b;
+    check(lying.Build(urdf::LoadOptions(), &b, &err), "build lying");
+
+    Simulator sim;
+    sim.Reset(a, urdf::JointValues());
+    sim.SetOptions(DynamicsOptions());
+    sim.UpdateRobot(b);   // 시뮬레이션 도중 모델을 눕혔다
+    for (int i = 0; i < 30; i++) sim.Step(1.0 / 60.0);
+    const urdf::JointValues q = sim.Values();
+    check(simul::Abs(q.at("shoulder_pitch")) < 1e-4f, "lying arm: vertical shoulder axis does not sag");
+    check(simul::Abs(q.at("base_yaw")) > 0.1f, "lying arm: horizontal base axis sags under world gravity");
+}
+
 }  // namespace
 
 int main() {
+    testGravityFollowsModelRotation();
     testJointLimitImpact();
     testFreeFall();
     testRneaAndMass();

@@ -312,6 +312,18 @@ void Simulator::Reset(const urdf::Robot& robot, const urdf::JointValues& q) {
     ready_ = !act_.empty();
 }
 
+void Simulator::UpdateRobot(const urdf::Robot& robot) {
+    const simul::Array<int> act = robot.ActuatedJoints();
+    bool same = ready_ && act.size() == act_.size();
+    for (size_t i = 0; same && i < act.size(); i++) same = robot.joints[static_cast<size_t>(act[i])].name == robot_.joints[static_cast<size_t>(act_[i])].name;
+    if (!same) {
+        Reset(robot, urdf::JointValues());
+        return;
+    }
+    robot_ = robot;
+    act_ = act;
+}
+
 void Simulator::SetValue(const simul::String& joint, double value) {
     for (size_t i = 0; i < act_.size(); i++) {
         const urdf::Joint& j = robot_.joints[static_cast<size_t>(act_[i])];
