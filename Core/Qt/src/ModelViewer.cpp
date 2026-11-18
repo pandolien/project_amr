@@ -602,6 +602,7 @@ void ModelViewer::CloseAll() {
     world_.Clear();
     Clear();
     emit modelChanged();
+    emit robotChanged();
 }
 
 void ModelViewer::RemoveModel(int index) {
@@ -613,6 +614,7 @@ void ModelViewer::RemoveModel(int index) {
     if (world_.size() == 0) {
         Clear();
         emit modelChanged();
+        emit robotChanged();
         return;
     }
     bool rotated = false;

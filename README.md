@@ -342,6 +342,16 @@ connect(view->viewer(), &ModelViewer::modelDragFinished, host, &Host::onMoved); 
 | `kMouseEdit` | 좌표계 화살표 이동, 회전 링, IK 끌기 (끄면 보기와 선택만) |
 | `kDropFiles` | 파일을 끌어다 놓아 추가 (`filesDropped` 를 받는 쪽이 없으면 바로 추가) |
 | `kMenu` | 3D 화면 **위쪽에 뜨는 메뉴줄** (기본: 파일 열기/모두 닫기, 보기, 물리). 호스트가 `SetMenus(QList<QMenu*>)` 로 자기 메뉴를 그대로 보이거나 `AddMenu(title)` 로 하나 더할 수 있다 |
+| `kTree` | 3D 화면 안에 뜨는 **구조 트리 창** (제목줄을 끌어 옮기고, 오른쪽 아래로 크기 조절, ✕ 로 닫기). 클릭하면 선택, 충돌 링크는 빨갛게. 보여 줄 모델이 없으면 저절로 숨는다. 오른쪽 클릭은 `linkContextMenuRequested` 로 알려 주고, 받는 쪽이 없으면 "제거" 메뉴를 쓴다 |
+
+GL 안에 들어 있는 UI 는 프로그램에서 함수로 켜고 끈다:
+
+```cpp
+view->SetMenuVisible(false);            // 메뉴줄    (MenuVisible() 로 확인)
+view->SetTreeVisible(true);             // 구조 트리  (TreeVisible())
+view->SetSelectionPanelVisible(false);  // 선택 패널  (SelectionPanelVisible())
+connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 알려 준다 (호스트 체크 표시용)
+```
 
 `viewer()` 로 모델 추가/제거(`AddFile`, `RemoveModel`, `CloseAll`), 위치/자세(`SetModelPlacement6`, `SetModelPose`), 관절 값(`SetJointValues`), 선택, 카메라, 표시 옵션(격자, 충돌 박스, 조명 방식, 라이다)을 모두 다룰 수 있습니다. 호스트가 받는 시그널: `robotChanged`, `selectionChanged`/`selectionPicked`, `jointValuesChanged`, `modelDragFinished`, `collisionsChanged`, `lidarScanned`, `structureChanged` 와 `SimulView::jointEdited`. 최소 예제는 `examples/embed_host.cpp`(빌드하면 `embed_host`), 동작 확인은 `tests/test_simulview.cpp`(창 없이, `QT_QPA_PLATFORM=offscreen`)입니다. 지금의 `simul_main` 도 같은 `SimulView` 를 쓰는 호스트 하나입니다.
 

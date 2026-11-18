@@ -91,8 +91,40 @@ int main(int argc, char** argv) {
         if (closeAll) { CHECK(v->ModelCount() == 2, "still two models"); closeAll->trigger(); CHECK(v->ModelCount() == 0, "menu closes all"); }
     }
 
+    // 구조 트리 창: 모델이 있으면 보이고, 함수로 끄고 켠다
+    {
+        CHECK(v->AddFile(arm, &err) && v->AddFile(room, &err), "re-add models");
+        view.show();
+        view.resize(900, 600);
+        QApplication::processEvents();
+        view.SetTreeVisible(true);
+        QApplication::processEvents();
+        CHECK(view.tree()->topLevelItemCount() > 0, "tree filled");
+        CHECK(view.treePanel()->isVisibleTo(view.viewer()), "tree panel visible");
+        unsigned lastFeatures = 0;
+        QObject::connect(&view, &SimulView::featuresChanged, [&](unsigned f) { lastFeatures = f; });
+        view.SetTreeVisible(false);
+        CHECK(!view.TreeVisible() && !view.treePanel()->isVisibleTo(view.viewer()), "tree off by function");
+        CHECK(!(lastFeatures & SimulView::kTree), "featuresChanged on tree off");
+        view.SetTreeVisible(true);
+        CHECK(view.treePanel()->isVisibleTo(view.viewer()), "tree on again");
+        // X 버튼으로 닫으면 기능도 꺼진다
+        emit view.treePanel()->closeRequested();
+        CHECK(!view.TreeVisible(), "close button turns feature off");
+        view.SetTreeVisible(true);
+        // 트리에서 링크를 고르면 뷰의 선택이 바뀐다
+        emit view.tree()->linkSelected(armRoot);
+        CHECK(v->SelectedLink() == armRoot, "tree selection reaches viewer");
+        view.SetMenuVisible(false);
+        view.SetSelectionPanelVisible(false);
+        CHECK(!view.MenuVisible() && !view.SelectionPanelVisible(), "menu/panel off by function");
+        view.SetMenuVisible(true);
+        view.SetSelectionPanelVisible(true);
+    }
+
     // 모두 닫기
     v->CloseAll();
+    CHECK(view.tree()->topLevelItemCount() == 0 && !view.treePanel()->isVisibleTo(view.viewer()), "tree hides when empty");
     CHECK(v->ModelCount() == 0, "closed all");
 
     if (failures) { fprintf(stderr, "test_simulview: %d failed\n", failures); return 1; }

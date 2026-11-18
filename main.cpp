@@ -390,7 +390,7 @@ public:
         resize(o.width, o.height);
         setAcceptDrops(true);
 
-        view_ = new SimulView(this, SimulView::kSelectionPanel | SimulView::kMouseEdit | SimulView::kDropFiles);   // 3D 뷰 부품 (ModelViewer + 선택 패널). 메뉴, 도크, 로그는 이 프로그램(호스트)이 따로 만든다
+        view_ = new SimulView(this, SimulView::kSelectionPanel | SimulView::kMouseEdit | SimulView::kDropFiles | SimulView::kTree);   // 3D 뷰 부품 (ModelViewer + 선택 패널). 메뉴, 도크, 로그는 이 프로그램(호스트)이 따로 만든다
         viewer_ = view_->viewer();
         for (size_t i = 0; i < o.packages.size(); i++)
             viewer_->LoadOptions().packagePaths.push_back(simul::MakePair(o.packages[i].first, o.packages[i].second));
@@ -398,12 +398,8 @@ public:
         QObject::connect(view_, &SimulView::filesDropped, this, [this](const QStringList& paths) { for (int i = 0; i < paths.size(); i++) openFile(paths[i]); });
         setDockNestingEnabled(true);   // 도크를 서로 옆/위/아래, 탭으로 자유롭게 놓을 수 있다
 
-        tree_ = new StructurePanel;
-        treeDock_ = new QDockWidget(QString::fromUtf8("구조"), this);
-        treeDock_->setWidget(tree_);
-        addDockWidget(Qt::LeftDockWidgetArea, treeDock_);
-        treeDock_->hide();
-        QObject::connect(tree_, &StructurePanel::linkContextMenuRequested, this, [this](int link, const QPoint& p) { onLinkContextMenu(link, p); });
+        tree_ = view_->tree();   // 구조 트리는 3D 화면 안에 뜨는 창이다 (SimulView 가 선택/충돌 표시를 맞춘다)
+        QObject::connect(view_, &SimulView::linkContextMenuRequested, this, [this](int link, const QPoint& p) { onLinkContextMenu(link, p); });
         QObject::connect(tree_, &StructurePanel::linkSelected, this, [this](int link) {
             viewer_->SetSelectedLink(link);
             updateSelectionLabel();
@@ -547,9 +543,16 @@ public:
                 QMessageBox::warning(this, QString::fromUtf8("중력 가속도"), QString::fromUtf8("숫자 세 개(gx, gy, gz)를 넣어 주세요."));
             }
         });
-        QAction* structure = treeDock_->toggleViewAction();
-        structure->setText(QString::fromUtf8("구조 트리"));
+        QAction* structure = new QAction(QString::fromUtf8("구조 트리"), this);   // 3D 화면 안의 구조 트리 창 켜고 끄기
+        structure->setCheckable(true);
+        structure->setChecked(true);
         structure->setShortcut(Qt::Key_T);
+        QObject::connect(structure, &QAction::toggled, this, [this](bool on) { view_->SetTreeVisible(on); });
+        QObject::connect(view_, &SimulView::featuresChanged, this, [structure](unsigned f) {   // 창의 X 로 닫아도 체크가 따라온다
+            const bool b = structure->blockSignals(true);
+            structure->setChecked((f & SimulView::kTree) != 0);
+            structure->blockSignals(b);
+        });
         view->insertAction(viewSep, structure);
         QAction* jointDock = dock_->toggleViewAction();   // 오른쪽 관절 도크는 기본으로 숨긴다 (슬라이더는 클릭한 물체 옆 오버레이에 나온다)
         jointDock->setText(QString::fromUtf8("관절 도크 (전체 관절)"));
@@ -1034,7 +1037,6 @@ private:
         d->setAllowedAreas(Qt::AllDockWidgetAreas);
     }
     void configureDocks() {
-        configureDock(treeDock_);
         configureDock(dock_);
         configureDock(logDock_);
         configureDock(lidarDock_);
@@ -1046,6 +1048,12 @@ private:
         uiHidden_ = on;
         view_->SetMenus(nativeMenus_);   // 같은 메뉴(동작, 체크 상태 포함)를 3D 화면 위에 띄운다
         view_->EnableFeature(SimulView::kMenu, on);
+        if (on) {   // 3D 화면 안의 구조 트리 창도 같이 숨겼다가, 돌아올 때 켜 두었던 경우만 되살린다
+            treeWasOn_ = view_->TreeVisible();
+            view_->SetTreeVisible(false);
+        } else {
+            view_->SetTreeVisible(treeWasOn_);
+        }
         const QList<QDockWidget*> docks = findChildren<QDockWidget*>();
         if (on) {
             hiddenDocks_.clear();
@@ -1114,8 +1122,6 @@ private:
             else tree_->Clear();
             dock_->hide();
         }
-        treeDock_->setVisible(tree_->topLevelItemCount() > 0);
-        if (treeDock_->isVisible()) resizeDocks(QList<QDockWidget*>() << treeDock_, QList<int>() << 520, Qt::Horizontal);
         updateCollisionLabel();
         QString msg = path + "  -  " + viewer_->Summary();
         if (!viewer_->Warnings().isEmpty()) msg += QString::fromUtf8("  (경고 %1건: %2)").arg(viewer_->Warnings().size()).arg(viewer_->Warnings()[0]);
@@ -1153,7 +1159,7 @@ private:
     SimulView* view_ = nullptr;
     QDockWidget* dock_;
     StructurePanel* tree_;
-    QDockWidget* treeDock_;
+    bool treeWasOn_ = true;   // 3D 화면만 보기 전에 구조 트리 창이 켜져 있었는가
     QLabel* collisionLabel_;
     simul::dynamics::Simulator sim_;
     QTimer* simTimer_;

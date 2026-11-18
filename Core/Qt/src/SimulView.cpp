@@ -14,7 +14,7 @@
 #include "3d/dhPose.h"
 #include "CoreQt/QtString.h"
 
-SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), viewer_(nullptr), overlay_(nullptr), menuBar_(nullptr), customMenus_(false), placeTimer_(nullptr), features_(0), panelLink_(-1) {
+SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), viewer_(nullptr), overlay_(nullptr), tree_(nullptr), treePanel_(nullptr), treePlaced_(false), menuBar_(nullptr), customMenus_(false), placeTimer_(nullptr), features_(0), panelLink_(-1) {
     QVBoxLayout* lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
     viewer_ = new ModelViewer(this);
@@ -27,6 +27,27 @@ SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), view
         emit jointEdited(name, value);
     });
     buildMenuBar();
+    // 구조 트리: 3D 화면 안에 뜨는 창. 선택과 충돌 표시는 뷰와 직접 맞춘다
+    tree_ = new StructurePanel;
+    treePanel_ = new FloatingPanel(QString::fromUtf8("구조"), tree_, viewer_);
+    connect(treePanel_, &FloatingPanel::closeRequested, this, [this]() { SetTreeVisible(false); });
+    connect(tree_, &StructurePanel::linkSelected, this, [this](int link) { viewer_->SetSelectedLink(link); });
+    connect(tree_, &StructurePanel::linkContextMenuRequested, this, [this](int link, const QPoint& p) {
+        if (receivers(SIGNAL(linkContextMenuRequested(int, QPoint))) > 0) {
+            emit linkContextMenuRequested(link, p);
+            return;
+        }
+        const int model = viewer_->ModelOfRoot(link);
+        if (model < 0) return;
+        QMenu menu;
+        QAction* remove = menu.addAction(QString::fromUtf8("제거 (%1)").arg(viewer_->ModelName(model)));
+        if (menu.exec(p) == remove) viewer_->RemoveModel(model);
+    });
+    connect(viewer_, &ModelViewer::robotChanged, this, &SimulView::refreshTree);
+    connect(viewer_, &ModelViewer::structureChanged, this, &SimulView::refreshTree);
+    connect(viewer_, &ModelViewer::collisionsChanged, this, [this]() { tree_->SetCollidingLinks(viewer_->CollidingLinks()); });
+    connect(viewer_, &ModelViewer::selectionChanged, this, [this](int link) { tree_->SelectLink(link); });
+    connect(viewer_, &ModelViewer::selectionPicked, this, [this](int link, bool) { tree_->SelectLink(link); });
     placeTimer_ = new QTimer(this);
     connect(placeTimer_, &QTimer::timeout, this, &SimulView::placePanel);
     placeTimer_->start(40);
@@ -44,13 +65,45 @@ SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), view
 }
 
 void SimulView::SetFeatures(unsigned features) {
+    const unsigned before = features_;
     features_ = features;
     viewer_->SetMouseEditEnabled((features & kMouseEdit) != 0);
     setAcceptDrops((features & kDropFiles) != 0);
     menuBar_->setVisible((features & kMenu) != 0);
     layoutMenuBar();
+    updateTreeVisibility();
     if (features & kSelectionPanel) refreshPanel();
     else overlay_->hide();
+    if (features != before) emit featuresChanged(features);
+}
+
+// ---- 구조 트리 창 ----
+
+void SimulView::refreshTree() {
+    if (viewer_->HasRobot()) {
+        tree_->SetRobot(viewer_->Robot());
+        tree_->SetCollidingLinks(viewer_->CollidingLinks());
+    } else if (viewer_->HasScene()) {
+        tree_->SetScene(viewer_->StaticScene());
+    } else {
+        tree_->Clear();
+    }
+    tree_->SelectLink(viewer_->SelectedLink());
+    updateTreeVisibility();
+}
+
+// 켜져 있고 보여 줄 것이 있을 때만 보인다. 처음 보일 때 왼쪽 위에 놓는다.
+void SimulView::updateTreeVisibility() {
+    const bool show = (features_ & kTree) && tree_->topLevelItemCount() > 0;
+    if (show && !treePlaced_ && viewer_->width() > 0) {
+        treePanel_->SetTopInset((features_ & kMenu) ? menuBar_->height() : 0);
+        treePanel_->PlaceDefault(QPoint(8, 8 + ((features_ & kMenu) ? menuBar_->height() : 0)), QSize(340, qMin(320, qMax(200, viewer_->height() - 60))));
+        treePlaced_ = true;
+    }
+    if (show != treePanel_->isVisibleTo(viewer_)) {
+        treePanel_->setVisible(show);
+        if (show) treePanel_->raise();
+    }
 }
 
 // ---- 3D 화면 안의 메뉴줄 ----
@@ -160,6 +213,10 @@ void SimulView::layoutMenuBar() {
     menuBar_->setGeometry(0, 0, viewer_->width(), menuBar_->sizeHint().height() > 0 ? menuBar_->sizeHint().height() : 26);
     menuBar_->raise();
     overlay_->SetTopInset((features_ & kMenu) ? menuBar_->height() : 0);
+    if (treePanel_) {
+        treePanel_->SetTopInset((features_ & kMenu) ? menuBar_->height() : 0);
+        treePanel_->Clamp();
+    }
 }
 
 void SimulView::SetMenus(const QList<QMenu*>& menus) {
@@ -273,6 +330,7 @@ QString SimulView::panelInfo(int link) const {
 }
 
 void SimulView::placePanel() {
+    if (tree_) updateTreeVisibility();   // 호스트가 트리를 직접 채웠을 수도 있어서 함께 본다
     if (!overlay_ || !overlay_->isVisible()) return;
     QPoint p;
     if (!viewer_->SelectionScreenPos(&p)) return;
