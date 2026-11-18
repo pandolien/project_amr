@@ -467,3 +467,13 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 ```
 ./build/bin/simul_main Data/Object/samples/logistics_ab.urdf --joint item_slide=1.5   # 물건이 A 와 B 의 가운데
 ```
+
+## 바닥 모델 지정
+
+모델을 둘 이상 올렸을 때, 그중 하나를 바닥으로 지정하면 다른 모델은 z=0 평면 대신 그 모델의 윗면 위로 떨어져 멈춘다.
+물체의 꼭짓점마다 바로 아래 바닥 모델의 윗면(위를 향한 삼각형) 높이를 찾아 어느 한 점이라도 닿으면 멈추므로, 평면이든 곡면이든 같은 방식이다.
+바닥 모델 바깥으로 나간 점은 z=0 평면까지 내려간다. 미끄러짐, 회전, 마찰은 없다 (닿은 자리에서 멈춘다).
+
+- 3D 화면에서 모델 구조 트리의 모델 루트를 오른쪽 클릭 → "바닥으로 지정" / "바닥 지정 해제"
+- 명령행: `--floor 모델이름` (예: `simul_main table.urdf box.urdf --floor table`)
+- 코드: `viewer->SetFloorModel(index)`, `SetFloorByLink("링크이름")`, `FloorModel()`, `FloorHeightAt(x, y, &z)` (그 자리의 바닥 높이)

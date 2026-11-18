@@ -189,6 +189,16 @@ public:
     double SimulateFall(double maxSeconds);            // 멈출 때까지 (또는 maxSeconds 까지) 1/240 초씩 진행하고 걸린 시간(초)을 돌려준다
     float ObjectBottom() const;                        // 오브젝트의 가장 낮은 점의 월드 높이 (m)
 
+    // 바닥으로 지정한 모델: 둘 이상 올렸을 때, 다른 모델들이 z=0 평면 대신 이 모델의 윗면 위로 떨어져 멈춘다.
+    // 물체의 꼭짓점마다 바로 아래에 있는 바닥 모델의 윗면(위를 향한 삼각형) 높이를 찾아, 어느 한 점이라도 닿으면 멈춘다.
+    // 평면이든 곡면이든 같은 방식이다. 바닥 모델 바깥으로 나간 점은 z=0 평면까지 내려간다.
+    // 미끄러짐, 회전, 마찰은 없다 (닿은 자리에서 멈춘다). 바닥 모델 자신은 지금처럼 z=0 평면에 놓인다. -1 이면 지정 해제.
+    void SetFloorModel(int model);
+    int FloorModel() const { return floorModel_; }
+    bool SetFloorByLink(const QString& linkName, QString* error = nullptr);   // 링크가 속한 모델을 바닥으로 지정한다
+    // 바닥 모델의 윗면 높이 (x, y 는 월드 m). 그 자리에 윗면이 없으면 false.
+    bool FloorHeightAt(double x, double y, double* z) const;
+
     // 정적 모델(.glb 등)을 열었으면 그 장면
     bool HasScene() const { return hasScene_; }
     const simul::Scene& StaticScene() const { return scene_; }
@@ -329,6 +339,16 @@ private:
     mutable bool modelMinZValid_;
     simul::Array<double> modelFallVel_;       // 모델마다 낙하 속도 (위쪽이 +)
     float modelBottom(int model) const;
+    float modelClearance(int model) const;    // 모델이 바닥(지정한 바닥 모델 또는 z=0)까지 더 내려갈 수 있는 거리 (m)
+    void buildFloor() const;
+    int floorModel_;
+    mutable bool floorValid_;
+    mutable simul::Array<float> floorTris_;        // 바닥 모델의 위를 향한 삼각형 (월드 좌표, 9개씩)
+    mutable simul::Array<simul::Array<int> > floorGrid_;   // xy 격자 칸마다 삼각형 번호
+    mutable float floorMinX_, floorMinY_, floorCell_;
+    mutable int floorNx_, floorNy_;
+    mutable simul::Array<float> modelClear_;
+    mutable bool modelClearValid_;
     bool stepFallModels(double dt);           // 모델 하나하나를 바닥(z=0)까지 떨어뜨린다
     simul::Scene scene_;
     bool hasScene_;
