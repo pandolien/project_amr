@@ -1,6 +1,7 @@
 #ifndef CORECQT_FLOATINGPANEL_H
 #define CORECQT_FLOATINGPANEL_H
 
+#include <QEvent>
 #include <QFrame>
 #include <QLabel>
 #include <QPoint>
@@ -24,11 +25,16 @@ protected:
     void mousePressEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
+    bool eventFilter(QObject* obj, QEvent* e) override;   // 오른쪽 아래 크기 조절 손잡이
 
 private:
     QLabel* title_;
     int topInset_;
     bool dragging_;
+    QWidget* grip_;
+    bool resizing_;
+    QPoint resizeStart_;
+    QSize sizeStart_;
     QPoint grab_;
 };
 

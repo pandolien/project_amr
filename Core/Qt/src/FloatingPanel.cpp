@@ -3,12 +3,12 @@
 #include <QHBoxLayout>
 #include <QMouseEvent>
 #include <QPushButton>
-#include <QSizeGrip>
+#include <QPainter>
 #include <QVBoxLayout>
 
 #include "CBase/Util.h"
 
-FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* parent) : QFrame(parent), title_(nullptr), topInset_(0), dragging_(false) {
+FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* parent) : QFrame(parent), title_(nullptr), topInset_(0), dragging_(false), grip_(nullptr), resizing_(false) {
     setObjectName("floatingPanel");
     setStyleSheet(
         "#floatingPanel { background: rgba(26, 29, 38, 238); border: 1px solid rgba(255,255,255,40); border-radius: 10px; }"
@@ -42,7 +42,13 @@ FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* pa
     foot->setContentsMargins(0, 0, 0, 0);
     foot->addStretch(1);
     foot->setContentsMargins(0, 0, 2, 2);
-    foot->addWidget(new QSizeGrip(this), 0, Qt::AlignRight | Qt::AlignBottom);   // 오른쪽 아래 모서리로 크기 바꾸기
+    // QSizeGrip 은 최상위 창(메인 윈도우)의 크기를 바꾸므로 쓰지 않고, 이 패널만 키우는 손잡이를 직접 둔다
+    grip_ = new QWidget(this);
+    grip_->setFixedSize(16, 16);
+    grip_->setCursor(Qt::SizeFDiagCursor);
+    grip_->setStyleSheet("background: transparent;");
+    grip_->installEventFilter(this);
+    foot->addWidget(grip_, 0, Qt::AlignRight | Qt::AlignBottom);
     col->addLayout(foot);
     setMinimumSize(200, 120);
     hide();
@@ -94,4 +100,38 @@ void FloatingPanel::mouseMoveEvent(QMouseEvent* e) {
 void FloatingPanel::mouseReleaseEvent(QMouseEvent* e) {
     dragging_ = false;
     QFrame::mouseReleaseEvent(e);
+}
+
+bool FloatingPanel::eventFilter(QObject* obj, QEvent* e) {
+    if (obj != grip_) return QFrame::eventFilter(obj, e);
+    if (e->type() == QEvent::Paint) {   // 점 세 개짜리 작은 삼각 표시
+        QPainter p(grip_);
+        p.setPen(QColor(255, 255, 255, 90));
+        for (int i = 0; i < 3; i++) p.drawLine(grip_->width() - 3 - i * 4, grip_->height() - 2, grip_->width() - 2, grip_->height() - 3 - i * 4);
+        return true;
+    }
+    QMouseEvent* m = dynamic_cast<QMouseEvent*>(e);
+    if (!m) return false;
+    if (e->type() == QEvent::MouseButtonPress && m->button() == Qt::LeftButton) {
+        resizing_ = true;
+        resizeStart_ = m->globalPos();
+        sizeStart_ = size();
+        return true;
+    }
+    if (e->type() == QEvent::MouseMove && resizing_) {
+        const QPoint d = m->globalPos() - resizeStart_;
+        QSize ns(sizeStart_.width() + d.x(), sizeStart_.height() + d.y());
+        if (parentWidget()) {   // 부모(3D 화면) 밖으로는 키우지 않는다
+            ns.setWidth(simul::Min(ns.width(), parentWidget()->width() - 4 - x()));
+            ns.setHeight(simul::Min(ns.height(), parentWidget()->height() - 4 - y()));
+        }
+        ns = ns.expandedTo(minimumSize());
+        resize(ns);
+        return true;
+    }
+    if (e->type() == QEvent::MouseButtonRelease) {
+        resizing_ = false;
+        return true;
+    }
+    return false;
 }

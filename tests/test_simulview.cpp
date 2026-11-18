@@ -1,5 +1,6 @@
 // SimulView(다른 Qt 프로그램에 붙이는 3D 뷰 부품)가 main.cpp 없이 혼자 동작하는지 본다.
 // 창을 띄우지 않고 (QT_QPA_PLATFORM=offscreen) 위젯 API 와 시그널만 확인한다.
+#include <QMouseEvent>
 #include <QApplication>
 #include <QMenu>
 #include <QSlider>
@@ -108,6 +109,26 @@ int main(int argc, char** argv) {
         CHECK(!(lastFeatures & SimulView::kTree), "featuresChanged on tree off");
         view.SetTreeVisible(true);
         CHECK(view.treePanel()->isVisibleTo(view.viewer()), "tree on again");
+        // 오른쪽 아래 손잡이를 끌면 트리 창만 커지고, 호스트 창(메인 윈도우) 크기는 그대로다
+        {
+            QWidget* grip = nullptr;
+            const QList<QWidget*> kids = view.treePanel()->findChildren<QWidget*>();
+            for (int i = 0; i < kids.size(); i++) if (kids[i]->cursor().shape() == Qt::SizeFDiagCursor) grip = kids[i];
+            CHECK(grip != nullptr, "tree grip exists");
+            if (grip) {
+                const QSize hostBefore = view.size(), panelBefore = view.treePanel()->size();
+                const QPoint c = grip->rect().center();
+                const QPoint g0 = grip->mapToGlobal(c);
+                QMouseEvent press(QEvent::MouseButtonPress, c, g0, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(grip, &press);
+                QMouseEvent move(QEvent::MouseMove, c, g0 + QPoint(40, 30), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(grip, &move);
+                QMouseEvent rel(QEvent::MouseButtonRelease, c, g0 + QPoint(40, 30), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(grip, &rel);
+                CHECK(view.treePanel()->size() != panelBefore, "panel resized by grip");
+                CHECK(view.size() == hostBefore, "host size unchanged");
+            }
+        }
         // X 버튼으로 닫으면 기능도 꺼진다
         emit view.treePanel()->closeRequested();
         CHECK(!view.TreeVisible(), "close button turns feature off");
