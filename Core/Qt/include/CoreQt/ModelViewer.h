@@ -86,6 +86,8 @@ public:
 
     // 링크 강조: 선택한 링크의 모양을 밝게 칠한다. -1 이면 해제.
     void SetSelectedLink(int link);
+    void SetMouseEditEnabled(bool on) { mouseEdit_ = on; update(); }   // 끄면 화살표/링/IK 끌기 없이 보기와 선택만
+    bool MouseEditEnabled() const { return mouseEdit_; }
     int SelectedLink() const { return selectedLink_; }
 
     // 선택과 좌표계: 화면에서 물체를 왼쪽 클릭하면 그 링크(정적 모델이면 모델 전체)가 선택되고, 선택한 것의 좌표계가
@@ -156,6 +158,9 @@ signals:
     void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
     void lidarScanned(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
     void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
+    void selectionChanged(int link);   // SetSelectedLink 로 선택이 바뀌었을 때 (-1 이면 해제)
+    void robotChanged();               // 로봇(모델 구성)이 새로 올라왔다
+    void jointValuesChanged();         // SetJointValues 로 관절 값이 바뀌었다
     void selectionPicked(int link, bool model);  // 마우스 클릭으로 선택이 바뀌었을 때 (link -1, model false 이면 해제)
 
 protected:
@@ -246,6 +251,7 @@ private:
     QVector3D dragIkAxes_[3];
     float dragU0_;
     dhVector dragStart_;
+    bool mouseEdit_;          // 화살표/링/IK 끌기를 쓸 수 있는가
     int dragRing_;            // 끌고 있는 회전 링 (0 x, 1 y, 2 z, 아니면 -1)
     QPointF dragRingDir_;     // 링 끌기: 잡은 점에서 링 접선 방향의 화면상 단위 벡터
     float dragRingPx_;        // 링 끌기: 1 rad 돌리는 데 필요한 화면 픽셀

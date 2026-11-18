@@ -157,6 +157,7 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragRingPx_ = 100;
     ringLocal_ = false;
     hoverRing_ = -1;
+    mouseEdit_ = true;
     modelMinZValid_ = false;
     dragU0_ = 0;
     fallEnabled_ = true;
@@ -275,6 +276,7 @@ void ModelViewer::SetScene(const simul::Scene& scene) {
     updateBounds();
     FitView();
     emit modelChanged();
+    emit robotChanged();   // 정적 모델도 구성이 바뀐 것이다
 }
 
 void ModelViewer::SetRobot(const simul::urdf::Robot& robot, const simul::urdf::RobotMeshes& meshes) {
@@ -300,6 +302,7 @@ void ModelViewer::SetRobot(const simul::urdf::Robot& robot, const simul::urdf::R
     updateBounds();
     FitView();
     emit modelChanged();
+    emit robotChanged();
 }
 
 void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
@@ -309,6 +312,7 @@ void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     minZValid_ = false; modelMinZValid_ = false;
     recomputeCollisions();
     update();
+    emit jointValuesChanged();
 }
 
 void ModelViewer::recomputeCollisions() {
@@ -332,6 +336,7 @@ void ModelViewer::SetSelectedLink(int link) {
     selectedLink_ = link;
     if (link >= 0) selectedModel_ = false;
     update();
+    emit selectionChanged(link);
 }
 
 void ModelViewer::SelectModel(bool selected) {
@@ -744,6 +749,7 @@ bool ModelViewer::rebuildWorld(QString* error, bool keepView) {
         const int l = robot_.FindLink(simulqt::FromQ(selName));
         if (l >= 0) selectedLink_ = l;
     }
+    emit selectionChanged(selectedLink_);
     return true;
 }
 
@@ -1161,7 +1167,7 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
     dragAxis_ = -1;
     dragRing_ = -1;
     dragModel_ = -1;
-    if (e->button() == Qt::LeftButton) {  // 좌표계 화살표 위에서 누르면 카메라가 아니라 물체를 움직인다
+    if (e->button() == Qt::LeftButton && mouseEdit_) {  // 좌표계 화살표 위에서 누르면 카메라가 아니라 물체를 움직인다
         float u = 0, ringAng = 0;
         const int ringHit = hitRing(e->pos(), &ringAng);   // 링이 화살표와 겹치는 곳에서는 링을 먼저 잡는다
         const int axis = ringHit >= 0 ? -1 : hitGizmoAxis(e->pos(), &u);
@@ -1354,7 +1360,7 @@ int ModelViewer::hitRing(const QPoint& pos, float* angle) const {
 
 // 선택한 모델의 회전 링 3개 (축마다 같은 색). 좌표계처럼 화면에서 일정한 크기로 그린다.
 void ModelViewer::drawRings(const QMatrix4x4& proj, const QMatrix4x4& view) {
-    if (!CanRotateSelection()) return;
+    if (!mouseEdit_ || !CanRotateSelection()) return;
     dhMat f;
     if (!SelectedFrame(&f)) return;
     const QVector3D origin = ToQt(f).column(3).toVector3D();
@@ -1417,7 +1423,7 @@ int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
 
 void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
     if (e->buttons() == Qt::NoButton) {
-        const int hr = hitRing(e->pos(), nullptr);
+        const int hr = mouseEdit_ ? hitRing(e->pos(), nullptr) : -1;
         if (hr != hoverRing_) { hoverRing_ = hr; update(); }
         return;
     }

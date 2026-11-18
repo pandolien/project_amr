@@ -323,6 +323,27 @@ std::vector<simul::dynamics::LinkContribution> parts = simul::dynamics::GravityC
 - Blinn-Phong: Lambert + 하이라이트(하프벡터와 광택도).
 - PBR: Cook-Torrance (D: GGX, G: Smith, F: Schlick) + 하늘/바닥 그라데이션 환경 반사. 재질은 금속성/거칠기 두 값이며, glTF 파일에 있으면 그 값을 쓰고 없으면(URDF 기본 도형, STL 등) 금속성 0, 거칠기 0.45 입니다. 셰이더에 항마다 한국어 주석이 있습니다.
 
+## 다른 Qt 프로그램에 3D 뷰 붙이기 (`SimulView`)
+
+3D 뷰는 `CoreQt` 라이브러리의 `SimulView` 위젯 하나로 가져다 쓸 수 있습니다. 3D 화면(`ModelViewer`)과 클릭한 물체 옆 선택 패널만 들어 있고, **메뉴, 도크, 로그 같은 바깥 UI 는 만들지 않습니다.** 어떻게 보여주고 무엇을 켤지는 호스트가 고릅니다.
+
+```cpp
+#include "CoreQt/SimulView.h"
+
+SimulView* view = new SimulView(parent, SimulView::kSelectionPanel);   // 켤 기능을 고른다
+view->viewer()->AddFile("arm.urdf");                                   // 모든 기능은 viewer() 로
+view->EnableFeature(SimulView::kMouseEdit, true);                      // 실행 중에도 켜고 끌 수 있다
+connect(view->viewer(), &ModelViewer::modelDragFinished, host, &Host::onMoved);   // 이벤트는 시그널로
+```
+
+| 기능 (`Feature`) | 켜면 |
+|---|---|
+| `kSelectionPanel` | 클릭한 물체 옆에 정보와 관절 슬라이더 패널이 3D 화면 위에 뜬다 |
+| `kMouseEdit` | 좌표계 화살표 이동, 회전 링, IK 끌기 (끄면 보기와 선택만) |
+| `kDropFiles` | 파일을 끌어다 놓아 추가 (`filesDropped` 를 받는 쪽이 없으면 바로 추가) |
+
+`viewer()` 로 모델 추가/제거(`AddFile`, `RemoveModel`, `CloseAll`), 위치/자세(`SetModelPlacement6`, `SetModelPose`), 관절 값(`SetJointValues`), 선택, 카메라, 표시 옵션(격자, 충돌 박스, 조명 방식, 라이다)을 모두 다룰 수 있습니다. 호스트가 받는 시그널: `robotChanged`, `selectionChanged`/`selectionPicked`, `jointValuesChanged`, `modelDragFinished`, `collisionsChanged`, `lidarScanned`, `structureChanged` 와 `SimulView::jointEdited`. 최소 예제는 `examples/embed_host.cpp`(빌드하면 `embed_host`), 동작 확인은 `tests/test_simulview.cpp`(창 없이, `QT_QPA_PLATFORM=offscreen`)입니다. 지금의 `simul_main` 도 같은 `SimulView` 를 쓰는 호스트 하나입니다.
+
 ## 화면 구성 (도크, 메뉴 숨기기, 3D 화면만)
 
 - 구조, 관절, 로그, 라이다 그래프 도크는 제목줄을 끌어 **떼어 내서(플로팅) 아무 데나 놓거나**, 창 가장자리/다른 도크 위에 놓아 다시 붙이거나 탭으로 겹칠 수 있고, X 로 닫을 수 있습니다(`보기` 메뉴에서 다시 켭니다).

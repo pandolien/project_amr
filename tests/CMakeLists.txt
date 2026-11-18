@@ -89,3 +89,12 @@ endif()
 
 # 프로젝트 소스에 C++ 표준 라이브러리(std::, 표준 헤더)가 없어야 한다
 add_test(NAME no_std COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckNoStd.cmake)
+
+# 다른 Qt 프로그램에 붙이는 3D 뷰 부품 (Qt 가 켜져 있을 때만, QT_QPA_PLATFORM=offscreen)
+if(SIMUL_BUILD_QT)
+    add_executable(test_simulview test_simulview.cpp)
+    target_link_libraries(test_simulview PRIVATE CoreQt)
+    target_compile_definitions(test_simulview PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
+    simul_set_warnings(test_simulview)
+    add_test(NAME test_simulview COMMAND test_simulview)
+endif()
