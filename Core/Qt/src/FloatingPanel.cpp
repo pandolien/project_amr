@@ -11,10 +11,10 @@
 FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* parent) : QFrame(parent), title_(nullptr), topInset_(0), dragging_(false) {
     setObjectName("floatingPanel");
     setStyleSheet(
-        "#floatingPanel { background: rgba(250, 250, 252, 240); border: 1px solid rgba(0,0,0,110); border-radius: 6px; }"
-        "#floatingPanelTitle { background: rgba(28, 30, 38, 235); color: #e8eaf0; font-weight: bold; padding: 4px 8px; border-top-left-radius: 5px; }"
-        "#floatingPanelClose { background: rgba(28, 30, 38, 235); color: #e8eaf0; border: none; padding: 0 8px; border-top-right-radius: 5px; }"
-        "#floatingPanelClose:hover { background: #c0392b; }");
+        "#floatingPanel { background: rgba(26, 29, 38, 238); border: 1px solid rgba(255,255,255,40); border-radius: 10px; }"
+        "#floatingPanelTitle { background: transparent; color: #f2f4f8; font-weight: bold; font-size: 13px; padding: 8px 12px 6px 12px; }"
+        "#floatingPanelClose { background: transparent; color: #9aa3b8; border: none; padding: 0 12px; font-size: 13px; }"
+        "#floatingPanelClose:hover { color: white; background: rgba(255,90,90,170); border-top-right-radius: 9px; }");
     QVBoxLayout* col = new QVBoxLayout(this);
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
@@ -31,11 +31,17 @@ FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* pa
     bar->addWidget(title_, 1);
     bar->addWidget(close);
     col->addLayout(bar);
+    QFrame* line = new QFrame(this);   // 제목과 내용 사이 얇은 구분선
+    line->setFixedHeight(1);
+    line->setStyleSheet("background: rgba(255,255,255,28);");
+    col->addWidget(line);
     content->setParent(this);
     col->addWidget(content, 1);
+    col->setContentsMargins(0, 0, 0, 0);
     QHBoxLayout* foot = new QHBoxLayout;
     foot->setContentsMargins(0, 0, 0, 0);
     foot->addStretch(1);
+    foot->setContentsMargins(0, 0, 2, 2);
     foot->addWidget(new QSizeGrip(this), 0, Qt::AlignRight | Qt::AlignBottom);   // 오른쪽 아래 모서리로 크기 바꾸기
     col->addLayout(foot);
     setMinimumSize(200, 120);

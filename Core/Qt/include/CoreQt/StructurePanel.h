@@ -26,6 +26,8 @@ public:
 
     // 충돌 중인 링크를 빨갛게 표시한다 (링크 인덱스 목록)
     void SetCollidingLinks(const simul::Array<int>& links);
+    // 어두운 3D 화면 위에 띄울 때 쓰는 모양: 헤더/줄무늬 없이, 관절 종류별 색 점, 보조 열은 흐리게
+    void SetDarkTheme(bool on);
     // 관절별 부가 정보(예: 중력 하중)를 3번째 열에 보여준다. 관절 이름 -> (표시 문자열, 강조 여부).
     // 강조(true)이면 빨갛게 표시한다. 목록에 없는 관절은 비운다.
     void SetJointNotes(const simul::Map<simul::String, simul::Pair<QString, bool> >& notes);
@@ -42,6 +44,7 @@ private:
                  const simul::Array<simul::Array<int> >& childJoints);
     void addNode(QTreeWidgetItem* parent, const simul::Scene& scene, int node);
 
+    bool dark_ = false;
     simul::Array<QTreeWidgetItem*> linkItems_;  // 링크 인덱스 -> 항목
 };
 

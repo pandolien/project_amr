@@ -29,6 +29,7 @@ SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), view
     buildMenuBar();
     // 구조 트리: 3D 화면 안에 뜨는 창. 선택과 충돌 표시는 뷰와 직접 맞춘다
     tree_ = new StructurePanel;
+    tree_->SetDarkTheme(true);
     treePanel_ = new FloatingPanel(QString::fromUtf8("구조"), tree_, viewer_);
     connect(treePanel_, &FloatingPanel::closeRequested, this, [this]() { SetTreeVisible(false); });
     connect(tree_, &StructurePanel::linkSelected, this, [this](int link) { viewer_->SetSelectedLink(link); });

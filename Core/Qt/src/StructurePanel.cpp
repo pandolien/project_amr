@@ -4,6 +4,9 @@
 #include <QBrush>
 #include <QFont>
 #include <QHeaderView>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
 #include "CBase/Math.h"
 
 namespace {
@@ -31,7 +34,65 @@ QString JointKind(const simul::urdf::Joint& j) {
     return QString();
 }
 
+// 관절 종류를 나타내는 작은 색 점 (회전 파랑, 직동 초록, 고정 회색, 루트 주황)
+QIcon Dot(const QColor& color) {
+    QPixmap pm(14, 14);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    p.drawEllipse(QRectF(2.5, 2.5, 9, 9));
+    return QIcon(pm);
+}
+
+QColor DotColor(const simul::urdf::Joint* j) {
+    if (!j) return QColor(240, 170, 80);
+    switch (j->type) {
+        case simul::urdf::kJointRevolute:
+        case simul::urdf::kJointContinuous: return QColor(96, 165, 250);
+        case simul::urdf::kJointPrismatic: return QColor(110, 210, 140);
+        case simul::urdf::kJointFixed: return QColor(130, 138, 156);
+        default: return QColor(190, 140, 240);
+    }
+}
+
+const QColor kMuted(139, 147, 167);
+const QColor kHit(255, 110, 110);
+
 }  // namespace
+
+void StructurePanel::SetDarkTheme(bool on) {
+    dark_ = on;
+    setAlternatingRowColors(!on);
+    header()->setVisible(!on);
+    setIconSize(QSize(14, 14));
+    setColumnHidden(3, on);   // 종류/비고 열은 작은 창에서 가로로 넘치므로 숨긴다 (관절 종류는 색 점으로 보인다)
+    setHorizontalScrollBarPolicy(on ? Qt::ScrollBarAlwaysOff : Qt::ScrollBarAsNeeded);
+    setIndentation(on ? 16 : 20);
+    setFrameShape(on ? QFrame::NoFrame : QFrame::StyledPanel);
+    setUniformRowHeights(true);
+    setStyleSheet(on ? QString::fromUtf8(
+        "QTreeWidget { background: transparent; color: #e8eaf0; outline: 0; font-size: 12px; }"
+        "QTreeWidget::item { padding: 4px 2px; }"
+        "QTreeWidget::item:hover { background: rgba(255,255,255,18); }"
+        "QTreeWidget::item:selected, QTreeWidget::item:selected:active, QTreeWidget::item:selected:!active { background: #2f4a72; color: white; }"
+        "QTreeView::branch { background: transparent; }"
+        "QTreeView::branch:hover { background: rgba(255,255,255,18); }"
+        "QTreeView::branch:selected, QTreeView::branch:selected:active, QTreeView::branch:selected:!active, QTreeView::branch:has-children:selected { background: #2f4a72; }"
+        "QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }"
+        "QScrollBar::handle:vertical { background: rgba(255,255,255,60); border-radius: 3px; min-height: 24px; }"
+        "QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px; }"
+        "QScrollBar::handle:horizontal { background: rgba(255,255,255,60); border-radius: 3px; min-width: 24px; }"
+        "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }"
+        "QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }") : QString());
+    // 이미 채워진 항목의 보조 열 색도 맞춘다
+    for (size_t i = 0; i < linkItems_.size(); i++) {
+        QTreeWidgetItem* it = linkItems_[i];
+        if (!it) continue;
+        for (int c = 1; c < columnCount(); c++) it->setForeground(c, on ? QBrush(kMuted) : QBrush());
+    }
+}
 
 StructurePanel::StructurePanel(QWidget* parent) : QTreeWidget(parent) {
     setColumnCount(4);
@@ -84,6 +145,8 @@ void StructurePanel::addLink(QTreeWidgetItem* parent, const simul::urdf::Robot& 
     QTreeWidgetItem* item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(this);
     item->setText(0, simulqt::ToQ(l.name));
     item->setData(0, kLinkRole, link);
+    item->setIcon(0, Dot(DotColor(viaJoint >= 0 ? &robot.joints[static_cast<size_t>(viaJoint)] : nullptr)));
+    if (dark_) for (int c = 1; c < columnCount(); c++) item->setForeground(c, QBrush(kMuted));
     if (viaJoint >= 0) {
         const simul::urdf::Joint& j = robot.joints[static_cast<size_t>(viaJoint)];
         item->setText(1, simulqt::ToQ(j.name));
@@ -152,7 +215,7 @@ void StructurePanel::SetCollidingLinks(const simul::Array<int>& links) {
         f.setBold(hit[i]);
         for (int c = 0; c < columnCount(); c++) {
             it->setFont(c, f);
-            it->setForeground(c, hit[i] ? QBrush(QColor(220, 50, 50)) : QBrush());
+            it->setForeground(c, hit[i] ? QBrush(dark_ ? kHit : QColor(220, 50, 50)) : (dark_ && c > 0 ? QBrush(kMuted) : QBrush()));
         }
     }
 }
@@ -178,7 +241,7 @@ void StructurePanel::SetJointNotes(const simul::Map<simul::String, simul::Pair<Q
             continue;
         }
         it->setText(2, n->second.first);
-        it->setForeground(2, n->second.second ? QBrush(QColor(220, 50, 50)) : QBrush());
+        it->setForeground(2, n->second.second ? QBrush(dark_ ? kHit : QColor(220, 50, 50)) : (dark_ ? QBrush(kMuted) : QBrush()));
         QFont f = it->font(2);
         f.setBold(n->second.second);
         it->setFont(2, f);
