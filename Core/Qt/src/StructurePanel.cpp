@@ -66,15 +66,15 @@ void StructurePanel::SetDarkTheme(bool on) {
     dark_ = on;
     setAlternatingRowColors(!on);
     header()->setVisible(!on);
-    setIconSize(QSize(14, 14));
+    setIconSize(QSize(static_cast<int>(14 * scale_ + 0.5), static_cast<int>(14 * scale_ + 0.5)));
     setColumnHidden(3, on);   // 종류/비고 열은 작은 창에서 가로로 넘치므로 숨긴다 (관절 종류는 색 점으로 보인다)
     setHorizontalScrollBarPolicy(on ? Qt::ScrollBarAlwaysOff : Qt::ScrollBarAsNeeded);
-    setIndentation(on ? 16 : 20);
+    setIndentation(static_cast<int>((on ? 16 : 20) * scale_ + 0.5));
     setFrameShape(on ? QFrame::NoFrame : QFrame::StyledPanel);
     setUniformRowHeights(true);
     setStyleSheet(on ? QString::fromUtf8(
-        "QTreeWidget { background: transparent; color: #e8eaf0; outline: 0; font-size: 12px; }"
-        "QTreeWidget::item { padding: 4px 2px; }"
+        "QTreeWidget { background: transparent; color: #e8eaf0; outline: 0; font-size: %1px; }"
+        "QTreeWidget::item { padding: %2px 2px; }"
         "QTreeWidget::item:hover { background: rgba(255,255,255,18); }"
         "QTreeWidget::item:selected, QTreeWidget::item:selected:active, QTreeWidget::item:selected:!active { background: #2f4a72; color: white; }"
         "QTreeView::branch { background: transparent; }"
@@ -85,7 +85,7 @@ void StructurePanel::SetDarkTheme(bool on) {
         "QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px; }"
         "QScrollBar::handle:horizontal { background: rgba(255,255,255,60); border-radius: 3px; min-width: 24px; }"
         "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }"
-        "QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }") : QString());
+        "QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }").arg(static_cast<int>(12 * scale_ + 0.5)).arg(static_cast<int>(4 * scale_ + 0.5)) : QString());
     // 이미 채워진 항목의 보조 열 색도 맞춘다
     for (size_t i = 0; i < linkItems_.size(); i++) {
         QTreeWidgetItem* it = linkItems_[i];
@@ -108,6 +108,11 @@ StructurePanel::StructurePanel(QWidget* parent) : QTreeWidget(parent) {
         QTreeWidgetItem* it = itemAt(pos);
         emit linkContextMenuRequested(it ? it->data(0, kLinkRole).toInt() : -1, viewport()->mapToGlobal(pos));
     });
+}
+
+void StructurePanel::SetUiScale(double s) {
+    scale_ = s;
+    if (dark_) SetDarkTheme(true);   // 스타일과 크기를 다시 적용
 }
 
 void StructurePanel::Clear() {

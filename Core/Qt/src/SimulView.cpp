@@ -14,7 +14,7 @@
 #include "3d/dhPose.h"
 #include "CoreQt/QtString.h"
 
-SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), viewer_(nullptr), overlay_(nullptr), tree_(nullptr), treePanel_(nullptr), treePlaced_(false), menuBar_(nullptr), customMenus_(false), placeTimer_(nullptr), features_(0), panelLink_(-1) {
+SimulView::SimulView(QWidget* parent, unsigned features) : QWidget(parent), viewer_(nullptr), overlay_(nullptr), tree_(nullptr), treePanel_(nullptr), treePlaced_(false), uiScale_(1.0), menuBar_(nullptr), customMenus_(false), placeTimer_(nullptr), features_(0), panelLink_(-1) {
     QVBoxLayout* lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
     viewer_ = new ModelViewer(this);
@@ -98,7 +98,7 @@ void SimulView::updateTreeVisibility() {
     const bool show = (features_ & kTree) && tree_->topLevelItemCount() > 0;
     if (show && !treePlaced_ && viewer_->width() > 0) {
         treePanel_->SetTopInset((features_ & kMenu) ? menuBar_->height() : 0);
-        treePanel_->PlaceDefault(QPoint(8, 8 + ((features_ & kMenu) ? menuBar_->height() : 0)), QSize(340, qMin(320, qMax(200, viewer_->height() - 60))));
+        treePanel_->PlaceDefault(QPoint(8, 8 + ((features_ & kMenu) ? menuBar_->height() : 0)), QSize(static_cast<int>(340 * uiScale_), qMin(static_cast<int>(320 * uiScale_), qMax(200, viewer_->height() - 60))));
         treePlaced_ = true;
     }
     if (show != treePanel_->isVisibleTo(viewer_)) {
@@ -112,11 +112,7 @@ void SimulView::updateTreeVisibility() {
 void SimulView::buildMenuBar() {
     menuBar_ = new QFrame(viewer_);
     menuBar_->setObjectName("simulMenuBar");
-    menuBar_->setStyleSheet(
-        "#simulMenuBar { background: rgba(28, 30, 38, 215); border-bottom: 1px solid rgba(255,255,255,50); }"
-        "#simulMenuBar QToolButton { color: #e8eaf0; background: transparent; border: none; padding: 4px 12px; font-size: 12px; }"
-        "#simulMenuBar QToolButton:hover, #simulMenuBar QToolButton:pressed { background: rgba(106,169,255,90); }"
-        "#simulMenuBar QToolButton::menu-indicator { image: none; }");
+    applyMenuBarStyle();
     new QHBoxLayout(menuBar_);
     menuBar_->layout()->setContentsMargins(4, 0, 4, 0);
     menuBar_->layout()->setSpacing(0);
@@ -124,6 +120,28 @@ void SimulView::buildMenuBar() {
     ownedMenus_ = defaultMenus();
     menus_ = ownedMenus_;
     applyMenus();
+}
+
+void SimulView::applyMenuBarStyle() {
+    menuBar_->setStyleSheet(QString(
+        "#simulMenuBar { background: rgba(28, 30, 38, 215); border-bottom: 1px solid rgba(255,255,255,50); }"
+        "#simulMenuBar QToolButton { color: #e8eaf0; background: transparent; border: none; padding: %1px %2px; font-size: %3px; }"
+        "#simulMenuBar QToolButton:hover, #simulMenuBar QToolButton:pressed { background: rgba(106,169,255,90); }"
+        "#simulMenuBar QToolButton::menu-indicator { image: none; }")
+                                .arg(static_cast<int>(4 * uiScale_ + 0.5)).arg(static_cast<int>(12 * uiScale_ + 0.5)).arg(static_cast<int>(12 * uiScale_ + 0.5)));
+}
+
+void SimulView::SetUiScale(double scale) {
+    scale = scale < 0.6 ? 0.6 : (scale > 2.5 ? 2.5 : scale);
+    if (scale == uiScale_) return;
+    uiScale_ = scale;
+    applyMenuBarStyle();
+    overlay_->SetScale(scale);
+    tree_->SetUiScale(scale);
+    treePanel_->SetScale(scale);
+    layoutMenuBar();
+    placePanel();
+    emit uiScaleChanged(scale);
 }
 
 // 호스트 없이도 쓸 수 있는 기본 메뉴: ModelViewer 만으로 되는 것만 넣는다
@@ -151,6 +169,14 @@ QList<QMenu*> SimulView::defaultMenus() {
     frame->setCheckable(true);
     frame->setChecked(true);
     connect(frame, &QAction::toggled, viewer_, &ModelViewer::SetShowSelectionFrame);
+    view->addSeparator();
+    QMenu* uiSize = view->addMenu(QString::fromUtf8("화면 UI 크기"));
+    QAction* bigger = uiSize->addAction(QString::fromUtf8("크게"));
+    connect(bigger, &QAction::triggered, this, [this]() { SetUiScale(uiScale_ * 1.15); });
+    QAction* smaller = uiSize->addAction(QString::fromUtf8("작게"));
+    connect(smaller, &QAction::triggered, this, [this]() { SetUiScale(uiScale_ / 1.15); });
+    QAction* normal = uiSize->addAction(QString::fromUtf8("기본 크기"));
+    connect(normal, &QAction::triggered, this, [this]() { SetUiScale(1.0); });
     view->addSeparator();
     QMenu* shade = view->addMenu(QString::fromUtf8("조명 방식"));
     QActionGroup* shadeGroup = new QActionGroup(this);

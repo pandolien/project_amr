@@ -129,6 +129,22 @@ int main(int argc, char** argv) {
                 CHECK(view.size() == hostBefore, "host size unchanged");
             }
         }
+        // UI 크기 배율: 선택 패널 폭과 트리 창이 함께 커지고 작아진다 (범위 0.6~2.5)
+        {
+            const int w0 = view.selectionPanel()->width(), tw0 = view.treePanel()->width();
+            double got = 0;
+            QObject::connect(&view, &SimulView::uiScaleChanged, [&](double s) { got = s; });
+            view.SetUiScale(1.5);
+            CHECK(view.UiScale() == 1.5 && got == 1.5, "ui scale set");
+            CHECK(view.selectionPanel()->width() > w0, "selection panel grows");
+            CHECK(view.treePanel()->width() > tw0, "tree panel grows");
+            view.SetUiScale(10.0);
+            CHECK(view.UiScale() == 2.5, "ui scale clamped high");
+            view.SetUiScale(0.1);
+            CHECK(view.UiScale() == 0.6, "ui scale clamped low");
+            view.SetUiScale(1.0);
+            CHECK(view.selectionPanel()->width() == w0, "back to default width");
+        }
         // X 버튼으로 닫으면 기능도 꺼진다
         emit view.treePanel()->closeRequested();
         CHECK(!view.TreeVisible(), "close button turns feature off");

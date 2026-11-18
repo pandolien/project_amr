@@ -31,6 +31,7 @@ public:
     // 이름이 같은 슬라이더의 위치만 바꾼다 (시그널 없음). 잡고 있는 슬라이더는 건드리지 않는다.
     void ShowValues(const simul::urdf::JointValues& q);
     void PlaceNear(const QPoint& anchor);   // anchor(부모 좌표) 오른쪽에 놓고, 부모 안에 들어오게 민다
+    void SetScale(double s);   // 패널 폭/글자/슬라이더 배율 (1.0 이 기본)
     bool HasJoints() const { return !rows_.isEmpty(); }
     void SetTopInset(int px) { topInset_ = px; }   // 위쪽에 이만큼은 비워 둔다 (메뉴줄 아래로 들어가지 않게)
     void ResetOffset() { moved_ = false; }   // 끌어서 옮긴 자리를 잊고 기본 자리(물체 오른쪽)로 돌아간다
@@ -55,6 +56,9 @@ private:
     void setSlider(Row& r, double v);
     void updateLabel(Row& r);
 
+    void applyStyle();
+    int px(int v) const { return static_cast<int>(v * scale_ + 0.5); }
+    double scale_;
     int topInset_;
     bool moved_;           // 사용자가 끌어서 옮겼는가
     QPoint offset_;        // 옮겼다면 물체 위치 기준 상대 위치

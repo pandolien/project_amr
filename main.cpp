@@ -38,6 +38,7 @@ struct Options {
     simul::Array<Place> places;
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
+    double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
@@ -93,6 +94,7 @@ void PrintUsage(const char* exe) {
         "  --settle           (확인용) 낙하가 끝날 때까지 진행하고 위치를 출력\n"
         "  --move x,y,z       시작할 때 오브젝트(정적 모델, 로봇 전체)를 이 위치(월드, m)로 옮김\n"
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
+        "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
@@ -161,6 +163,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (a == "--only-view") { o->onlyView = true; continue; }
+        if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
         if (a == "--place" && hasNext) {
             const simul::String v = argv[++i];
@@ -554,6 +557,15 @@ public:
             structure->blockSignals(b);
         });
         view->insertAction(viewSep, structure);
+        {   // 3D 화면 안 UI(메뉴줄, 구조 트리, 선택 패널) 크기
+            QMenu* uiSize = view->addMenu(QString::fromUtf8("화면 UI 크기"));
+            view->removeAction(uiSize->menuAction());
+            view->insertMenu(viewSep, uiSize);
+            QAction* big = uiSize->addAction(QString::fromUtf8("크게"), this, [this]() { view_->SetUiScale(view_->UiScale() * 1.15); }, QKeySequence(Qt::CTRL + Qt::Key_Equal));
+            QAction* small = uiSize->addAction(QString::fromUtf8("작게"), this, [this]() { view_->SetUiScale(view_->UiScale() / 1.15); }, QKeySequence(Qt::CTRL + Qt::Key_Minus));
+            QAction* norm = uiSize->addAction(QString::fromUtf8("기본 크기"), this, [this]() { view_->SetUiScale(1.0); }, QKeySequence(Qt::CTRL + Qt::Key_0));
+            addAction(big); addAction(small); addAction(norm);   // 메뉴를 숨겨도 단축키는 계속 먹는다
+        }
         QAction* jointDock = dock_->toggleViewAction();   // 오른쪽 관절 도크는 기본으로 숨긴다 (슬라이더는 클릭한 물체 옆 오버레이에 나온다)
         jointDock->setText(QString::fromUtf8("관절 도크 (전체 관절)"));
         view->insertAction(viewSep, jointDock);
@@ -676,6 +688,7 @@ public:
 
     void startHidden(const Options& o) {
         if (o.hideMenu) menuAct_->setChecked(false);
+        if (o.uiScale != 1.0) view_->SetUiScale(o.uiScale);
         if (o.onlyView) onlyViewAct_->setChecked(true);
     }
 

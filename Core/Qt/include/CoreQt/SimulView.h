@@ -49,6 +49,9 @@ public:
     bool TreeVisible() const { return HasFeature(kTree); }
     void SetSelectionPanelVisible(bool on) { EnableFeature(kSelectionPanel, on); }
     bool SelectionPanelVisible() const { return HasFeature(kSelectionPanel); }
+    // 3D 화면 안 UI(메뉴줄, 구조 트리, 선택 패널)의 크기 배율. 1.0 이 기본이고 0.6~2.5 로 제한한다.
+    void SetUiScale(double scale);
+    double UiScale() const { return uiScale_; }
     StructurePanel* tree() const { return tree_; }              // 구조 트리 (호스트가 SetJointNotes 같은 걸 직접 쓸 수 있다)
     FloatingPanel* treePanel() const { return treePanel_; }
 
@@ -58,6 +61,7 @@ public:
     bool HasFeature(Feature f) const { return (features_ & f) != 0; }
 
 signals:
+    void uiScaleChanged(double scale);
     void featuresChanged(unsigned features);   // 켜진 기능이 바뀌었다 (X 로 창을 닫은 경우 포함): 호스트의 체크 표시를 맞출 때 쓴다
     // 구조 트리에서 링크를 오른쪽 클릭했다 (link -1 은 링크가 아닌 곳). 받는 쪽이 없으면 모델의 루트 링크에서 "제거" 메뉴만 보인다.
     void linkContextMenuRequested(int link, const QPoint& globalPos);
@@ -90,6 +94,8 @@ private:
     StructurePanel* tree_;
     FloatingPanel* treePanel_;
     bool treePlaced_;
+    double uiScale_;
+    void applyMenuBarStyle();
     QFrame* menuBar_;
     QList<QMenu*> menus_;          // 지금 메뉴줄에 보이는 메뉴
     QList<QMenu*> ownedMenus_;     // 이 부품이 만든 것 (호스트가 SetMenus 로 바꾸면 쓰지 않는다)

@@ -16,6 +16,7 @@ public:
 
     void SetTopInset(int px);            // 위쪽에 이만큼은 비워 둔다 (메뉴줄 아래로 들어가지 않게)
     void PlaceDefault(const QPoint& pos, const QSize& size);   // 처음 놓을 자리와 크기 (사용자가 옮기기 전까지)
+    void SetScale(double s);             // 글자/제목줄 크기 배율 (1.0 이 기본). 창 크기도 같은 비율로 바뀐다
     void Clamp();                        // 부모 안으로 밀어 넣는다 (부모 크기가 바뀐 뒤에 부른다)
 
 signals:
@@ -29,6 +30,8 @@ protected:
 
 private:
     QLabel* title_;
+    void applyStyle();
+    double scale_;
     int topInset_;
     bool dragging_;
     QWidget* grip_;

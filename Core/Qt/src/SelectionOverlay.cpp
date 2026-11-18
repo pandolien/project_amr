@@ -7,30 +7,53 @@
 #include "CBase/Util.h"
 #include "3d/Units.h"
 
-SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), topInset_(0), moved_(false), dragging_(false), title_(nullptr), info_(nullptr), rowsBox_(nullptr) {
+SelectionOverlay::SelectionOverlay(QWidget* parent) : QFrame(parent), scale_(1.0), topInset_(0), moved_(false), dragging_(false), title_(nullptr), info_(nullptr), rowsBox_(nullptr) {
     setObjectName("selectionOverlay");
-    setStyleSheet(
-        "#selectionOverlay { background: rgba(28, 30, 38, 225); border: 1px solid rgba(255,255,255,70); border-radius: 8px; }"
-        "#selectionOverlay QLabel { color: #e8eaf0; background: transparent; }"
-        "#selectionOverlay QSlider::groove:horizontal { height: 4px; background: rgba(255,255,255,60); border-radius: 2px; }"
-        "#selectionOverlay QSlider::handle:horizontal { background: #6aa9ff; width: 12px; margin: -5px 0; border-radius: 6px; }");
     setFixedWidth(270);
     QVBoxLayout* lay = new QVBoxLayout(this);
     lay->setContentsMargins(10, 8, 10, 8);
     lay->setSpacing(4);
     title_ = new QLabel(this);
-    title_->setStyleSheet("font-weight: bold; font-size: 13px;");
     info_ = new QLabel(this);
     info_->setTextFormat(Qt::RichText);
-    info_->setStyleSheet("font-size: 11px; color: #b8bdca;");
     rowsBox_ = new QWidget(this);
     new QVBoxLayout(rowsBox_);
     rowsBox_->layout()->setContentsMargins(0, 4, 0, 0);
     lay->addWidget(title_);
     lay->addWidget(info_);
     lay->addWidget(rowsBox_);
+    title_->setObjectName("ovTitle");
+    info_->setObjectName("ovInfo");
+    applyStyle();
     setCursor(Qt::SizeAllCursor);
     hide();
+}
+
+void SelectionOverlay::applyStyle() {
+    setStyleSheet(QString(
+        "#selectionOverlay { background: rgba(28, 30, 38, 225); border: 1px solid rgba(255,255,255,70); border-radius: 8px; }"
+        "#selectionOverlay QLabel { color: #e8eaf0; background: transparent; }"
+        "#selectionOverlay #ovTitle { font-weight: bold; font-size: %1px; }"
+        "#selectionOverlay #ovInfo { font-size: %2px; color: #b8bdca; }"
+        "#selectionOverlay #ovName, #selectionOverlay #ovValue { font-size: %2px; }"
+        "#selectionOverlay QSlider::groove:horizontal { height: %3px; background: rgba(255,255,255,60); border-radius: %4px; }"
+        "#selectionOverlay QSlider::handle:horizontal { background: #6aa9ff; width: %5px; margin: -%6px 0; border-radius: %7px; }")
+                      .arg(px(13)).arg(px(11)).arg(px(4)).arg(px(2)).arg(px(12)).arg(px(5)).arg(px(6)));
+    setFixedWidth(px(270));
+    layout()->setContentsMargins(px(10), px(8), px(10), px(8));
+}
+
+void SelectionOverlay::SetScale(double s) {
+    if (s == scale_) return;
+    scale_ = s;
+    QVector<Joint> joints;
+    for (int i = 0; i < rows_.size(); i++) {
+        Joint j = rows_[i].joint;
+        j.value = valueOf(rows_[i]);
+        joints.push_back(j);
+    }
+    applyStyle();
+    SetContent(title_->text(), info_->text(), joints);   // 행의 최소 폭 등을 새 배율로 다시 만든다
 }
 
 void SelectionOverlay::SetContent(const QString& title, const QString& info, const QVector<Joint>& joints) {
@@ -47,14 +70,14 @@ void SelectionOverlay::SetContent(const QString& title, const QString& info, con
         Row r;
         r.joint = joints[i];
         QLabel* name = new QLabel(joints[i].name, rowsBox_);
-        name->setStyleSheet("font-size: 11px;");
+        name->setObjectName("ovName");
         r.slider = new QSlider(Qt::Horizontal, rowsBox_);
         r.slider->setRange(0, kSteps);
         r.slider->setCursor(Qt::ArrowCursor);
         r.value = new QLabel(rowsBox_);
-        r.value->setMinimumWidth(64);
+        r.value->setObjectName("ovValue");
+        r.value->setMinimumWidth(px(64));
         r.value->setAlignment(Qt::AlignRight);
-        r.value->setStyleSheet("font-size: 11px;");
         QWidget* line = new QWidget(rowsBox_);
         QHBoxLayout* h = new QHBoxLayout(line);
         h->setContentsMargins(0, 0, 0, 0);

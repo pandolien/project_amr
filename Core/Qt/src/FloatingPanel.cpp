@@ -8,13 +8,9 @@
 
 #include "CBase/Util.h"
 
-FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* parent) : QFrame(parent), title_(nullptr), topInset_(0), dragging_(false), grip_(nullptr), resizing_(false) {
+FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* parent) : QFrame(parent), title_(nullptr), scale_(1.0), topInset_(0), dragging_(false), grip_(nullptr), resizing_(false) {
     setObjectName("floatingPanel");
-    setStyleSheet(
-        "#floatingPanel { background: rgba(26, 29, 38, 238); border: 1px solid rgba(255,255,255,40); border-radius: 10px; }"
-        "#floatingPanelTitle { background: transparent; color: #f2f4f8; font-weight: bold; font-size: 13px; padding: 8px 12px 6px 12px; }"
-        "#floatingPanelClose { background: transparent; color: #9aa3b8; border: none; padding: 0 12px; font-size: 13px; }"
-        "#floatingPanelClose:hover { color: white; background: rgba(255,90,90,170); border-top-right-radius: 9px; }");
+    applyStyle();
     QVBoxLayout* col = new QVBoxLayout(this);
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
@@ -52,6 +48,26 @@ FloatingPanel::FloatingPanel(const QString& title, QWidget* content, QWidget* pa
     col->addLayout(foot);
     setMinimumSize(200, 120);
     hide();
+}
+
+void FloatingPanel::applyStyle() {
+    const int f = static_cast<int>(13 * scale_ + 0.5);
+    const int pv = static_cast<int>(8 * scale_ + 0.5), ph = static_cast<int>(12 * scale_ + 0.5);
+    setStyleSheet(QString(
+        "#floatingPanel { background: rgba(26, 29, 38, 238); border: 1px solid rgba(255,255,255,40); border-radius: 10px; }"
+        "#floatingPanelTitle { background: transparent; color: #f2f4f8; font-weight: bold; font-size: %1px; padding: %2px %3px %4px %3px; }"
+        "#floatingPanelClose { background: transparent; color: #9aa3b8; border: none; padding: 0 %3px; font-size: %1px; }"
+        "#floatingPanelClose:hover { color: white; background: rgba(255,90,90,170); border-top-right-radius: 9px; }")
+                      .arg(f).arg(pv).arg(ph).arg(pv - 2));
+}
+
+void FloatingPanel::SetScale(double s) {
+    if (s == scale_) return;
+    const double r = s / scale_;
+    scale_ = s;
+    applyStyle();
+    resize(static_cast<int>(width() * r + 0.5), static_cast<int>(height() * r + 0.5));
+    Clamp();
 }
 
 void FloatingPanel::SetTopInset(int px) {

@@ -350,6 +350,7 @@ GL 안에 들어 있는 UI 는 프로그램에서 함수로 켜고 끈다:
 view->SetMenuVisible(false);            // 메뉴줄    (MenuVisible() 로 확인)
 view->SetTreeVisible(true);             // 구조 트리  (TreeVisible())
 view->SetSelectionPanelVisible(false);  // 선택 패널  (SelectionPanelVisible())
+view->SetUiScale(1.5);                  // 메뉴줄/트리/선택 패널 크기 배율 (0.6~2.5, UiScale() 로 확인, uiScaleChanged 신호)
 connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 알려 준다 (호스트 체크 표시용)
 ```
 
@@ -360,6 +361,7 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 구조, 관절, 로그, 라이다 그래프 도크는 제목줄을 끌어 **떼어 내서(플로팅) 아무 데나 놓거나**, 창 가장자리/다른 도크 위에 놓아 다시 붙이거나 탭으로 겹칠 수 있고, X 로 닫을 수 있습니다(`보기` 메뉴에서 다시 켭니다).
 - **F10**: 메뉴 막대를 숨기고 보입니다. 숨기면 메뉴의 단축키는 동작하지 않지만 F10/F11 은 창에 직접 달려 있어 계속 먹습니다.
 - **F11**: 메뉴, 상태바, 모든 도크(떼어 낸 것 포함)를 숨기고 **3D 화면만** 남깁니다. 이때 같은 메뉴(파일/보기/물리/센서/도움말, 동작과 체크 상태 그대로)가 **3D 화면 위쪽 메뉴줄**에 나옵니다. 다시 F11 이나 **Esc** 를 누르면 보이던 것만 원래 모습(떼어 낸 도크는 떼어 낸 채로)으로 돌아옵니다. 3D 화면 안의 구조 트리 창과 선택 패널은 3D 화면의 일부라서 그대로 남습니다 (필요하면 T 키나 `SetTreeVisible` 로 끕니다).
+- **UI 크기**: 보기 > 화면 UI 크기 (크게 Ctrl+=, 작게 Ctrl+-, 기본 Ctrl+0), 명령행 `--ui-scale 1.5`. 트리 창은 오른쪽 아래 손잡이로 따로 크기를 바꿀 수 있다.
 - 명령행: `--only-view` (처음부터 3D 화면만), `--hide-menu` (메뉴만 숨김).
 
 ## 로그 창
