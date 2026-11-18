@@ -678,9 +678,36 @@ void testSimulator() {
     }
 }
 
+// limit 에 닿은 관절: 그 관절은 멈추고, 매달린 관절은 자기 운동량을 유지한 채 계속 움직여야 한다 (둘 다 같이 멈추면 안 된다)
+void testJointLimitImpact() {
+    const urdf::Robot r = load(
+        "<robot name='two'><link name='base'/>"
+        " <link name='a'><inertial><origin xyz='0.5 0 0'/><mass value='2'/><inertia ixx='0.01' ixy='0' ixz='0' iyy='0.1' iyz='0' izz='0.1'/></inertial></link>"
+        " <link name='b'><inertial><origin xyz='0.5 0 0'/><mass value='2'/><inertia ixx='0.01' ixy='0' ixz='0' iyy='0.1' iyz='0' izz='0.1'/></inertial></link>"
+        " <joint name='j1' type='revolute'><parent link='base'/><child link='a'/><axis xyz='0 1 0'/>"
+        "  <limit lower='-3' upper='0.5' effort='50' velocity='5'/></joint>"
+        " <joint name='j2' type='revolute'><parent link='a'/><child link='b'/><origin xyz='1 0 0'/><axis xyz='0 1 0'/>"
+        "  <limit lower='-3' upper='3' effort='50' velocity='5'/></joint></robot>");
+    Simulator sim;
+    sim.Reset(r, urdf::JointValues());
+    sim.SetOptions(DynamicsOptions());
+    // 중력이 팔을 + 방향(아래)으로 끌어서 j1 이 위쪽 limit(0.5) 에 닿는다
+    double maxJ2Speed = 0;
+    for (int i = 0; i < 600; i++) {
+        sim.Step(1.0 / 60.0);
+        const JointTorques v = sim.Velocities();
+        if (sim.Values().at("j1") >= 0.5f - 1e-6f) maxJ2Speed = simul::Max(maxJ2Speed, simul::Abs(v.at("j2")));
+        check(sim.Values().at("j1") <= 0.5f + 1e-6f, "j1 never passes its limit");
+    }
+    check(sim.Values().at("j1") >= 0.49f, "j1 reaches the limit");
+    check(maxJ2Speed > 0.5, "j2 keeps swinging after j1 hits the limit (momentum is not wiped out)");
+    check(simul::IsFinite(sim.TotalEnergy()), "energy stays finite");
+}
+
 }  // namespace
 
 int main() {
+    testJointLimitImpact();
     testFreeFall();
     testRneaAndMass();
     testCoriolisAgainstMassDerivative();

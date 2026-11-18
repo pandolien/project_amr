@@ -221,8 +221,12 @@ MassMatrix BuildMass(const urdf::Robot& robot, const Rnea& dyn) {
     return mm;
 }
 
+// atLimit[i]: 0 이면 자유, +1 이면 위쪽 limit 에 닿아 있고 속도가 0, -1 이면 아래쪽 limit 에 닿아 있고 속도가 0.
+// limit 에 닿은 관절이 limit 쪽으로 더 밀리면(가속도가 limit 쪽) 그 관절을 고정한(가속도 0) 나머지 관절의 운동방정식을 다시 푼다.
+// 이렇게 해야 막힌 관절을 통해 힘이 올바르게 전달되고, 막힌 관절에 매달린 다른 관절들이 제 운동을 한다
+// (예전처럼 막힌 관절을 자유롭다고 보고 풀면 다른 관절의 가속도가 틀어진다).
 simul::Array<double> Accel(const urdf::Robot& robot, const Rnea& dyn, const simul::Array<double>& qd, const simul::Array<double>& tau, const V3& g,
-                          const DynamicsOptions& opt) {
+                          const DynamicsOptions& opt, const simul::Array<int>* atLimit = nullptr) {
     const size_t n = dyn.act.size();
     if (n == 0) return simul::Array<double>();
     const MassMatrix mm = BuildMass(robot, dyn);
@@ -231,7 +235,38 @@ simul::Array<double> Accel(const urdf::Robot& robot, const Rnea& dyn, const simu
     const simul::Array<double> pas = PassiveTorques(robot, dyn, qd, opt);
     simul::Array<double> rhs(n);
     for (size_t i = 0; i < n; i++) rhs[i] = tau[i] - bias[i] - pas[i];
-    return Solve(mm.m, rhs, n);
+    simul::Array<double> a = Solve(mm.m, rhs, n);
+    if (!atLimit) return a;
+
+    simul::Array<bool> locked(n, false);
+    bool any = false;
+    for (size_t i = 0; i < n; i++)
+        if ((*atLimit)[i] != 0 && a[i] * (*atLimit)[i] > 0.0) { locked[i] = true; any = true; }   // limit 쪽으로 밀리는 관절
+    if (!any) return a;
+    for (size_t iter = 0; iter < n + 1; iter++) {
+        // 고정한 관절의 행/열을 지우고(가속도 0) 나머지를 푼다
+        simul::Array<double> A = mm.m, b = rhs;
+        for (size_t i = 0; i < n; i++) {
+            if (!locked[i]) continue;
+            for (size_t j = 0; j < n; j++) { A[i * n + j] = 0.0; A[j * n + i] = 0.0; }
+            A[i * n + i] = 1.0;
+            b[i] = 0.0;
+        }
+        a = Solve(A, b, n);
+        // 구속력 lambda = (M a - rhs): limit 이 관절을 안쪽으로 미는 쪽이어야 한다. 반대면(관절이 limit 에서 떨어지려는 것) 풀어 준다.
+        bool released = false;
+        for (size_t i = 0; i < n; i++) {
+            if (!locked[i]) continue;
+            double lambda = -rhs[i];
+            for (size_t j = 0; j < n; j++) lambda += mm.m[i * n + j] * a[j];
+            if (lambda * (*atLimit)[i] > 1e-12) {   // 위쪽 limit 인데 위로 당기는 구속력 = 말이 안 되므로 풀어 준다
+                locked[i] = false;
+                released = true;
+            }
+        }
+        if (!released) break;
+    }
+    return a;
 }
 
 }  // namespace
@@ -300,7 +335,15 @@ JointTorques Simulator::Velocities() const { return ToMap(robot_, act_, qd_); }
 void Simulator::derivative(const simul::Array<double>& q, const simul::Array<double>& qd, simul::Array<double>* dq, simul::Array<double>* dqd) const {
     const Rnea dyn(robot_, toValues(q), false);
     *dq = qd;
-    *dqd = Accel(robot_, dyn, qd, ToVec(robot_, act_, tau_), GVec(gravity_), options_);
+    // limit 에 닿아 멈춘 관절 표시 (위쪽 +1, 아래쪽 -1)
+    simul::Array<int> atLimit(act_.size(), 0);
+    for (size_t i = 0; i < act_.size(); i++) {
+        const urdf::Joint& j = robot_.joints[static_cast<size_t>(act_[i])];
+        if (j.type == urdf::kJointContinuous || !j.hasLimit || qd[i] != 0.0) continue;
+        if (q[i] >= static_cast<double>(j.upper) - 1e-9) atLimit[i] = 1;
+        else if (q[i] <= static_cast<double>(j.lower) + 1e-9) atLimit[i] = -1;
+    }
+    *dqd = Accel(robot_, dyn, qd, ToVec(robot_, act_, tau_), GVec(gravity_), options_, &atLimit);
 }
 
 void Simulator::Step(double dt) {
@@ -308,6 +351,7 @@ void Simulator::Step(double dt) {
     const int sub = simul::Max(1, static_cast<int>(ceil(dt * 500.0)));
     const double h = dt / sub;
     const size_t n = q_.size();
+    simul::Array<size_t> hit;
     for (int s = 0; s < sub; s++) {
         simul::Array<double> k1q, k1v, k2q, k2v, k3q, k3v, k4q, k4v, q2(n), v2(n);
         derivative(q_, qd_, &k1q, &k1v);
@@ -325,11 +369,26 @@ void Simulator::Step(double dt) {
                 qd_[i] = 0.0;
             }
             const urdf::Joint& j = robot_.joints[static_cast<size_t>(act_[i])];
-            if (j.type != urdf::kJointContinuous && j.hasLimit) {  // limit 에 닿으면 멈춘다
-                if (q_[i] > static_cast<double>(j.upper)) { q_[i] = static_cast<double>(j.upper); if (qd_[i] > 0) qd_[i] = 0; }
-                if (q_[i] < static_cast<double>(j.lower)) { q_[i] = static_cast<double>(j.lower); if (qd_[i] < 0) qd_[i] = 0; }
+            if (j.type != urdf::kJointContinuous && j.hasLimit) {  // limit 에 닿으면 멈춘다 (아래에서 충격량을 다른 관절에도 전달)
+                if (q_[i] > static_cast<double>(j.upper)) { q_[i] = static_cast<double>(j.upper); if (qd_[i] > 0) hit.push_back(i); }
+                if (q_[i] < static_cast<double>(j.lower)) { q_[i] = static_cast<double>(j.lower); if (qd_[i] < 0) hit.push_back(i); }
             }
         }
+        // 완전 비탄성 충돌: 닿은 관절의 속도만 0 으로 만드는 충격량을 가하면 다른 관절의 속도도 질량 행렬을 따라 바뀐다
+        //   M dqd = lambda e_i,  (qd_i + dqd_i) = 0  ->  dqd = -qd_i / (M^-1)_ii * M^-1 e_i
+        //   (예전에는 그 관절 속도만 0 으로 했다: 막힌 관절에 매달린 다른 관절이 휘두르는 운동량이 같이 사라졌다)
+        for (size_t k = 0; k < hit.size(); k++) {
+            const size_t i = hit[k];
+            const MassMatrix mm = ComputeMassMatrix(robot_, toValues(q_), false);
+            simul::Array<double> e(n, 0.0);
+            e[i] = 1.0;
+            const simul::Array<double> x = Solve(mm.m, e, n);
+            if (!(x[i] > 1e-12)) { qd_[i] = 0.0; continue; }
+            const double lambda = -qd_[i] / x[i];
+            for (size_t r = 0; r < n; r++) qd_[r] += lambda * x[r];
+            qd_[i] = 0.0;
+        }
+        hit.clear();
     }
 }
 
