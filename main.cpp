@@ -1048,12 +1048,6 @@ private:
         uiHidden_ = on;
         view_->SetMenus(nativeMenus_);   // 같은 메뉴(동작, 체크 상태 포함)를 3D 화면 위에 띄운다
         view_->EnableFeature(SimulView::kMenu, on);
-        if (on) {   // 3D 화면 안의 구조 트리 창도 같이 숨겼다가, 돌아올 때 켜 두었던 경우만 되살린다
-            treeWasOn_ = view_->TreeVisible();
-            view_->SetTreeVisible(false);
-        } else {
-            view_->SetTreeVisible(treeWasOn_);
-        }
         const QList<QDockWidget*> docks = findChildren<QDockWidget*>();
         if (on) {
             hiddenDocks_.clear();
@@ -1159,7 +1153,6 @@ private:
     SimulView* view_ = nullptr;
     QDockWidget* dock_;
     StructurePanel* tree_;
-    bool treeWasOn_ = true;   // 3D 화면만 보기 전에 구조 트리 창이 켜져 있었는가
     QLabel* collisionLabel_;
     simul::dynamics::Simulator sim_;
     QTimer* simTimer_;
