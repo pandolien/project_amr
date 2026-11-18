@@ -90,8 +90,8 @@ struct Joint {
     // 링크/관절을 이름으로 찾은 번호를 기억해 둔다 (Robot::JointParent/JointChild/JointMimic 이 채운다).
     // 매 프레임 도는 동역학이 문자열 검색을 반복하지 않게 하려는 것이고, 이름이 바뀌어 맞지 않으면 알아서 다시 찾는다.
     mutable int parentIdx, childIdx, mimicIdx;
-    Joint() : parentIdx(-1), childIdx(-1), mimicIdx(-1), type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
-              damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0) {}
+    Joint() : type(kJointFixed), axis(0, 0, 1), lower(0), upper(0), effort(0), velocity(0), hasLimit(false),
+              damping(0), friction(0), hasDynamics(false), hasMimic(false), mimicMultiplier(1), mimicOffset(0), parentIdx(-1), childIdx(-1), mimicIdx(-1) {}
     // 회전/이동으로 움직이는 관절인가 (fixed, floating, planar 는 움직이지 않는 것으로 취급)
     bool IsMovable() const { return type == kJointRevolute || type == kJointContinuous || type == kJointPrismatic; }
     // 회전하는 관절인가 (각도: rad). prismatic 은 이동(m).

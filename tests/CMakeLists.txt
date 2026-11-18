@@ -105,3 +105,8 @@ if(SIMUL_BUILD_QT)
     simul_set_warnings(test_simulview)
     add_test(NAME test_simulview COMMAND test_simulview)
 endif()
+
+add_executable(test_cprocess test_cprocess.cpp)
+target_link_libraries(test_cprocess PRIVATE Core)
+simul_set_warnings(test_cprocess)
+add_test(NAME test_cprocess COMMAND test_cprocess)

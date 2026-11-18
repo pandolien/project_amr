@@ -21,7 +21,7 @@ project_simul/
 ├── Data/Object/          # 오브젝트 관련 자료
 ├── Core/                 # 라이브러리화되는 핵심 코드 (순수 C++11, 표준 라이브러리·Qt 금지)
 │   ├── CMakeLists.txt
-│   ├── include/          # CMat, 3d, CMesh, CURDF, CCollision, CDynamics, CSimul, CSock
+│   ├── include/          # CMat, 3d, CMesh, CURDF, CCollision, CDynamics, CSimul, CProcess, CSock
 │   ├── src/              # 위 모듈의 구현
 │   └── Qt/               # CoreQt: 재사용 가능한 범용 Qt5 위젯 (별도 타겟)
 ├── src/                  # 프로젝트 생성 파일 (simul_main에 포함)
@@ -44,6 +44,7 @@ project_simul/
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
+| CProcess | 물류 공정: 물건을 A 지점에서 B 지점으로 옮긴다 (로봇 없이 직선 이동, 상태/이벤트) | 3d |
 | CSock | 외부 통신 | - |
 
 **표준 라이브러리를 쓰지 않습니다.** 프로젝트 코드(Core, Core/Qt, main.cpp, tests)에는 `std::` 와 C++ 표준 헤더(`<vector>`, `<string>`, `<cmath>` …)가 없고, 대신 `Core/include/CBase` 를 씁니다. C 런타임 함수(`printf`, `fopen`, `sqrt`, `memcpy`, `<stdint.h>`, `<math.h>` 등), Qt, tinyxml2, cgltf, LAPACK 은 그대로 씁니다. 예외도 쓰지 않습니다. 이 규칙은 CTest `no_std`(`cmake/CheckNoStd.cmake`)가 검사합니다.
@@ -408,3 +409,26 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 물리: 중력 방향, 중력 낙하, 모터 끄기(M) | 오브젝트 위치 초기화
 - 센서: 라이다(레이저 표시, 그래프 표시). 모델에 라이다가 없으면 꺼져 있습니다.
 - 도움말: 조작 방법(F1)
+
+## 물류 공정 (CProcess)
+
+물건을 A 지점에서 B 지점으로 옮기는 가장 단순한 공정이다. 로봇은 쓰지 않고, 물건이 직선으로 일정한 속도로 간다.
+3D 화면과 독립이라 호스트가 `Step` 을 부르고 물건의 `position` 을 화면 모델에 넣어 준다 (`ModelViewer::SetModelPlacement`).
+로봇이나 AMR 이 물건을 옮기게 되면 그쪽이 물건의 이동만 제어하고, 지점/상태/이벤트는 그대로 쓴다.
+
+```cpp
+#include "CProcess/Process.h"
+using namespace simul::process;
+
+Process p;
+p.AddPoint("A", dhVector(0, 0, 0));
+p.AddPoint("B", dhVector(3, 0, 0));          // m
+int box = p.AddItem("box", "A");             // A 에 놓인 물건
+p.Order(box, "B", 0.5);                      // B 로 0.5 m/s (출발 이벤트)
+while (!p.AllIdle()) p.Step(0.02);           // 도착하면 AllIdle() 이 참 (도착 이벤트)
+Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시각 (도착 시각은 틱 안의 정확한 순간)
+```
+
+- 물건 상태: `kItemWaiting`(지점에 놓임) → `kItemMoving` → `kItemArrived` (다시 `Order` 하면 또 보낼 수 있다)
+- `TimeToArrival(item)` 으로 남은 시간, `Time()` 으로 공정 시계를 본다.
+- 이름이 겹치거나, 없는 지점이거나, 속도가 0 이하이거나, 같은 지점으로 보내거나, 이동 중에 다시 보내면 `false` 와 이유를 돌려준다.
