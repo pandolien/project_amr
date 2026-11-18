@@ -18,11 +18,17 @@ const char* kVertexShader =
     "#version 120\n"
     "attribute vec3 aPos;\n"
     "attribute vec3 aNormal;\n"
+    "attribute vec2 aUV;\n"        // glTF TEXCOORD_0 (텍스처가 있는 모델만 켠다)
+    "attribute vec4 aVColor;\n"    // glTF COLOR_0
     "uniform mat4 uMVP;\n"
+    "varying vec2 vUV;\n"
+    "varying vec4 vVC;\n"
     "uniform mat4 uModelView;\n"
     "varying vec3 vN;\n"
     "varying vec3 vP;\n"
     "void main() {\n"
+    "    vUV = aUV;\n"
+    "    vVC = aVColor;\n"
     "    vN = mat3(uModelView) * aNormal;\n"        // 법선을 카메라 좌표로
     "    vP = (uModelView * vec4(aPos, 1.0)).xyz;\n"  // 위치를 카메라 좌표로 (시선 방향 V 를 구하려고)
     "    gl_Position = uMVP * vec4(aPos, 1.0);\n"
@@ -39,8 +45,13 @@ const char* kFragmentShader =
     "uniform float uMetal;\n"     // 금속성 0..1 (PBR)
     "uniform float uRough;\n"     // 거칠기 0..1 (Blinn-Phong 은 광택도로 바꿔 쓴다)
     "uniform vec3 uUp;\n"         // 월드 +z 를 카메라 좌표로 (주변 환경의 위/아래)
+    "uniform sampler2D uTex;\n"
+    "uniform float uUseTex;\n"   // 1 이면 기본 색 텍스처를 곱한다
+    "uniform float uUseVC;\n"    // 1 이면 정점 색을 곱한다
     "varying vec3 vN;\n"
     "varying vec3 vP;\n"
+    "varying vec2 vUV;\n"
+    "varying vec4 vVC;\n"
     "const float PI = 3.14159265;\n"
     "\n"
     // ---- PBR 의 세 항 ----
@@ -82,6 +93,9 @@ const char* kFragmentShader =
     "\n"
     "void main() {\n"
     "    if (uLit < 0.5) { gl_FragColor = uColor; return; }\n"
+    "    vec4 base = uColor;\n"                                     // 재질 색 x 정점 색 x 텍스처 (glTF 의 baseColor 규칙)
+    "    if (uUseVC > 0.5) base *= vVC;\n"
+    "    if (uUseTex > 0.5) base *= texture2D(uTex, vUV);\n"
     "    vec3 N = normalize(vN);\n"
     "    if (!gl_FrontFacing) N = -N;\n"                     // 양면 렌더링: 뒷면은 법선을 뒤집는다
     "    vec3 V = normalize(-vP);\n"
@@ -90,7 +104,7 @@ const char* kFragmentShader =
     // Lambert: 주변광 + cos(N, 빛) 두 개 (카메라 방향 빛, 보조광)
     "        float l = 0.30 + 0.55 * max(dot(N, vec3(0.0, 0.0, 1.0)), 0.0)\n"
     "                       + 0.30 * max(dot(N, normalize(vec3(-0.5, 0.7, 0.5))), 0.0);\n"
-    "        col = uColor.rgb * min(l, 1.2);\n"
+    "        col = base.rgb * min(l, 1.2);\n"
     "    } else if (uShading == 1) {\n"
     // Blinn-Phong: Lambert + 하이라이트. 거칠기를 광택도로 바꿔 쓴다 (매끈할수록 작고 밝은 점)
     "        vec3 L1 = normalize(vec3(-0.3, 0.6, 0.75));\n"
@@ -98,10 +112,10 @@ const char* kFragmentShader =
     "        float shin = clamp(2.0 / (uRough * uRough + 0.001) - 1.0, 4.0, 400.0);\n"
     "        float d = 0.25 + 0.65 * max(dot(N, L1), 0.0) + 0.25 * max(dot(N, L2), 0.0);\n"
     "        float s = pow(max(dot(N, normalize(L1 + V)), 0.0), shin) * 0.45 * step(0.0, dot(N, L1));\n"
-    "        col = uColor.rgb * min(d, 1.2) + vec3(s);\n"
+    "        col = base.rgb * min(d, 1.2) + vec3(s);\n"
     "    } else {\n"
     // PBR. 재질 색은 sRGB 이므로 먼저 선형으로 바꾸고, 계산한 뒤 톤매핑과 감마로 화면 값으로 돌려놓는다.
-    "        vec3 albedo = pow(uColor.rgb, vec3(2.2));\n"
+    "        vec3 albedo = pow(base.rgb, vec3(2.2));\n"
     "        float rough = clamp(uRough, 0.05, 1.0);\n"
     "        float metal = clamp(uMetal, 0.0, 1.0);\n"
     "        vec3 F0 = mix(vec3(0.04), albedo, metal);\n"      // 비금속 반사율은 4%, 금속은 자기 색이 곧 반사색
@@ -116,7 +130,7 @@ const char* kFragmentShader =
     "        c = c * (1.0 + c / 16.0) / (1.0 + c);\n"        // 밝은 부분이 하얗게 날아가지 않게 누르는 톤매핑 (Reinhard)
     "        col = pow(c, vec3(1.0 / 2.2));\n"
     "    }\n"
-    "    gl_FragColor = vec4(col, uColor.a);\n"
+    "    gl_FragColor = vec4(col, base.a);\n"
     "}\n";
 
 QMatrix4x4 ToQt(const dhMat& m) {
@@ -192,6 +206,8 @@ void ModelViewer::releaseItems(ItemList& list) {
     for (size_t i = 0; i < list.size(); i++) {
         if (list[i]->vbo.isCreated()) list[i]->vbo.destroy();
         if (list[i]->ibo.isCreated()) list[i]->ibo.destroy();
+        if (list[i]->evbo.isCreated()) list[i]->evbo.destroy();
+        list[i]->tex.reset();
     }
 }
 
@@ -245,6 +261,24 @@ void ModelViewer::addScene(const simul::Scene& scene, int link, const dhMat& loc
                 }
             }
             it->indices = prim.indices;
+            const bool hasUv = prim.uvs.size() == nv * 2, hasVc = prim.colors.size() == nv * 4;
+            const simul::Material* mat = (!colorOverride && prim.material >= 0 && static_cast<size_t>(prim.material) < scene.materials.size()) ? &scene.materials[static_cast<size_t>(prim.material)] : nullptr;
+            if (mat) {   // 텍스처 이미지: 파일 안(GLB/data URI)의 바이트, 아니면 파일 경로
+                if (!mat->baseColorImage.empty()) it->image.loadFromData(mat->baseColorImage.data(), static_cast<uint>(mat->baseColorImage.size()));
+                else if (!mat->baseColorTexture.empty()) it->image.load(simulqt::ToQ(mat->baseColorTexture));
+                if (it->image.isNull() && (!mat->baseColorImage.empty() || !mat->baseColorTexture.empty()))
+                    if (&out == &items_) warnings_ << QString::fromUtf8("텍스처 이미지를 읽을 수 없습니다: ") + (mat->baseColorTexture.empty() ? QString::fromUtf8("(파일 안의 이미지)") : simulqt::ToQ(mat->baseColorTexture));
+                if (!hasUv) it->image = QImage();   // uv 가 없으면 입힐 수 없다
+            }
+            it->hasVertexColor = hasVc && !colorOverride;
+            if (!it->image.isNull() || it->hasVertexColor) {
+                it->extra.assign(nv * 6, 1.0f);
+                for (size_t v = 0; v < nv; v++) {
+                    it->extra[v * 6] = hasUv ? prim.uvs[v * 2] : 0.0f;
+                    it->extra[v * 6 + 1] = hasUv ? prim.uvs[v * 2 + 1] : 0.0f;
+                    for (size_t k = 0; k < 4; k++) it->extra[v * 6 + 2 + k] = it->hasVertexColor ? prim.colors[v * 4 + k] : 1.0f;
+                }
+            }
             it->base = local * world[n];
             it->link = link;
             it->metallic = kDefaultMetal;
@@ -825,6 +859,8 @@ void ModelViewer::initializeGL() {
     prog_->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShader);
     prog_->bindAttributeLocation("aPos", 0);
     prog_->bindAttributeLocation("aNormal", 1);
+    prog_->bindAttributeLocation("aUV", 2);
+    prog_->bindAttributeLocation("aVColor", 3);
     prog_->link();
     buffersDirty_ = !items_.empty();
 }
@@ -849,6 +885,19 @@ void ModelViewer::uploadItems(ItemList& list) {
         it.ibo.bind();
         it.ibo.allocate(it.indices.data(), static_cast<int>(it.indices.size() * sizeof(uint32_t)));
         it.ibo.release();
+        if (it.evbo.isCreated()) it.evbo.destroy();
+        it.tex.reset();
+        if (!it.extra.empty()) {
+            it.evbo.create();
+            it.evbo.bind();
+            it.evbo.allocate(it.extra.data(), static_cast<int>(it.extra.size() * sizeof(float)));
+            it.evbo.release();
+        }
+        if (!it.image.isNull()) {
+            it.tex.reset(new QOpenGLTexture(it.image.mirrored(), QOpenGLTexture::GenerateMipMaps));   // glTF 의 uv 원점은 왼쪽 위라서 위아래를 뒤집어 올린다
+            it.tex->setWrapMode(QOpenGLTexture::Repeat);
+            it.tex->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear, QOpenGLTexture::Linear);
+        }
     }
 }
 
@@ -984,6 +1033,8 @@ void ModelViewer::paintGL() {
 
     prog_->bind();
     prog_->setUniformValue("uLit", 0.0f);
+    prog_->setUniformValue("uUseTex", 0.0f);
+    prog_->setUniformValue("uUseVC", 0.0f);
     prog_->setUniformValue("uShading", shading_);
     prog_->setUniformValue("uMetal", kDefaultMetal);
     prog_->setUniformValue("uRough", kDefaultRough);
@@ -1072,19 +1123,42 @@ void ModelViewer::paintGL() {
             prog_->setUniformValue("uColor", col);
             prog_->setUniformValue("uMetal", it.metallic);
             prog_->setUniformValue("uRough", it.roughness);
+            const bool useTex = it.tex && it.evbo.isCreated(), useVc = it.hasVertexColor && it.evbo.isCreated();
+            prog_->setUniformValue("uUseTex", useTex ? 1.0f : 0.0f);
+            prog_->setUniformValue("uUseVC", useVc ? 1.0f : 0.0f);
+            if (useTex) {
+                glActiveTexture(GL_TEXTURE0);
+                it.tex->bind();
+                prog_->setUniformValue("uTex", 0);
+            }
             it.vbo.bind();
             it.ibo.bind();
             prog_->enableAttributeArray(0);
             prog_->enableAttributeArray(1);
             prog_->setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * static_cast<int>(sizeof(float)));
             prog_->setAttributeBuffer(1, GL_FLOAT, 3 * static_cast<int>(sizeof(float)), 3, 6 * static_cast<int>(sizeof(float)));
+            if (useTex || useVc) {
+                it.evbo.bind();
+                prog_->enableAttributeArray(2);
+                prog_->enableAttributeArray(3);
+                prog_->setAttributeBuffer(2, GL_FLOAT, 0, 2, 6 * static_cast<int>(sizeof(float)));
+                prog_->setAttributeBuffer(3, GL_FLOAT, 2 * static_cast<int>(sizeof(float)), 4, 6 * static_cast<int>(sizeof(float)));
+                it.evbo.release();
+            }
             glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(it.indices.size()), GL_UNSIGNED_INT, nullptr);
             prog_->disableAttributeArray(0);
             prog_->disableAttributeArray(1);
+            if (useTex || useVc) {
+                prog_->disableAttributeArray(2);
+                prog_->disableAttributeArray(3);
+            }
+            if (useTex) it.tex->release();
             it.vbo.release();
             it.ibo.release();
         }
     }
+    prog_->setUniformValue("uUseTex", 0.0f);
+    prog_->setUniformValue("uUseVC", 0.0f);
     if (lidarOn_ && lidarDraw_) {
         prog_->setUniformValue("uLit", 0.0f);
         prog_->setUniformValue("uMVP", proj * view);

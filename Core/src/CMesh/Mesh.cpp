@@ -42,6 +42,7 @@ bool Primitive::IsValid() const {
     const size_t n = VertexCount();
     if (!normals.empty() && normals.size() != n * 3) return false;
     if (!uvs.empty() && uvs.size() != n * 2) return false;
+    if (!colors.empty() && colors.size() != n * 4) return false;
     if (indices.size() % 3 != 0) return false;
     for (size_t i = 0; i < indices.size(); i++) {
         if (indices[i] >= n) return false;

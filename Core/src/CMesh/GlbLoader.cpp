@@ -42,7 +42,53 @@ bool CheckRequiredExtensions(const cgltf_data* d, simul::String* error) {
     return true;
 }
 
-void ConvertMaterial(const cgltf_material* m, Material* out) {
+// base64 (data URI 용). 잘못된 글자는 건너뛴다
+void DecodeBase64(const char* s, simul::Array<unsigned char>* out) {
+    int val = 0, bits = -8;
+    for (; *s; s++) {
+        const char c = *s;
+        int d;
+        if (c >= 'A' && c <= 'Z') d = c - 'A';
+        else if (c >= 'a' && c <= 'z') d = c - 'a' + 26;
+        else if (c >= '0' && c <= '9') d = c - '0' + 52;
+        else if (c == '+' || c == '-') d = 62;
+        else if (c == '/' || c == '_') d = 63;
+        else continue;
+        val = (val << 6) | d;
+        bits += 6;
+        if (bits >= 0) {
+            out->push_back(static_cast<unsigned char>((val >> bits) & 0xFF));
+            bits -= 8;
+        }
+    }
+}
+
+// 기본 색 텍스처를 재질에 옮긴다: 외부 파일이면 경로(파일 기준으로 풀어서), GLB 안이나 data URI 면 원본 바이트
+void ConvertTexture(const cgltf_texture_view& view, const simul::String& baseDir, Material* out) {
+    const cgltf_texture* tex = view.texture;
+    if (!tex || !tex->image) return;
+    const cgltf_image* img = tex->image;
+    if (img->buffer_view && img->buffer_view->buffer && img->buffer_view->buffer->data) {
+        const unsigned char* p = static_cast<const unsigned char*>(img->buffer_view->buffer->data) + img->buffer_view->offset;
+        out->baseColorImage.assign(p, p + img->buffer_view->size);
+    } else if (img->uri) {
+        if (strncmp(img->uri, "data:", 5) == 0) {
+            const char* comma = strchr(img->uri, ',');
+            if (comma) DecodeBase64(comma + 1, &out->baseColorImage);
+        } else {
+            simul::String uri = img->uri;
+            simul::Array<char> tmp;
+            for (size_t i = 0; i < uri.size(); i++) tmp.push_back(uri[i]);
+            tmp.push_back('\0');
+            cgltf_decode_uri(&tmp[0]);   // %20 같은 것을 풀어 준다
+            uri = &tmp[0];
+            const bool absolute = !uri.empty() && (uri[0] == '/' || (uri.size() > 1 && uri[1] == ':'));
+            out->baseColorTexture = (absolute || baseDir.empty()) ? uri : baseDir + uri;
+        }
+    }
+}
+
+void ConvertMaterial(const cgltf_material* m, const simul::String& baseDir, Material* out) {
     out->baseColor = Color(1.0f, 1.0f, 1.0f, 1.0f);  // glTF 기본값
     if (m->name) out->name = m->name;
     out->doubleSided = m->double_sided != 0;
@@ -52,13 +98,11 @@ void ConvertMaterial(const cgltf_material* m, Material* out) {
                                pbr.base_color_factor[3]);
         out->metallic = pbr.metallic_factor;
         out->roughness = pbr.roughness_factor;
-        const cgltf_texture* tex = pbr.base_color_texture.texture;
-        if (tex && tex->image && tex->image->uri && strncmp(tex->image->uri, "data:", 5) != 0) {
-            out->baseColorTexture = tex->image->uri;
-        }
+        ConvertTexture(pbr.base_color_texture, baseDir, out);
     } else if (m->has_pbr_specular_glossiness) {
         const cgltf_pbr_specular_glossiness& sg = m->pbr_specular_glossiness;
         out->baseColor = Color(sg.diffuse_factor[0], sg.diffuse_factor[1], sg.diffuse_factor[2], sg.diffuse_factor[3]);
+        ConvertTexture(sg.diffuse_texture, baseDir, out);
     }
 }
 
@@ -74,12 +118,14 @@ int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primit
     const cgltf_accessor* pos = NULL;
     const cgltf_accessor* nor = NULL;
     const cgltf_accessor* uv = NULL;
+    const cgltf_accessor* col = NULL;
     for (cgltf_size i = 0; i < prim->attributes_count; i++) {
         const cgltf_attribute& a = prim->attributes[i];
         if (a.index != 0 || !a.data) continue;
         if (a.type == cgltf_attribute_type_position) pos = a.data;
         else if (a.type == cgltf_attribute_type_normal) nor = a.data;
         else if (a.type == cgltf_attribute_type_texcoord) uv = a.data;
+        else if (a.type == cgltf_attribute_type_color) col = a.data;
     }
     if (!pos || pos->count == 0) {
         warnings->push_back("POSITION 이 없거나 비어 있는 primitive 를 건너뛰었습니다");
@@ -121,6 +167,21 @@ int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primit
             }
         } else {
             warnings->push_back("TEXCOORD_0 접근자가 POSITION 과 맞지 않아 무시했습니다");
+        }
+    }
+
+    if (col) {   // 정점 색: vec3 또는 vec4 (정수 형식은 cgltf 가 0..1 로 바꿔 준다)
+        if ((col->type == cgltf_type_vec3 || col->type == cgltf_type_vec4) && col->count == pos->count) {
+            const cgltf_size comp = col->type == cgltf_type_vec3 ? 3 : 4;
+            out->colors.assign(n * 4, 1.0f);
+            for (size_t v = 0; v < n; v++) {
+                cgltf_float c[4] = {1, 1, 1, 1};
+                if (!cgltf_accessor_read_float(col, v, c, comp)) { out->colors.clear(); break; }
+                for (int k = 0; k < 4; k++) out->colors[v * 4 + static_cast<size_t>(k)] = c[k];
+            }
+            if (out->colors.empty()) warnings->push_back("COLOR_0 데이터를 읽을 수 없어 무시했습니다");
+        } else {
+            warnings->push_back("COLOR_0 접근자 형식이 맞지 않아 무시했습니다");
         }
     }
 
@@ -175,11 +236,11 @@ int ConvertPrimitive(const cgltf_data* data, const cgltf_primitive* prim, Primit
     return 1;
 }
 
-bool ConvertScene(const cgltf_data* d, Scene* out, simul::String* error) {
+bool ConvertScene(const cgltf_data* d, const simul::String& baseDir, Scene* out, simul::String* error) {
     out->Clear();
 
     out->materials.resize(d->materials_count);
-    for (size_t i = 0; i < d->materials_count; i++) ConvertMaterial(&d->materials[i], &out->materials[i]);
+    for (size_t i = 0; i < d->materials_count; i++) ConvertMaterial(&d->materials[i], baseDir, &out->materials[i]);
 
     out->meshes.resize(d->meshes_count);
     for (size_t i = 0; i < d->meshes_count; i++) {
@@ -242,14 +303,14 @@ bool ConvertScene(const cgltf_data* d, Scene* out, simul::String* error) {
 }
 
 // 파싱된 cgltf_data 를 검증하고 변환한다 (data 는 호출한 쪽에서 해제)
-bool Finish(cgltf_data* data, Scene* out, simul::String* error) {
+bool Finish(cgltf_data* data, const simul::String& baseDir, Scene* out, simul::String* error) {
     const cgltf_result v = cgltf_validate(data);
     if (v != cgltf_result_success) {
         detail::SetError(error, "glTF 검증 실패: " + ResultName(v));
         return false;
     }
     if (!CheckRequiredExtensions(data, error)) return false;
-    return ConvertScene(data, out, error);
+    return ConvertScene(data, baseDir, out, error);
 }
 
 }  // namespace
@@ -272,7 +333,7 @@ bool LoadGlbFromMemory(const void* bytes, size_t size, Scene* out, simul::String
     r = cgltf_load_buffers(&options, data, NULL);  // 메모리 입력은 GLB 에 포함된 버퍼와 data URI 만 쓴다
     bool ok = false;
     if (r != cgltf_result_success) detail::SetError(error, "버퍼 로드 실패: " + ResultName(r));
-    else ok = Finish(data, out, error);
+    else ok = Finish(data, simul::String(), out, error);
     cgltf_free(data);
     if (!ok) out->Clear();
     return ok;
@@ -292,7 +353,10 @@ bool LoadGlb(const simul::String& path, Scene* out, simul::String* error) {
     r = cgltf_load_buffers(&options, data, path.c_str());  // 외부 .bin 은 이 파일 기준 상대경로
     bool ok = false;
     if (r != cgltf_result_success) detail::SetError(error, "버퍼 로드 실패 (" + path + "): " + ResultName(r));
-    else ok = Finish(data, out, error);
+    else {
+        const size_t slash = path.find_last_of("/\\");
+        ok = Finish(data, slash == simul::String::npos ? simul::String() : path.substr(0, slash + 1), out, error);
+    }
     cgltf_free(data);
     if (!ok) out->Clear();
     return ok;

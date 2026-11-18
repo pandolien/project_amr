@@ -282,6 +282,52 @@ void testGlbErrors() {
 
 }  // namespace
 
+// 정점 색(COLOR_0)과 기본 색 텍스처(GLB 안, data URI, 외부 파일)를 읽는다
+void testGlbColorsAndTextures() {
+    simul::Array<char> b;
+    const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);                       // 0..35 POSITION
+    const float c[12] = {1, 0, 0, 1, 0, 1, 0, 0.5f, 0, 0, 1, 1};
+    for (int i = 0; i < 12; i++) testglb::putf(&b, c[i]);                      // 36..83 COLOR_0 (vec4)
+    const float uv[6] = {0, 0, 1, 0, 0, 1};
+    for (int i = 0; i < 6; i++) testglb::putf(&b, uv[i]);                      // 84..107 TEXCOORD_0
+    const char img[8] = {'I', 'M', 'G', '1', '2', '3', '4', '5'};
+    b.insert(b.end(), img, img + 8);                                           // 108..115 임베디드 이미지
+    simul::String json =
+        "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
+        "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"COLOR_0\":1,\"TEXCOORD_0\":2},\"material\":0}]}],"
+        "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}}},"
+        "{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":1}}},"
+        "{\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":2}}}],"
+        "\"textures\":[{\"source\":0},{\"source\":1},{\"source\":2}],"
+        "\"images\":[{\"bufferView\":3,\"mimeType\":\"image/png\"},{\"uri\":\"data:image/png;base64,QUJDRA==\"},{\"uri\":\"maps/tex%20a.png\"}],"
+        "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},"
+        "{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC4\"},"
+        "{\"bufferView\":2,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"}],"
+        "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":48},"
+        "{\"buffer\":0,\"byteOffset\":84,\"byteLength\":24},{\"buffer\":0,\"byteOffset\":108,\"byteLength\":8}],"
+        "\"buffers\":[{\"byteLength\":116}]}";
+    simul::Array<char> glb = testglb::MakeGlb(json, b);
+    const simul::String path = tu::Tmp("simul_test_color.glb");
+    simul::WriteFileBytes(path, &glb[0], glb.size());
+    Scene s;
+    simul::String err;
+    check(LoadGlb(path, &s, &err), "glb with colors and textures loads");
+    if (!s.meshes.empty() && !s.meshes[0].primitives.empty()) {
+        const Primitive& pr = s.meshes[0].primitives[0];
+        check(pr.colors.size() == 12 && nearly(pr.colors[0], 1) && nearly(pr.colors[7], 0.5) && nearly(pr.colors[10], 1), "COLOR_0 read as rgba");
+        check(pr.uvs.size() == 6 && nearly(pr.uvs[2], 1), "uv read");
+    }
+    check(s.IsValid() && s.materials.size() == 3, "scene with colors valid");
+    if (s.materials.size() == 3) {
+        check(s.materials[0].baseColorImage.size() == 8 && s.materials[0].baseColorImage[0] == 'I' && s.materials[0].baseColorTexture.empty(), "embedded image bytes kept");
+        check(s.materials[1].baseColorImage.size() == 4 && s.materials[1].baseColorImage[0] == 'A' && s.materials[1].baseColorImage[3] == 'D', "data URI decoded");
+        const simul::String& t = s.materials[2].baseColorTexture;
+        check(t.size() > 10 && t.find("maps/tex a.png") != simul::String::npos && t.find(tu::Tmp("")) == 0, "external texture path resolved next to the file");
+    }
+    remove(path.c_str());
+}
+
 int main() {
     testPrimitives();
     testSceneUtil();
@@ -289,6 +335,7 @@ int main() {
     testGlbIndexVariants();
     testGlbHierarchy();
     testGlbErrors();
+    testGlbColorsAndTextures();
     if (g_fail == 0) printf("test_cmesh: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }
