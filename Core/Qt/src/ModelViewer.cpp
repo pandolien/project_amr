@@ -2,6 +2,8 @@
 #include "CoreQt/QtString.h"
 #include "CoreQt/ModelViewer.h"
 
+#include <string.h>
+
 #include "3d/dhEuler.h"
 
 #include <QFileInfo>
@@ -179,17 +181,18 @@ ModelViewer::ModelViewer(QWidget* parent)
     ringLocal_ = false;
     hoverRing_ = -1;
     mouseEdit_ = true;
-    modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
+    modelMinZValid_ = false; floorValid_ = false;
     dragU0_ = 0;
     fallEnabled_ = true;
     gravityZ_ = -9.80665;
     fallVel_ = 0;
+    modelSigDirty_ = true;
     floorModel_ = -1;
     floorNx_ = floorNy_ = 0;
     floorMinX_ = floorMinY_ = 0.0f;
     floorCell_ = 1.0f;
     minZ_ = 0;
-    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false;
     fallTimer_ = new QTimer(this);
     fallTimer_->setInterval(16);
     fallClock_.start();
@@ -242,7 +245,7 @@ void ModelViewer::Clear() {
     selectedModel_ = false;
     objectPos_ = dhVector(0, 0, 0);
     fallVel_ = 0;
-    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
+    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false;
     scene_ = simul::Scene();
     hasScene_ = false;
     warnings_.clear();
@@ -375,7 +378,7 @@ void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;
     linkT_ = robot_.LinkTransforms(q);
-    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
+    minZValid_ = false; modelSigDirty_ = true;   // 모델마다 자세가 바뀌었는지는 syncModelCaches 가 따로 본다
     recomputeCollisions();
     update();
     emit jointValuesChanged();
@@ -520,29 +523,72 @@ bool ModelViewer::StepFall(double dt) {
     return moving;
 }
 
+// 모델의 링크마다 월드 변환을 이어 붙인 값. 이 값이 그대로면 모델의 모양과 자리가 그대로다.
+void ModelViewer::modelSignature(size_t model, simul::Array<float>* sig) const {
+    sig->clear();
+    for (size_t i = 0; i < items_.size(); i++) {
+        const Item& it = *items_[i];
+        if (world_.EntryOfLink(robot_, it.link) != static_cast<int>(model)) continue;
+        dhMat m = it.base;
+        if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+        for (int k = 0; k < 16; k++) sig->push_back(m.v[k]);
+    }
+}
+
+// 바닥/낙하 계산에 쓰는 모델별 캐시를 맞춘다. 자세나 관절이 바뀌어도 바뀐 모델만 다시 계산한다
+// (큰 배경 모델을 매 프레임 꼭짓점까지 훑지 않으려는 것이다).
+void ModelViewer::syncModelCaches() const {
+    const size_t n = world_.size();
+    if (!modelMinZValid_) {
+        modelMinZ_.assign(n, simul::kFloatMax);
+        modelClear_.assign(n, simul::kFloatMax);
+        minZOk_.assign(n, false);
+        clearOk_.assign(n, false);
+        modelSig_.assign(n, simul::Array<float>());
+        floorValid_ = false;
+        modelMinZValid_ = true;
+        modelSigDirty_ = true;
+    }
+    if (!modelSigDirty_) return;
+    modelSigDirty_ = false;
+    simul::Array<float> sig;
+    bool floorMoved = false;
+    for (size_t k = 0; k < n; k++) {
+        modelSignature(k, &sig);
+        if (sig.size() == modelSig_[k].size() && (sig.empty() || memcmp(&sig[0], &modelSig_[k][0], sig.size() * sizeof(float)) == 0)) continue;
+        modelSig_[k] = sig;
+        minZOk_[k] = false;
+        clearOk_[k] = false;
+        if (static_cast<int>(k) == floorModel_) floorMoved = true;
+    }
+    if (floorMoved) {   // 바닥이 움직였으면 모든 모델의 바닥까지 거리를 다시 구한다
+        floorValid_ = false;
+        for (size_t k = 0; k < n; k++) clearOk_[k] = false;
+    }
+}
+
 // 모델에 속한 모든 꼭짓점의 월드 z 가 가장 낮은 값 (자세와 관절 값이 반영된다)
 float ModelViewer::modelBottom(int model) const {
-    if (!modelMinZValid_) {
-        modelMinZ_.clear();
-        for (size_t k = 0; k < world_.size(); k++) modelMinZ_.push_back(simul::kFloatMax);
+    syncModelCaches();
+    if (model < 0 || static_cast<size_t>(model) >= modelMinZ_.size()) return 0.0f;
+    const size_t k = static_cast<size_t>(model);
+    if (!minZOk_[k]) {
+        float lo = simul::kFloatMax;
         for (size_t i = 0; i < items_.size(); i++) {
             const Item& it = *items_[i];
-            const int k = world_.EntryOfLink(robot_, it.link);
-            if (k < 0) continue;
+            if (world_.EntryOfLink(robot_, it.link) != model) continue;
             dhMat m = it.base;
             if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
-            float lo = modelMinZ_[static_cast<size_t>(k)];
             for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
                 float p[3];
                 Transform(m, &it.data[v], p);
                 lo = simul::Min(lo, p[2]);
             }
-            modelMinZ_[static_cast<size_t>(k)] = lo;
         }
-        modelMinZValid_ = true;
+        modelMinZ_[k] = lo;
+        minZOk_[k] = true;
     }
-    if (model < 0 || static_cast<size_t>(model) >= modelMinZ_.size() || modelMinZ_[static_cast<size_t>(model)] == simul::kFloatMax) return 0.0f;
-    return modelMinZ_[static_cast<size_t>(model)];
+    return modelMinZ_[k] == simul::kFloatMax ? 0.0f : modelMinZ_[k];
 }
 
 bool ModelViewer::stepFallModels(double dt) {
@@ -586,7 +632,7 @@ void ModelViewer::SetFloorModel(int model) {
     if (model == floorModel_) return;
     floorModel_ = model;
     floorValid_ = false;
-    modelClearValid_ = false;
+    modelMinZValid_ = false;   // 캐시를 모두 새로 만든다
     for (size_t k = 0; k < modelFallVel_.size(); k++) modelFallVel_[k] = 0.0;
     update();
 }
@@ -658,6 +704,7 @@ void ModelViewer::buildFloor() const {
 
 bool ModelViewer::FloorHeightAt(double x, double y, double* z) const {
     if (floorModel_ < 0) return false;
+    syncModelCaches();
     if (!floorValid_) buildFloor();
     if (floorNx_ <= 0) return false;
     const float fx = static_cast<float>(x), fy = static_cast<float>(y);
@@ -685,18 +732,19 @@ bool ModelViewer::FloorHeightAt(double x, double y, double* z) const {
 // 모델의 꼭짓점마다 (꼭짓점 높이 - 그 아래 바닥 높이) 를 구해 가장 작은 값이 더 내려갈 수 있는 거리다.
 // 바닥 모델이 없는 자리는 z=0 평면이 바닥이다.
 float ModelViewer::modelClearance(int model) const {
-    if (!modelClearValid_) {
-        modelClear_.clear();
-        for (size_t k = 0; k < world_.size(); k++) modelClear_.push_back(simul::kFloatMax);
+    syncModelCaches();
+    if (model < 0 || static_cast<size_t>(model) >= modelClear_.size()) return 0.0f;
+    const size_t k = static_cast<size_t>(model);
+    if (!clearOk_[k]) {
+        if (!floorValid_) buildFloor();
+        float lo = simul::kFloatMax;
         for (size_t i = 0; i < items_.size(); i++) {
             const Item& it = *items_[i];
-            const int k = world_.EntryOfLink(robot_, it.link);
-            if (k < 0 || k == floorModel_) continue;
+            if (world_.EntryOfLink(robot_, it.link) != model) continue;
             dhMat m = it.base;
             if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
-            float lo = modelClear_[static_cast<size_t>(k)];
             const size_t verts = it.data.size() / 6;
-            const size_t stride = verts > 20000 ? verts / 20000 : 1;   // 아주 큰 메시는 건너뛰며 본다
+            const size_t stride = verts > 4000 ? verts / 4000 : 1;   // 아주 큰 메시는 건너뛰며 본다
             for (size_t v = 0; v < verts; v += stride) {
                 float p[3];
                 Transform(m, &it.data[v * 6], p);
@@ -704,12 +752,11 @@ float ModelViewer::modelClearance(int model) const {
                 if (!FloorHeightAt(static_cast<double>(p[0]), static_cast<double>(p[1]), &fz)) fz = 0.0;
                 lo = simul::Min(lo, p[2] - static_cast<float>(fz));
             }
-            modelClear_[static_cast<size_t>(k)] = lo;
         }
-        modelClearValid_ = true;
+        modelClear_[k] = lo;
+        clearOk_[k] = true;
     }
-    if (model < 0 || static_cast<size_t>(model) >= modelClear_.size() || modelClear_[static_cast<size_t>(model)] == simul::kFloatMax) return 0.0f;
-    return modelClear_[static_cast<size_t>(model)];
+    return modelClear_[k] == simul::kFloatMax ? 0.0f : modelClear_[k];
 }
 
 double ModelViewer::SimulateFall(double maxSeconds) {
@@ -876,7 +923,7 @@ void ModelViewer::SetModelPose(int index, const dhMat& pose) {
         if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = pose;
     }
     linkT_ = robot_.LinkTransforms(q_);
-    minZValid_ = false; modelMinZValid_ = false; floorValid_ = false; modelClearValid_ = false;
+    minZValid_ = false; modelSigDirty_ = true;   // 모델마다 자세가 바뀌었는지는 syncModelCaches 가 따로 본다
     recomputeCollisions();
     updateBounds();
     update();
