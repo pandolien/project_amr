@@ -978,7 +978,7 @@ public:
         const bool lidar = link >= 0 && link == lidarSpec_.link;
         if (model < 0 && !lidar) return;
         QMenu menu;
-        QAction *beams = nullptr, *graph = nullptr, *place = nullptr, *remove = nullptr;
+        QAction *beams = nullptr, *graph = nullptr, *place = nullptr, *remove = nullptr, *floor = nullptr;
         if (lidar) {
             beams = menu.addAction(QString::fromUtf8("레이저 표시 (3D 화면)"));
             beams->setCheckable(true);
@@ -990,6 +990,9 @@ public:
         if (model >= 0) {
             if (lidar) menu.addSeparator();
             place = menu.addAction(QString::fromUtf8("위치 지정... (%1)").arg(viewer_->ModelName(model)));
+            floor = menu.addAction(QString::fromUtf8("바닥으로 지정 (%1)").arg(viewer_->ModelName(model)));   // 다른 모델이 이 모델의 윗면 위로 떨어져 멈춘다
+            floor->setCheckable(true);
+            floor->setChecked(viewer_->FloorModel() == model);
             remove = menu.addAction(QString::fromUtf8("제거 (%1)").arg(viewer_->ModelName(model)));
         }
         QAction* chosen = menu.exec(globalPos);   // 끝나면 체크 상태는 이미 바뀌어 있다
@@ -997,6 +1000,10 @@ public:
         if (chosen == beams) showLidarBeams(beams->isChecked());
         else if (chosen == graph) showLidarGraph(graph->isChecked());
         else if (chosen == place) askPlacement(model);
+        else if (chosen == floor) {
+            viewer_->SetFloorModel(floor->isChecked() ? model : -1);
+            log_->Info(floor->isChecked() ? QString::fromUtf8("바닥으로 지정: %1").arg(viewer_->ModelName(model)) : QString::fromUtf8("바닥 지정 해제"));
+        }
         else if (chosen == remove) removeModel(model);
     }
 
