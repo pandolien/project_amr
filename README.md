@@ -477,3 +477,7 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 - 3D 화면에서 모델 구조 트리의 모델 루트를 오른쪽 클릭 → "바닥으로 지정" / "바닥 지정 해제"
 - 명령행: `--floor 모델이름` (예: `simul_main table.urdf box.urdf --floor table`)
 - 코드: `viewer->SetFloorModel(index)`, `SetFloorByLink("링크이름")`, `FloorModel()`, `FloorHeightAt(x, y, &z)` (그 자리의 바닥 높이)
+
+## 컨셉 문서
+
+- [Python 스크립트 + DLL 제어기 구조 (컨셉 초안)](docs/concept_scripting_dll.md): 아직 코드에 반영되지 않은 설계 논의. 결정/제안/열린 질문을 구분해 둔다.
