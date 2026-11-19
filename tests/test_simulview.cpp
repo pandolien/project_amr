@@ -215,6 +215,11 @@ int main(int argc, char** argv) {
             v->SimulateFall(20.0);
             const float restZ = v->ModelPlacementPose(item).position.z;   // 팔의 바닥면이 모델 원점이라 원점 높이 = 윗면 높이
             CHECK(simul::Abs(restZ - 0.5f) < 2e-3f, "the model rests on the floor model's top (0.5 m), not on z = 0");
+            // 바닥 모델을 0.2 m 내리면 (캐시가 새로 만들어져야 한다) 올려 둔 모델도 따라 내려가 0.3 m 에서 멈춘다
+            v->SetModelPlacement(fl, dhPose(dhVector(0, 0, -0.2f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            v->SimulateFall(20.0);
+            CHECK(simul::Abs(v->ModelPlacementPose(item).position.z - 0.3f) < 2e-3f, "the model follows when the floor model moves down");
+            v->SetModelPlacement(fl, dhPose(dhVector(0, 0, 0), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
             // 바닥 모델 바깥으로 옮기면 z=0 평면까지 내려간다
             v->SetModelPlacement(item, dhPose(dhVector(3, 0, 1), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
             v->SimulateFall(20.0);

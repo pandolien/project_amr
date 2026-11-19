@@ -347,8 +347,12 @@ private:
     mutable simul::Array<simul::Array<int> > floorGrid_;   // xy 격자 칸마다 삼각형 번호
     mutable float floorMinX_, floorMinY_, floorCell_;
     mutable int floorNx_, floorNy_;
-    mutable simul::Array<float> modelClear_;
-    mutable bool modelClearValid_;
+    mutable simul::Array<float> modelClear_;       // 모델마다 바닥까지 더 내려갈 수 있는 거리
+    mutable simul::Array<bool> minZOk_, clearOk_;  // 모델마다 위 값이 지금 자세에서 구한 것인가
+    mutable simul::Array<simul::Array<float> > modelSig_;   // 모델마다 마지막으로 계산했을 때의 링크 변환들
+    mutable bool modelSigDirty_;                   // 자세나 관절이 바뀌었을 수 있다 (모델별로 다시 확인해야 한다)
+    void modelSignature(size_t model, simul::Array<float>* sig) const;
+    void syncModelCaches() const;
     bool stepFallModels(double dt);           // 모델 하나하나를 바닥(z=0)까지 떨어뜨린다
     simul::Scene scene_;
     bool hasScene_;
