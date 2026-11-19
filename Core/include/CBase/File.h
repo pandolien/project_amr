@@ -15,6 +15,9 @@ bool ReadAllBytes(const String& path, Array<unsigned char>* out, String* err);
 bool WriteFileBytes(const String& path, const void* data, size_t size);
 inline bool WriteFileText(const String& path, const String& text) { return WriteFileBytes(path, text.c_str(), text.size()); }
 bool RemoveFile(const String& path);  // 지웠으면 true
+bool DirectoryExists(const String& path);
+// 폴더를 만든다 (중간 폴더도 함께). 이미 있으면 true.
+bool MakeDirectories(const String& path);
 
 }  // namespace simul
 

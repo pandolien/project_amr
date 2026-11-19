@@ -59,6 +59,8 @@ public:
     // 지금 장면(모델 여러 개와 각자의 위치/회전)을 URDF 파일 하나로 저장한다. 모델이 여럿이면 가상 링크 world 아래에
     // 모델마다 <이름>_attach 고정 관절로 매달린다. 현재 관절 값은 파일에 담기지 않는다 (URDF 에는 자세가 없다).
     bool SaveUrdf(const QString& path, QString* error = nullptr) const;
+    // 폴더로 저장: dir/<폴더이름>.urdf + dir/obj/ (GLB 는 바이너리 STL 로 바꿔 넣는다). warnings 에는 STL 로 옮기지 못한 색/텍스처 같은 것이 들어간다.
+    bool SaveUrdfFolder(const QString& dir, QString* error = nullptr, QStringList* warnings = nullptr) const;
     int ModelCount() const { return static_cast<int>(world_.size()); }
     QString ModelName(int index) const;
     int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)

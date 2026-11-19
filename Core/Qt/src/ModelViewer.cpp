@@ -391,6 +391,24 @@ bool ModelViewer::SaveUrdf(const QString& path, QString* error) const {
     return true;
 }
 
+bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList* warnings) const {
+    if (!hasRobot_) {
+        if (error) *error = QString::fromUtf8("저장할 모델이 없습니다");
+        return false;
+    }
+    simul::urdf::FolderSaveResult res;
+    simul::String err;
+    if (!simul::urdf::SaveUrdfFolder(robot_, simulqt::FromQ(dir), options_, &err, &res)) {
+        if (error) *error = simulqt::ToQ(err);
+        return false;
+    }
+    if (warnings) {
+        warnings->clear();
+        for (size_t i = 0; i < res.warnings.size(); i++) *warnings << simulqt::ToQ(res.warnings[i]);
+    }
+    return true;
+}
+
 void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;

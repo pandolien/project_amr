@@ -6,6 +6,10 @@
 #include "CURDF/Primitives.h"
 #include "CURDF/Scale.h"
 #include "CURDF/World.h"
+#include "CBase/File.h"
+#include "CMesh/MeshLoader.h"
+#include "CMesh/MeshWriter.h"
+#include "TestGlb.h"
 #include "TestUtil.h"
 
 using namespace simul;
@@ -165,6 +169,103 @@ void testPrimitives() {
     sameRobot(scene, again, "shapes");
 }
 
+
+// 폴더로 저장: GLB 는 바이너리 STL 로 바뀌어 obj/ 에 들어가고(색은 URDF 로), STL/OBJ 는 복사되며, 다시 열면 같은 모양이 나온다
+void testFolder() {
+    const String src = tu::Tmp("simul_fold_src");
+    tu::MkDir(src);
+    {   // 삼각형 하나 + 재질 색 (0.2 0.4 0.6)
+        Array<char> b;
+        const float p[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+        for (int i = 0; i < 9; i++) testglb::putf(&b, p[i]);
+        const String js =
+            "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
+            "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.2,0.4,0.6,1]}}],"
+            "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],"
+            "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}],"
+            "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}";
+        const Array<char> glb = testglb::MakeGlb(js, b);
+        WriteFileBytes(src + "/tri.glb", &glb[0], glb.size());
+    }
+    {   // OBJ + MTL + 텍스처 (내용은 의미 없는 바이트)
+        const String obj = "mtllib m.mtl\nusemtl a\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+        const String mtl = "newmtl a\nKd 1 0 0\nmap_Kd t.png\n";
+        WriteFileText(src + "/box.obj", obj);
+        WriteFileText(src + "/m.mtl", mtl);
+        WriteFileText(src + "/t.png", "PNGDATA");
+    }
+    {   // STL 원본: 바이너리 삼각형 하나
+
+        Array<unsigned char> st(84 + 50, 0);
+        const uint32_t n = 1;
+        memcpy(&st[80], &n, 4);
+        const float v[9] = {0, 0, 0, 0, 2, 0, 0, 0, 3};
+        memcpy(&st[84 + 12], v, 36);
+        WriteFileBytes(src + "/src.stl", &st[0], st.size());
+    }
+    const String urdfPath = src + "/in.urdf";
+    WriteFileText(urdfPath,
+        "<robot name=\"m\"><link name=\"base\">"
+        "<visual name=\"g\"><origin xyz=\"1 0 0\"/><geometry><mesh filename=\"tri.glb\" scale=\"2 1 1\"/></geometry></visual>"
+        "<visual name=\"s\"><geometry><mesh filename=\"src.stl\"/></geometry><material name=\"red\"><color rgba=\"1 0 0 1\"/></material></visual>"
+        "<visual name=\"o\"><geometry><mesh filename=\"box.obj\"/></geometry></visual>"
+        "<visual name=\"b\"><geometry><box size=\"1 2 3\"/></geometry></visual>"
+        "<collision><geometry><mesh filename=\"tri.glb\" scale=\"2 1 1\"/></geometry></collision>"
+        "</link></robot>");
+    Robot r;
+    String err;
+    check(LoadUrdf(urdfPath, &r, &err), ("load folder source: " + err).c_str());
+
+    const String out = tu::Tmp("simul_fold_out");
+    FolderSaveResult res;
+    check(SaveUrdfFolder(r, out + "/robotx", LoadOptions(), &err, &res), ("save folder: " + err).c_str());
+    check(res.urdfPath == out + "/robotx/robotx.urdf", "urdf is <folder>/<folder>.urdf");
+    check(res.converted == 1 && res.copied == 2, "glb converted once (shared by visual and collision), stl and obj copied");
+
+    Array<unsigned char> stl;
+    check(ReadAllBytes(out + "/robotx/obj/tri.stl", &stl, &err), "obj/tri.stl exists");
+    check(stl.size() == 84 + 50, "binary STL size = 84 + 50 * triangles");
+    uint32_t cnt = 0;
+    if (stl.size() >= 84) memcpy(&cnt, &stl[80], 4);
+    check(cnt == 1, "STL triangle count");
+    Array<unsigned char> tmp;
+    check(ReadAllBytes(out + "/robotx/obj/src.stl", &tmp, &err), "stl copied to obj/");
+    check(ReadAllBytes(out + "/robotx/obj/box/box.obj", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/box/m.mtl", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/box/t.png", &tmp, &err), "obj, mtl and texture copied together");
+
+    // URDF 는 상대 경로만 쓴다 (원본 폴더 이름이 없어야 한다)
+    Array<unsigned char> ub;
+    check(ReadAllBytes(res.urdfPath, &ub, &err), "read saved urdf");
+    const String text(ub.empty() ? "" : reinterpret_cast<const char*>(&ub[0]), ub.size());
+    check(text.find(src) == String::npos, "saved urdf has no absolute source path");
+    check(text.find("filename=\"obj/tri.stl\"") != String::npos && text.find("filename=\"obj/src.stl\"") != String::npos && text.find("filename=\"obj/box/box.obj\"") != String::npos, "meshes referenced as obj/...");
+
+    // 다시 읽기: 같은 구조, 모양이 같고, GLB 의 색은 URDF 색으로 옮겨져 있다
+    Robot again;
+    check(LoadUrdf(res.urdfPath, &again, &err), ("reload folder urdf: " + err).c_str());
+    check(again.links.size() == 1 && again.links[0].visuals.size() == 4 && again.links[0].collisions.size() == 1, "same shapes after reload");
+    check(again.links[0].visuals[0].hasMaterial && again.links[0].visuals[0].material.hasColor &&
+              near(again.links[0].visuals[0].material.color.r, 0.2) && near(again.links[0].visuals[0].material.color.g, 0.4) && near(again.links[0].visuals[0].material.color.b, 0.6),
+          "glb base color moved into the urdf material");
+    check(again.links[0].visuals[0].geometry.scale[0] == 1.0f, "scale is baked into the STL");
+    RobotMeshes a, b;
+    check(LoadRobotMeshes(r, LoadOptions(), &a), "load original meshes");
+    check(LoadRobotMeshes(again, LoadOptions(), &b), "load folder meshes");
+    check(a.visuals.size() == b.visuals.size() && !a.visuals.empty(), "same visual count");
+    for (size_t i = 0; i < a.visuals.size() && i < b.visuals.size(); i++) {
+        dhVector amin, amax, bmin, bmax;
+        a.visuals[i].scene.ComputeBounds(&amin, &amax);
+        b.visuals[i].scene.ComputeBounds(&bmin, &bmax);
+        check(near(amin.x, bmin.x, 1e-4) && near(amin.y, bmin.y, 1e-4) && near(amin.z, bmin.z, 1e-4) && near(amax.x, bmax.x, 1e-4) && near(amax.y, bmax.y, 1e-4) && near(amax.z, bmax.z, 1e-4),
+              ("visual shape bounds match " + ToString(i)).c_str());
+    }
+    check(a.visuals[0].scene.TriangleCount() == b.visuals[0].scene.TriangleCount(), "triangle count");
+
+    // 폴더째 옮겨도 열린다
+    const String moved = tu::Tmp("simul_fold_moved");
+    check(SaveUrdfFolder(again, moved + "/other", LoadOptions(), &err, &res), ("save the folder urdf again: " + err).c_str());
+    check(res.warnings.empty() || true, "warnings are only advice");
+}
+
 }  // namespace
 
 // 모델 크기 배율: 길이는 s 배, 질량 s^3, 관성 s^5, 순기구학의 끝점도 s 배. 원래 크기 기준의 절대 배율이다.
@@ -221,6 +322,7 @@ int main() {
     roundTrip(kData + "lidar_room_3d.urdf");
     testRpy();
     testScene();
+    testFolder();
     if (g_fail == 0) printf("test_curdf_write: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

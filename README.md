@@ -370,6 +370,21 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdf(robot, path, &err)` / `UrdfToString`, 뷰어는 `ModelViewer::SaveUrdf(path)`, `SimulView` 기본 메뉴(파일)에도 같은 항목이 있다 (`urdfSaved` / `urdfSaveFailed` 신호).
 - 검증: 쓴 파일을 다시 읽어 링크/관절/질량·관성/형상/색이 같은지 `test_curdf_write` 가 확인한다 (회전 rpy 변환은 짐벌 락 근처 포함).
 
+### 폴더로 저장 / 폴더 열기
+
+```
+내폴더/
+├─ 내폴더.urdf        <mesh filename="obj/..."> 처럼 폴더 안의 상대 경로만 쓴다
+└─ obj/               메시와 부속 파일
+```
+
+- 앱: 파일 > **장면을 폴더로 저장...** (위치 선택 후 폴더 이름 입력, 이미 있으면 덮어쓸지 묻는다), 파일 > **폴더 열기 (추가)...**. 명령행 `--export-dir 폴더` (예: `simul_main arm.urdf --export-dir out/myscene`), 폴더 경로를 그냥 열 파일로 줘도 된다 (`simul_main out/myscene`, 폴더 끌어다 놓기도 같다).
+- **GLB/glTF 는 바이너리 STL 로 바꿔 `obj/이름.stl` 에 넣는다** (다른 URDF 도구가 읽을 수 있는 형식). URDF 의 scale 과 Y-up→Z-up 회전을 정점에 미리 적용하고 scale 은 1 로 쓰므로 화면에 보이던 모양 그대로다. STL 에는 색이 없어서, 시각 형상에 URDF 색이 없으면 GLB 의 기본 색(baseColorFactor)을 URDF `<material>` 로 옮긴다. 텍스처, 정점 색, 여러 재질의 색 차이는 버려지고 경고로 남는다 (로그 창).
+- STL 은 그대로 복사, OBJ/DAE 는 `obj/이름/` 폴더에 부속 파일(mtl, 텍스처)과 함께 복사한다. `<material><texture>` 이미지는 `obj/` 로 복사한다. 박스/원통/구는 파일이 필요 없다.
+- 같은 원본은 한 번만 만들고, 이름이 겹치면 `_2`, `_3` 을 붙인다. 폴더째 옮기거나 압축해서 보내도 열린다.
+- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result)`, 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings)`. STL 쓰기는 `CMesh/MeshWriter.h` 의 `SaveStl` / `StlBytes`.
+- 검증: `test_curdf_write` 의 폴더 테스트가 STL 크기(84 + 50×삼각형), 색 이전, 상대 경로, 다시 읽었을 때 모양(경계 상자) 일치를 확인한다.
+
 ## 엔진 밖에서 제어하는 위젯 (PropertiesPanel)
 
 3D 화면(엔진)은 그리기와 조작만 맡고, 속성 같은 입력 UI 는 엔진 밖에 호스트가 둔다. `PropertiesPanel(ModelViewer*)` 는 그 예다.

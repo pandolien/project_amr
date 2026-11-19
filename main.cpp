@@ -45,6 +45,7 @@ struct Options {
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     simul::String exportUrdf;  // --export-urdf 파일: 장면을 URDF 하나로 저장하고 끝낸다
+    simul::String exportDir;   // --export-dir 폴더: 장면을 폴더(폴더이름.urdf + obj/)로 저장하고 끝낸다
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
@@ -104,6 +105,7 @@ void PrintUsage(const char* exe) {
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --export-urdf 파일 열린 모델들(--place 반영)을 URDF 하나로 합쳐 저장하고 끝낸다 (창 없이 쓰려면 QT_QPA_PLATFORM=offscreen)\n"
+        "  --export-dir 폴더 같은 장면을 폴더로 저장하고 끝낸다: 폴더/폴더이름.urdf + 폴더/obj/ (GLB 는 바이너리 STL 로 바꿔 넣는다)\n"
         "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --add-box 이름=가로,세로,높이[@x,y,z]  / --add-cylinder 이름=반지름,길이[@x,y,z] / --add-sphere 이름=반지름[@x,y,z]  파일 없이 기본 도형을 장면에 올린다 (여러 번 가능)\n"
@@ -177,6 +179,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         }
         if (a == "--only-view") { o->onlyView = true; continue; }
         if (a == "--export-urdf" && hasNext) { o->exportUrdf = argv[++i]; continue; }
+        if (a == "--export-dir" && hasNext) { o->exportDir = argv[++i]; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
         if (a == "--floor" && hasNext) { o->floorModel = argv[++i]; continue; }
@@ -551,6 +554,22 @@ public:
             const QString p = QFileDialog::getSaveFileName(this, QString::fromUtf8("지금 장면(모델과 배치)을 URDF 하나로 저장"), QString(), QString::fromUtf8("URDF (*.urdf)"));
             if (!p.isEmpty()) exportUrdf(p);
         });
+        QAction* exportDirAct = file->addAction(QString::fromUtf8("장면을 폴더로 저장..."));
+        QObject::connect(exportDirAct, &QAction::triggered, this, [this]() {
+            const QString parent = QFileDialog::getExistingDirectory(this, QString::fromUtf8("저장할 위치 (이 안에 새 폴더를 만듭니다)"));
+            if (parent.isEmpty()) return;
+            bool ok = false;
+            const QString name = QInputDialog::getText(this, QString::fromUtf8("폴더로 저장"), QString::fromUtf8("폴더 이름 (폴더이름.urdf 와 obj/ 가 들어갑니다)"), QLineEdit::Normal, QString::fromUtf8("scene"), &ok).trimmed();
+            if (!ok || name.isEmpty()) return;
+            const QString dir = QDir(parent).filePath(name);
+            if (QFileInfo(dir).exists() && QMessageBox::question(this, QString::fromUtf8("폴더로 저장"), QString::fromUtf8("%1 이(가) 이미 있습니다. 같은 이름의 파일을 덮어씁니다. 계속할까요?").arg(dir)) != QMessageBox::Yes) return;
+            exportFolder(dir);
+        });
+        QAction* openDirAct = file->addAction(QString::fromUtf8("폴더 열기 (추가)..."));
+        QObject::connect(openDirAct, &QAction::triggered, this, [this]() {
+            const QString d = QFileDialog::getExistingDirectory(this, QString::fromUtf8("폴더로 저장한 모델 열기 (현재 장면에 추가됩니다)"));
+            if (!d.isEmpty()) openFile(d);
+        });
         file->addSeparator();
         QAction* quit = file->addAction(QString::fromUtf8("종료"));
         quit->setShortcut(QKeySequence::Quit);
@@ -784,8 +803,40 @@ public:
         return true;
     }
 
+    // 지금 장면을 폴더로 저장한다: dir/<폴더이름>.urdf + dir/obj/. 성공하면 true
+    bool exportFolder(const QString& dir) {
+        QString err;
+        QStringList warns;
+        if (!viewer_->SaveUrdfFolder(dir, &err, &warns)) {
+            logError(QString::fromUtf8("폴더 저장 실패: %1").arg(err));
+            return false;
+        }
+        for (int i = 0; i < warns.size(); i++) log_->Warning(QString::fromUtf8("폴더 저장: %1").arg(warns[i]));
+        const QString msg = QString::fromUtf8("폴더로 저장: %1 (모델 %2개, 링크 %3, 관절 %4, 경고 %5)").arg(dir).arg(viewer_->ModelCount()).arg(viewer_->Robot().links.size()).arg(viewer_->Robot().joints.size()).arg(warns.size());
+        log_->Info(msg);
+        statusBar()->showMessage(msg);
+        return true;
+    }
+
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
-    bool openFile(const QString& path) {
+    bool openFile(const QString& pathIn) {
+        QString path = pathIn;
+        if (QFileInfo(path).isDir()) {   // 폴더로 저장한 것: 폴더이름.urdf, 없으면 안에 URDF 가 하나뿐일 때 그것
+            const QDir d(path);
+            QString found;
+            if (QFileInfo(d.filePath(d.dirName() + ".urdf")).isFile()) found = d.filePath(d.dirName() + ".urdf");
+            else {
+                const QStringList list = d.entryList(QStringList() << "*.urdf", QDir::Files);
+                if (list.size() == 1) found = d.filePath(list[0]);
+            }
+            if (found.isEmpty()) {
+                const QString e = QString::fromUtf8("폴더에서 URDF 를 찾을 수 없습니다 (%1.urdf 또는 *.urdf 하나)").arg(d.dirName());
+                logError(QString::fromUtf8("열 수 없음: %1 - %2").arg(path).arg(e));
+                QMessageBox::warning(this, QString::fromUtf8("열 수 없음"), e);
+                return false;
+            }
+            path = found;
+        }
         const bool beamsWere = viewer_->LidarEnabled() && viewer_->LidarDrawn();
         const bool graphWere = lidarDock_ && lidarDock_->isVisible();
         QString err;
@@ -1361,6 +1412,11 @@ int main(int argc, char** argv) {
         }
     }
     if (!o.shapes.empty()) w.applyShapes(o);
+    if (!o.exportDir.empty()) {   // 확인용/배치용: 합친 장면을 폴더로 저장하고 끝낸다
+        if (!w.exportFolder(QString::fromLocal8Bit(o.exportDir.c_str()))) return 1;
+        printf("폴더로 저장: %s\n", o.exportDir.c_str());
+        if (o.exportUrdf.empty()) return 0;
+    }
     if (!o.exportUrdf.empty()) {   // 확인용/배치용: 합친 장면을 URDF 로 저장하고 끝낸다
         if (!w.exportUrdf(QString::fromLocal8Bit(o.exportUrdf.c_str()))) return 1;
         printf("URDF 저장: %s\n", o.exportUrdf.c_str());
