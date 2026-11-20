@@ -687,6 +687,7 @@ public:
         logAct->setText(QString::fromUtf8("로그"));
         logAct->setShortcut(Qt::Key_L);
         view->insertAction(viewSep, logAct);
+        QObject::connect(viewer_, &ModelViewer::shaderFailed, this, [this](const QString& log) { log_->Error(log); });
         sunPanel_ = new SunPanel(viewer_);
         sunDock_ = new QDockWidget(QString::fromUtf8("태양"), this);
         sunDock_->setWidget(sunPanel_);

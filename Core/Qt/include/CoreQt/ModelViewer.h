@@ -226,6 +226,7 @@ public:
 
     QString Summary() const;           // "삼각형 N개, 크기 ..." 같은 한 줄 설명
     const QStringList& Warnings() const { return warnings_; }
+    const QString& ShaderLog() const { return shaderLog_; }   // 셰이더 컴파일/링크 로그 (정상이어도 경고가 있을 수 있다)
 
 signals:
     void modelChanged();
@@ -233,6 +234,7 @@ signals:
     void structureChanged();  // 링크 구성이 바뀌었다 (모델 하나를 처음 돌리면 world 가 생긴다): 트리/패널을 다시 채운다
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
     void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
+    void shaderFailed(const QString& log);   // OpenGL 셰이더를 만들지 못했을 때 (드라이버의 오류 문구 포함). 화면에도 같은 글이 나온다
     void sunChanged(const simul::env::SunState& state);   // 태양 설정이 바뀔 때마다
     void sensorCameraRendered(const simul::sensor::CameraImage& image);  // RenderSensorCamera 로 찍을 때마다
     void lidarScanned(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
@@ -303,6 +305,7 @@ private:
         SunLighting() : on(false), sunK(1.0f), ambient(1.0f) { color[0] = color[1] = color[2] = 1.0f; sky[0] = 0.16f; sky[1] = 0.17f; sky[2] = 0.20f; }
     };
     SunLighting sunLighting() const;
+    QString shaderLog_;
     SunSettings sunSettings_;
     simul::env::SunState sunState_;
     void collectTargets(int skipLink, simul::Array<simul::sensor::CameraTarget>* out);
