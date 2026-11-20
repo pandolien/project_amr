@@ -80,15 +80,16 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
     out->depth.assign(n, 0.0f);
     out->targetIds.assign(n, -1);
     out->bgr.assign(n * 3, 0);
-    const uint8_t bgB = ToByte(settings_.background[2]), bgG = ToByte(settings_.background[1]), bgR = ToByte(settings_.background[0]);
+    const float* bgc = sun_.enabled ? sun_.sky : settings_.background;
+    const uint8_t bgB = ToByte(bgc[2]), bgG = ToByte(bgc[1]), bgR = ToByte(bgc[0]);
     for (size_t i = 0; i < n; i++) {
         out->bgr[i * 3] = bgB;
         out->bgr[i * 3 + 1] = bgG;
         out->bgr[i * 3 + 2] = bgR;
     }
     Array<float> best(n, HUGE_VALF);   // 지금까지 가장 가까운 깊이
-    Array<float> shade(n, 1.0f);       // 밝기
     Array<int> who(n, -1);             // 맞은 targets 번호
+    Array<size_t> hitTri(n, 0);        // 맞은 삼각형 번호
 
     // 광선 방향(센서)은 (1, a_u, a_v) 꼴이라 열마다/행마다 한 번만 계산한다
     Array<float> dy(w), dz(h);
@@ -116,36 +117,106 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
                 else hit = RaycastTriangles(tg.positions, tg.vertexCount, tg.indices, tg.indexCount, dhVector(o[0], o[1], o[2]), dhVector(d[0], d[1], d[2]), limit, &t, &tri, tg.stride);
                 if (!hit || t < settings_.nearClip || t > settings_.farClip) continue;
                 if (!(t < best[i])) continue;
-                // 맞은 삼각형의 면 법선 (메시 좌표) 과 광선의 각도로 밝기를 정한다
-                float s = 1.0f;
-                if (tri * 3 + 2 < tg.indexCount) {
-                    const uint32_t ia = tg.indices[tri * 3], ib = tg.indices[tri * 3 + 1], ic = tg.indices[tri * 3 + 2];
-                    if (ia < tg.vertexCount && ib < tg.vertexCount && ic < tg.vertexCount) {
-                        const float* a = tg.positions + static_cast<size_t>(ia) * tg.stride;
-                        const float* b = tg.positions + static_cast<size_t>(ib) * tg.stride;
-                        const float* c = tg.positions + static_cast<size_t>(ic) * tg.stride;
-                        const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-                        const float nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
-                        const float nl = sqrtf(nx * nx + ny * ny + nz * nz), dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-                        if (nl > 1e-20f && dl > 1e-20f) s = 0.3f + 0.7f * fabsf((nx * d[0] + ny * d[1] + nz * d[2]) / (nl * dl));
-                    }
-                }
                 best[i] = t;
-                shade[i] = s;
+                hitTri[i] = tri;
                 who[i] = static_cast<int>(k);
             }
         }
     }
+
+    // 태양: 월드 방향을 정규화하고, 그림자 광선을 위해 메시마다 월드 -> 메시 변환을 한 번만 만든다
+    float L[3] = {sun_.direction[0], sun_.direction[1], sun_.direction[2]};
+    const float ll = sqrtf(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
+    const bool sunOn = sun_.enabled && ll > 1e-12f;
+    if (sunOn) {
+        L[0] /= ll;
+        L[1] /= ll;
+        L[2] /= ll;
+    }
+    Array<dhMat> worldToMesh;
+    if (sunOn && sun_.shadows && sun_.intensity > 0.0f)
+        for (size_t k = 0; k < targetCount; k++) worldToMesh.push_back(targets[k].mesh.world.Inv());
+
     for (size_t i = 0; i < n; i++) {
         if (who[i] < 0) continue;
         const CameraTarget& ct = targets[static_cast<size_t>(who[i])];
-        float depth = best[i];
+        const LidarTarget& tg = ct.mesh;
+        const size_t px = i % w, py = i / w;
+        const float t = best[i];
+        // 면 법선 (메시 좌표) -> 월드. 광선 방향(월드)과 같은 쪽이면 뒤집어 카메라를 향하게 한다 (양면)
+        float nm[3] = {0.0f, 0.0f, 1.0f};
+        bool haveN = false;
+        const size_t tri = hitTri[i];
+        if (tri * 3 + 2 < tg.indexCount) {
+            const uint32_t ia = tg.indices[tri * 3], ib = tg.indices[tri * 3 + 1], ic = tg.indices[tri * 3 + 2];
+            if (ia < tg.vertexCount && ib < tg.vertexCount && ic < tg.vertexCount) {
+                const float* a = tg.positions + static_cast<size_t>(ia) * tg.stride;
+                const float* b = tg.positions + static_cast<size_t>(ib) * tg.stride;
+                const float* c = tg.positions + static_cast<size_t>(ic) * tg.stride;
+                const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                nm[0] = e1[1] * e2[2] - e1[2] * e2[1];
+                nm[1] = e1[2] * e2[0] - e1[0] * e2[2];
+                nm[2] = e1[0] * e2[1] - e1[1] * e2[0];
+                const float nl = sqrtf(nm[0] * nm[0] + nm[1] * nm[1] + nm[2] * nm[2]);
+                if (nl > 1e-20f) {
+                    nm[0] /= nl; nm[1] /= nl; nm[2] /= nl;
+                    haveN = true;
+                }
+            }
+        }
+        const dhMat& W = tg.world;   // 메시 -> 월드 (강체)
+        float nw[3] = {W.v[0] * nm[0] + W.v[4] * nm[1] + W.v[8] * nm[2], W.v[1] * nm[0] + W.v[5] * nm[1] + W.v[9] * nm[2], W.v[2] * nm[0] + W.v[6] * nm[1] + W.v[10] * nm[2]};
+        // 센서 좌표의 광선 방향 -> 월드
+        const float sdv[3] = {1.0f, dy[px], dz[py]};
+        float dwv[3] = {sensorPose.v[0] * sdv[0] + sensorPose.v[4] * sdv[1] + sensorPose.v[8] * sdv[2], sensorPose.v[1] * sdv[0] + sensorPose.v[5] * sdv[1] + sensorPose.v[9] * sdv[2],
+                        sensorPose.v[2] * sdv[0] + sensorPose.v[6] * sdv[1] + sensorPose.v[10] * sdv[2]};
+        const float dl = sqrtf(dwv[0] * dwv[0] + dwv[1] * dwv[1] + dwv[2] * dwv[2]);
+        if (dl > 1e-20f) { dwv[0] /= dl; dwv[1] /= dl; dwv[2] /= dl; }
+        if (nw[0] * dwv[0] + nw[1] * dwv[1] + nw[2] * dwv[2] > 0.0f) { nw[0] = -nw[0]; nw[1] = -nw[1]; nw[2] = -nw[2]; }
+
+        float rgb[3];
+        if (!sunOn) {
+            float s = 1.0f;
+            if (haveN) s = 0.3f + 0.7f * fabsf(nw[0] * dwv[0] + nw[1] * dwv[1] + nw[2] * dwv[2]);
+            rgb[0] = ct.color[0] * s;
+            rgb[1] = ct.color[1] * s;
+            rgb[2] = ct.color[2] * s;
+        } else {
+            float ndl = haveN ? nw[0] * L[0] + nw[1] * L[1] + nw[2] * L[2] : 1.0f;
+            ndl = ndl < 0.0f ? 0.0f : ndl;
+            bool lit = sun_.intensity > 0.0f && ndl > 0.0f;
+            if (lit && sun_.shadows) {
+                // 맞은 점(월드)에서 법선 쪽으로 조금 띄워 태양 쪽으로 광선을 쏜다. 아무 메시나 맞으면 그림자.
+                const dhMat Wn = sensorPose;
+                const float P[3] = {Wn.v[0] * t + Wn.v[4] * dy[px] * t + Wn.v[8] * dz[py] * t + Wn.v[12], Wn.v[1] * t + Wn.v[5] * dy[px] * t + Wn.v[9] * dz[py] * t + Wn.v[13],
+                                    Wn.v[2] * t + Wn.v[6] * dy[px] * t + Wn.v[10] * dz[py] * t + Wn.v[14]};
+                const float eps = 2e-3f;
+                const dhVector origin(P[0] + nw[0] * eps, P[1] + nw[1] * eps, P[2] + nw[2] * eps);
+                for (size_t k = 0; k < targetCount && lit; k++) {
+                    const LidarTarget& sg = targets[k].mesh;
+                    if (!sg.positions || !sg.indices || sg.vertexCount == 0 || sg.indexCount < 3) continue;
+                    const dhMat& Mi = worldToMesh[k];
+                    const dhVector om = Mi * origin;
+                    const dhVector dm(Mi.v[0] * L[0] + Mi.v[4] * L[1] + Mi.v[8] * L[2], Mi.v[1] * L[0] + Mi.v[5] * L[1] + Mi.v[9] * L[2], Mi.v[2] * L[0] + Mi.v[6] * L[1] + Mi.v[10] * L[2]);
+                    float th = 0.0f;
+                    const float reach = 1.0e4f;
+                    const bool useBvh = sg.bvh && !sg.bvh->empty();
+                    const bool blocked = useBvh ? sg.bvh->Raycast(om, dm, reach, &th)
+                                                : RaycastTriangles(sg.positions, sg.vertexCount, sg.indices, sg.indexCount, om, dm, reach, &th, 0, sg.stride);
+                    if (blocked) lit = false;
+                }
+            }
+            const float sunTerm = lit ? 0.85f * sun_.intensity * ndl : 0.0f;
+            const float amb = 0.45f * sun_.ambient;
+            for (int c = 0; c < 3; c++) rgb[c] = ct.color[c] * (amb + sunTerm * sun_.color[c]);
+        }
+        float depth = t;
         if (settings_.noiseStdDev > 0.0f) depth += settings_.noiseStdDev * gaussian();
         out->depth[i] = depth > 0.0f ? depth : 0.0f;
         out->targetIds[i] = ct.mesh.id;
-        out->bgr[i * 3] = ToByte(ct.color[2] * shade[i]);
-        out->bgr[i * 3 + 1] = ToByte(ct.color[1] * shade[i]);
-        out->bgr[i * 3 + 2] = ToByte(ct.color[0] * shade[i]);
+        out->bgr[i * 3] = ToByte(rgb[2]);
+        out->bgr[i * 3 + 1] = ToByte(rgb[1]);
+        out->bgr[i * 3 + 2] = ToByte(rgb[0]);
     }
 }
 

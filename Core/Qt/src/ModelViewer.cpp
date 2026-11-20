@@ -111,17 +111,18 @@ const char* kFragmentShader =
     "    vec3 col;\n"
     "    if (uShading == 0) {\n"
     // Lambert: 주변광 + cos(N, 빛) 두 개 (카메라 방향 빛, 보조광)
-    "        float l = 0.30 + 0.55 * max(dot(N, vec3(0.0, 0.0, 1.0)), 0.0)\n"
-    "                       + 0.30 * max(dot(N, normalize(vec3(-0.5, 0.7, 0.5))), 0.0);\n"
-    "        col = base.rgb * min(l, 1.2);\n"
+    "        vec3 A = uSunOn > 0.5 ? uSunDir : vec3(0.0, 0.0, 1.0);\n"
+    "        float l = 0.30 * uAmb + 0.55 * max(dot(N, A), 0.0) * uSunK\n"
+    "                       + 0.30 * max(dot(N, normalize(vec3(-0.5, 0.7, 0.5))), 0.0) * uFillK;\n"
+    "        col = base.rgb * min(l, 1.2) * (uSunOn > 0.5 ? mix(vec3(1.0), uSunColor, 0.6) : vec3(1.0));\n"
     "    } else if (uShading == 1) {\n"
     // Blinn-Phong: Lambert + 하이라이트. 거칠기를 광택도로 바꿔 쓴다 (매끈할수록 작고 밝은 점)
-    "        vec3 L1 = normalize(vec3(-0.3, 0.6, 0.75));\n"
+    "        vec3 L1 = uSunOn > 0.5 ? uSunDir : normalize(vec3(-0.3, 0.6, 0.75));\n"
     "        vec3 L2 = normalize(vec3(0.6, -0.2, 0.5));\n"
     "        float shin = clamp(2.0 / (uRough * uRough + 0.001) - 1.0, 4.0, 400.0);\n"
-    "        float d = 0.25 + 0.65 * max(dot(N, L1), 0.0) + 0.25 * max(dot(N, L2), 0.0);\n"
-    "        float s = pow(max(dot(N, normalize(L1 + V)), 0.0), shin) * 0.45 * step(0.0, dot(N, L1));\n"
-    "        col = base.rgb * min(d, 1.2) + vec3(s);\n"
+    "        float d = 0.25 * uAmb + 0.65 * max(dot(N, L1), 0.0) * uSunK + 0.25 * max(dot(N, L2), 0.0) * uFillK;\n"
+    "        float s = pow(max(dot(N, normalize(L1 + V)), 0.0), shin) * 0.45 * step(0.0, dot(N, L1)) * uSunK;\n"
+    "        col = base.rgb * min(d, 1.2) * (uSunOn > 0.5 ? mix(vec3(1.0), uSunColor, 0.6) : vec3(1.0)) + vec3(s) * uSunColor;\n"
     "    } else {\n"
     // PBR. 재질 색은 sRGB 이므로 먼저 선형으로 바꾸고, 계산한 뒤 톤매핑과 감마로 화면 값으로 돌려놓는다.
     "        vec3 albedo = pow(base.rgb, vec3(2.2));\n"
@@ -129,13 +130,14 @@ const char* kFragmentShader =
     "        float metal = clamp(uMetal, 0.0, 1.0);\n"
     "        vec3 F0 = mix(vec3(0.04), albedo, metal);\n"      // 비금속 반사율은 4%, 금속은 자기 색이 곧 반사색
     "        float NdV = max(dot(N, V), 1e-3);\n"
-    "        vec3 c = pbrLight(normalize(vec3(-0.3, 0.6, 0.75)), vec3(2.4), N, V, albedo, F0, rough, metal);\n"   // 주광
-    "        c += pbrLight(normalize(vec3(0.6, -0.2, 0.5)), vec3(0.9, 0.95, 1.1), N, V, albedo, F0, rough, metal);\n"  // 보조광
+    "        vec3 L1 = uSunOn > 0.5 ? uSunDir : normalize(vec3(-0.3, 0.6, 0.75));\n"
+    "        vec3 c = pbrLight(L1, vec3(2.4) * uSunColor * uSunK, N, V, albedo, F0, rough, metal);\n"   // 주광 (태양 모드에서는 태양)
+    "        c += pbrLight(normalize(vec3(0.6, -0.2, 0.5)), vec3(0.9, 0.95, 1.1) * uFillK, N, V, albedo, F0, rough, metal);\n"  // 보조광
     // 주변광: 난반사는 법선 쪽 환경색, 정반사는 반사 방향의 환경색 (거칠수록 흐려져 법선 쪽 색과 섞는다)
     "        vec3 R = reflect(-V, N);\n"
     "        vec3 envSpec = mix(envColor(R), envColor(N), rough);\n"
     "        vec3 Fe = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - NdV, 5.0);\n"
-    "        c += (1.0 - metal) * albedo * (1.0 - Fe) * envColor(N) * 0.30 + Fe * envSpec * 0.55;\n"
+    "        c += ((1.0 - metal) * albedo * (1.0 - Fe) * envColor(N) * 0.30 + Fe * envSpec * 0.55) * uAmb;\n"
     "        c = c * (1.0 + c / 16.0) / (1.0 + c);\n"        // 밝은 부분이 하얗게 날아가지 않게 누르는 톤매핑 (Reinhard)
     "        col = pow(c, vec3(1.0 / 2.2));\n"
     "    }\n"
@@ -1296,6 +1298,34 @@ const simul::sensor::LidarScan& ModelViewer::ScanLidar() {
     return lidarScan_;
 }
 
+bool ModelViewer::SetSun(const SunSettings& settings, QString* error) {
+    simul::String err;
+    simul::env::SunState st;
+    if (!simul::env::ComputeSun(settings.time, settings.site, &st, &err)) {
+        if (error) *error = QString::fromUtf8(err.c_str());
+        return false;
+    }
+    sunSettings_ = settings;
+    sunState_ = st;
+    emit sunChanged(sunState_);
+    update();
+    return true;
+}
+
+bool ModelViewer::SetSunTime(const simul::env::SunTime& time, QString* error) {
+    SunSettings s = sunSettings_;
+    s.time = time;
+    return SetSun(s, error);
+}
+
+void ModelViewer::SetSunEnabled(bool on) {
+    if (sunSettings_.enabled == on) return;
+    SunSettings s = sunSettings_;
+    s.enabled = on;
+    QString err;
+    if (!SetSun(s, &err)) return;   // 시각/위치가 올바르지 않으면 켜지 않는다 (기본값은 항상 올바르다)
+}
+
 void ModelViewer::SetSensorCamera(int link, const simul::sensor::CameraSettings& settings, const dhMat& mount) {
     cameraOn_ = true;
     cameraDraw_ = true;
@@ -1351,6 +1381,23 @@ const simul::sensor::CameraImage& ModelViewer::RenderSensorCamera() {
     }
     simul::Array<simul::sensor::CameraTarget> targets;
     collectTargets(cameraLink_, &targets);
+    {   // 태양 모드면 카메라 영상도 같은 태양으로 비춘다 (그림자 포함)
+        simul::sensor::SunLight sl;
+        const SunLighting L = sunLighting();
+        if (L.on) {
+            sl.enabled = true;
+            sl.direction[0] = sunState_.direction.x;
+            sl.direction[1] = sunState_.direction.y;
+            sl.direction[2] = sunState_.direction.z;
+            sl.intensity = L.sunK;
+            sl.ambient = L.ambient;
+            for (int i = 0; i < 3; i++) {
+                sl.color[i] = L.color[i];
+                sl.sky[i] = L.sky[i];
+            }
+        }
+        camera_.SetSun(sl);
+    }
     camera_.Render(SensorCameraPose(), targets.data(), targets.size(), &cameraImage_);
     emit sensorCameraRendered(cameraImage_);
     return cameraImage_;
@@ -1445,8 +1492,34 @@ void ModelViewer::paintGL() {
     }
 }
 
+// 태양 모드의 빛: 해 고도에 따라 세기, 색, 하늘 밝기, 배경색을 정한다 (해 아래 -8도 아래는 완전한 밤, 10도 위는 완전한 낮)
+ModelViewer::SunLighting ModelViewer::sunLighting() const {
+    SunLighting L;
+    if (!sunSettings_.enabled) return L;
+    const double el = sunState_.elevationDeg;
+    auto smooth = [](double a, double b, double x) {
+        double t = (x - a) / (b - a);
+        t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+        return t * t * (3.0 - 2.0 * t);
+    };
+    L.on = true;
+    L.sunK = static_cast<float>(smooth(-1.5, 8.0, el));
+    L.ambient = static_cast<float>(0.10 + 0.90 * smooth(-8.0, 10.0, el));
+    const double warm = 1.0 - smooth(0.0, 25.0, el);   // 낮게 뜰수록 붉다
+    L.color[0] = 1.0f;
+    L.color[1] = static_cast<float>(0.97 - 0.35 * warm);
+    L.color[2] = static_cast<float>(0.92 - 0.57 * warm);
+    const double day = smooth(-8.0, 10.0, el);
+    L.sky[0] = static_cast<float>(0.015 + (0.42 + 0.30 * warm) * day);
+    L.sky[1] = static_cast<float>(0.02 + (0.60 - 0.18 * warm) * day);
+    L.sky[2] = static_cast<float>(0.045 + (0.84 - 0.34 * warm) * day);
+    return L;
+}
+
 void ModelViewer::paintScene() {
-    glClearColor(0.16f, 0.17f, 0.20f, 1.0f);
+    const SunLighting sun = sunLighting();
+    if (sun.on) glClearColor(sun.sky[0], sun.sky[1], sun.sky[2], 1.0f);
+    else glClearColor(0.16f, 0.17f, 0.20f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (!prog_ || !prog_->isLinked()) return;
     if (buffersDirty_) uploadBuffers();
@@ -1473,6 +1546,15 @@ void ModelViewer::paintScene() {
     {   // 월드 위쪽(+z)이 카메라 좌표에서 어느 쪽인지 (PBR 의 하늘/바닥 환경)
         const QVector3D up = view.mapVector(QVector3D(0.0f, 0.0f, 1.0f)).normalized();
         prog_->setUniformValue("uUp", up);
+    }
+    {   // 태양: 월드 방향을 카메라 좌표로 (화면을 돌려도 태양은 월드에 고정이다)
+        prog_->setUniformValue("uSunOn", sun.on ? 1.0f : 0.0f);
+        const QVector3D d = view.mapVector(QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z)).normalized();
+        prog_->setUniformValue("uSunDir", sun.on ? d : QVector3D(0.0f, 0.0f, 1.0f));
+        prog_->setUniformValue("uSunColor", sun.on ? QVector3D(sun.color[0], sun.color[1], sun.color[2]) : QVector3D(1.0f, 1.0f, 1.0f));
+        prog_->setUniformValue("uSunK", sun.on ? sun.sunK : 1.0f);
+        prog_->setUniformValue("uFillK", sun.on ? 0.0f : 1.0f);
+        prog_->setUniformValue("uAmb", sun.on ? sun.ambient : 1.0f);
     }
 
     // 격자와 축 (조명 없음)

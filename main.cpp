@@ -1,6 +1,7 @@
 // Project Simul (AMR + 로봇 팔) 진입점.
 //   simul_main [옵션] [파일]      파일: .urdf .glb .gltf .stl .obj .dae
 //   Qt 로 빌드했으면 3D 뷰어 창을 띄우고, 아니면 파일 정보만 출력한다 (--info 와 같음).
+#include "CEnv/Sun.h"
 #include "CBase/File.h"
 #include "CSensor/Lidar.h"
 #include "CoreQt/QtString.h"
@@ -62,6 +63,12 @@ struct Options {
     simul::String lidarCsv;      // --lidar-csv: 스캔 결과를 CSV 로 저장할 파일
     int lidarChannels;         // --lidar-channels: 수직 채널 수 (1 이면 2D)
     float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
+    bool sunOn;                 // --sun / --sun-now / --sun-site: 태양 조명을 켠다
+    simul::env::SunTime sunTime;   // --sun 날짜시각 (현지). 지정하지 않으면 지금 시각
+    bool sunTimeSet;            // --sun 에 날짜를 줬는가
+    simul::env::SunSite sunSite;   // --sun-site 위도,경도[,UTC오프셋[,월드+y방위]]
+    bool sunOffsetSet;          // UTC 오프셋을 직접 줬는가 (안 줬으면 서울 기본이면 +9, 위치를 줬으면 경도/15 반올림)
+    bool sunSiteSet;
     simul::String cameraLink;    // --camera: 카메라를 달 링크 이름 (비어 있으면 없음)
     float cameraMount[3];      //   그 링크 좌표계에서의 센서 위치 (m). 센서 +x 가 보는 방향
     int cameraW, cameraH;      // --camera-size 가로x세로
@@ -79,6 +86,10 @@ struct Options {
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
         cameraMount[0] = cameraMount[1] = cameraMount[2] = 0;
+        sunOn = false;
+        sunTimeSet = false;
+        sunOffsetSet = false;
+        sunSiteSet = false;
         cameraW = 320;
         cameraH = 240;
         cameraFov = 60.0f;
@@ -123,6 +134,8 @@ void PrintUsage(const char* exe) {
         "  --camera 링크[,x,y,z]  그 링크에 카메라를 달고 시야 절두체(노랑)와 영상 창을 표시. 센서 +x 가 보는 방향, +y 왼쪽, +z 위\n"
         "  --camera-size 가로x세로  --camera-fov 도(가로 시야각)  --camera-range 최소,최대  (기본 320x240, 60도, 0.05~10 m)\n"
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
+        "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 지금). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
+        "  --sun-now  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
         "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
@@ -248,6 +261,33 @@ int ParseArgs(int argc, char** argv, Options* o) {
             else if (v == "phong") o->shading = 1;
             else if (v == "pbr") o->shading = 2;
             else { fprintf(stderr, "--shading 은 lambert, phong, pbr 중 하나입니다: %s\n", v.c_str()); return false; }
+            continue;
+        }
+        if (a == "--sun") {   // --sun [YYYY-MM-DDTHH:MM]  (현지 시각. 날짜를 생략하면 지금 시각)
+            o->sunOn = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                const char* v = argv[++i];
+                int y, mo, d, h = 12, mi = 0;
+                const int n = sscanf(v, "%d-%d-%dT%d:%d", &y, &mo, &d, &h, &mi);
+                if (n < 3) { fprintf(stderr, "--sun 은 YYYY-MM-DDTHH:MM 형식입니다 (현지 시각, 예: 2026-06-21T14:30)\n"); return false; }
+                o->sunTime.year = y; o->sunTime.month = mo; o->sunTime.day = d; o->sunTime.hour = h; o->sunTime.minute = mi; o->sunTime.second = 0;
+                o->sunTimeSet = true;
+                simul::String why;
+                if (!simul::env::IsValidSunTime(o->sunTime, &why)) { fprintf(stderr, "--sun: %s\n", why.c_str()); return false; }
+            }
+            continue;
+        }
+        if (a == "--sun-now") { o->sunOn = true; o->sunTimeSet = false; continue; }
+        if (a == "--sun-site" && hasNext) {   // 위도,경도[,UTC오프셋[,월드+y방위]]
+            double lat, lon, off = 0, nb = 0;
+            const int n = sscanf(argv[++i], "%lf,%lf,%lf,%lf", &lat, &lon, &off, &nb);
+            if (n < 2 || lat < -90 || lat > 90 || lon < -180 || lon > 180) { fprintf(stderr, "--sun-site 는 위도,경도[,UTC오프셋[,월드+y의 방위]] 형식입니다 (예: 37.5665,126.978,9)\n"); return false; }
+            o->sunSite.latitudeDeg = lat;
+            o->sunSite.longitudeDeg = lon;
+            if (n >= 3) { o->sunTime.utcOffsetHours = off; o->sunOffsetSet = true; }
+            if (n >= 4) o->sunSite.northBearingDeg = nb;
+            o->sunSiteSet = true;
+            o->sunOn = true;
             continue;
         }
         if (a == "--lidar-csv" && hasNext) { o->lidarCsv = argv[++i]; continue; }
@@ -448,6 +488,7 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/CameraView.h"
 #include "CoreQt/LidarPlot.h"
+#include "CoreQt/SunPanel.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
 
@@ -646,6 +687,16 @@ public:
         logAct->setText(QString::fromUtf8("로그"));
         logAct->setShortcut(Qt::Key_L);
         view->insertAction(viewSep, logAct);
+        sunPanel_ = new SunPanel(viewer_);
+        sunDock_ = new QDockWidget(QString::fromUtf8("태양"), this);
+        sunDock_->setWidget(sunPanel_);
+        addDockWidget(Qt::RightDockWidgetArea, sunDock_);
+        configureDock(sunDock_);
+        sunDock_->hide();
+        QAction* sunAct = sunDock_->toggleViewAction();
+        sunAct->setText(QString::fromUtf8("태양 (시각으로 조명)"));
+        sunAct->setShortcut(Qt::Key_S);
+        view->insertAction(viewSep, sunAct);
         // 화면 구성: 메뉴 숨기기(F10), 3D 화면만 보기(F11). 숨긴 메뉴의 단축키는 동작하지 않으므로 창 자체에도 달아 둔다.
         menuAct_ = new QAction(QString::fromUtf8("메뉴 표시"), this);
         menuAct_->setCheckable(true);
@@ -771,6 +822,31 @@ public:
         if (o.showFps) viewer_->SetFrameStatsVisible(true);
         if (o.uiScale != 1.0) view_->SetUiScale(o.uiScale);
         if (o.onlyView) onlyViewAct_->setChecked(true);
+        applySun(o);
+    }
+
+    // 태양: 명령행에서 켠 경우. 날짜를 주지 않으면 지금 시각 (그 컴퓨터의 시간대), 위치만 주고 UTC 오프셋을 안 주면 경도/15 를 반올림한다.
+    void applySun(const Options& o) {
+        if (!o.sunOn) return;
+        ModelViewer::SunSettings s;
+        s.enabled = true;
+        s.site = o.sunSite;
+        if (o.sunTimeSet) {
+            s.time = o.sunTime;
+            if (!o.sunOffsetSet) s.time.utcOffsetHours = o.sunSiteSet ? simul::Floor(o.sunSite.longitudeDeg / 15.0 + 0.5) : 9.0;   // 기본 위치(서울)는 +9
+        } else {
+            s.time = simul::env::SunTimeNow();
+            if (o.sunOffsetSet) s.time.utcOffsetHours = o.sunTime.utcOffsetHours;
+        }
+        QString err;
+        if (!viewer_->SetSun(s, &err)) {
+            fprintf(stderr, "태양 설정 오류: %s\n", err.toUtf8().constData());
+            return;
+        }
+        log_->Info(QString::fromUtf8("태양: %1-%2-%3 %4:%5 (UTC%6%7), 위도 %8 경도 %9 -> 방위각 %10°, 고도 %11°")
+                       .arg(s.time.year).arg(s.time.month, 2, 10, QChar('0')).arg(s.time.day, 2, 10, QChar('0')).arg(s.time.hour, 2, 10, QChar('0')).arg(s.time.minute, 2, 10, QChar('0'))
+                       .arg(s.time.utcOffsetHours >= 0 ? "+" : "").arg(s.time.utcOffsetHours).arg(s.site.latitudeDeg).arg(s.site.longitudeDeg)
+                       .arg(viewer_->SunStateNow().azimuthDeg, 0, 'f', 1).arg(viewer_->SunStateNow().elevationDeg, 0, 'f', 1));
     }
 
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
@@ -1367,6 +1443,8 @@ private:
     QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
     QDockWidget* logDock_ = nullptr;
+    SunPanel* sunPanel_ = nullptr;
+    QDockWidget* sunDock_ = nullptr;
     QSet<QString> loggedWarnings_;
     QStringList lastCollisions_;
     bool collisionLabelHit_ = false;

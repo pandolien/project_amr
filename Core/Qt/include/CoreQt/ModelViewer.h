@@ -28,6 +28,7 @@
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
 #include "CCollision/Bvh.h"
+#include "CEnv/Sun.h"
 #include "CSensor/Camera.h"
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
@@ -166,6 +167,22 @@ public:
     dhVector LidarOrigin() const { return lidarOrigin_; }  // 마지막 스캔의 센서 원점/방향각 (ScanLidar 뒤에 유효)
     float LidarHeading() const { return lidarHeading_; }
     const simul::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
+    // 태양: 켜면 주광이 카메라에 고정된 빛 대신 날짜/시각/위치로 계산한 태양이 된다 (월드에 고정이라 화면을 돌려도 태양은 그대로).
+    // 해 고도에 따라 세기, 색(낮을수록 붉음), 하늘색, 주변광이 바뀌고 해가 지면 어두운 밤이 된다. 센서 카메라 영상도 같은 태양으로 비추고
+    // 그림자를 그린다 (3D 화면은 그림자 없음). 월드 +x 가 동, +y 가 북 (SunSite::northBearingDeg 로 돌릴 수 있다). 계산은 CEnv/Sun.h.
+    struct SunSettings {
+        bool enabled;
+        simul::env::SunTime time;   // 현지 시각과 UTC 오프셋
+        simul::env::SunSite site;   // 위도, 경도, 월드 +y 의 방위
+        SunSettings() : enabled(false) {}
+    };
+    bool SetSun(const SunSettings& settings, QString* error = nullptr);    // 올바르지 않으면 false (바뀌지 않는다)
+    bool SetSunTime(const simul::env::SunTime& time, QString* error = nullptr);   // 시각만 바꾼다 (시간 흐름에 쓴다)
+    void SetSunEnabled(bool on);
+    bool SunEnabled() const { return sunSettings_.enabled; }
+    const SunSettings& Sun() const { return sunSettings_; }
+    const simul::env::SunState& SunStateNow() const { return sunState_; }   // 지금 설정의 태양 방위/고도/방향
+
     // 센서 카메라 (3D 화면을 보는 시점인 CameraTarget/CameraYaw 등과 다르다): 로봇 링크 link 에 달고 (mount = 그 링크 좌표계에서 센서까지의 변환. 센서의 +x 가 보는 방향, +y 가 왼쪽, +z 가 위),
     // 그 링크 자신을 뺀 나머지 메시를 찍는다. 정적 모델만 열려 있으면 link = -1 (월드 기준). 라이다와 달리 매 프레임 찍지 않고
     // RenderSensorCamera 를 부를 때만 찍는다 (영상이 크면 CPU 광선 추적이 느리다). 영상은 BGR 8비트 + 깊이 m (CSensor/Camera.h 에 규약이 있다).
@@ -216,6 +233,7 @@ signals:
     void structureChanged();  // 링크 구성이 바뀌었다 (모델 하나를 처음 돌리면 world 가 생긴다): 트리/패널을 다시 채운다
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
     void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
+    void sunChanged(const simul::env::SunState& state);   // 태양 설정이 바뀔 때마다
     void sensorCameraRendered(const simul::sensor::CameraImage& image);  // RenderSensorCamera 로 찍을 때마다
     void lidarScanned(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
     void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
@@ -278,6 +296,15 @@ private:
     float objectMinZ() const;  // 이동량을 뺀 오브젝트 좌표계에서 가장 낮은 점의 높이 (캐시)
     void drawLidar();
     void drawSensorCameraFrustum();
+    struct SunLighting {   // 태양 모드의 빛 (해 고도에서 계산)
+        bool on;
+        float sunK, ambient;
+        float color[3], sky[3];
+        SunLighting() : on(false), sunK(1.0f), ambient(1.0f) { color[0] = color[1] = color[2] = 1.0f; sky[0] = 0.16f; sky[1] = 0.17f; sky[2] = 0.20f; }
+    };
+    SunLighting sunLighting() const;
+    SunSettings sunSettings_;
+    simul::env::SunState sunState_;
     void collectTargets(int skipLink, simul::Array<simul::sensor::CameraTarget>* out);
     void drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view);
     void recomputeCollisions();
