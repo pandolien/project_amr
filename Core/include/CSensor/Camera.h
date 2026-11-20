@@ -31,8 +31,10 @@ struct CameraSettings {
     float noiseStdDev;   // 깊이에 더할 가우시안 잡음의 표준편차 (m). 0 이면 없음. 색에는 더하지 않는다
     unsigned seed;       // 잡음의 난수 시드
     float background[3]; // 아무것도 안 맞은 픽셀의 색 (R, G, B 0..1)
+    int antialias;       // 안티앨리어싱: 픽셀을 가로세로 antialias 배로 나눠 찍어 평균한다 (1 = 끔, 2 = 4개, 3 = 9개, 4 = 16개, 최대 4). 시간은 antialias^2 배 걸린다.
+                         //   색만 평균하고, 깊이와 targetIds 는 픽셀 가운데에 가장 가까운 하위 픽셀의 값을 쓴다 (경계에서 깊이가 섞여 허공에 뜬 점이 생기지 않게).
     CameraSettings()
-        : width(320), height(240), horizontalFov(static_cast<float>(60.0 * dhPI / 180.0)), nearClip(0.05f), farClip(10.0f), noiseStdDev(0.0f), seed(1u) {
+        : width(320), height(240), horizontalFov(static_cast<float>(60.0 * dhPI / 180.0)), nearClip(0.05f), farClip(10.0f), noiseStdDev(0.0f), seed(1u), antialias(1) {
         background[0] = 0.12f;
         background[1] = 0.14f;
         background[2] = 0.18f;

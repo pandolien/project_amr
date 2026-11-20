@@ -262,6 +262,73 @@ void testSun() {
     check(im.IsHit(10, 10), "sun off: back to the headlight");
 }
 
+// 안티앨리어싱: 경계 픽셀이 두 색의 중간이 되고, 깊이/id 는 섞이지 않으며, 크기와 내부 변수는 그대로다
+void testAntialias() {
+    // 영상 가운데를 가르는 수직 경계: x = 2 의 벽 (y > 0 쪽만)  -> 영상 왼쪽 절반(센서 +y)만 흰색이고 오른쪽은 배경
+    const BoxMesh wall(2.0f, 0.0f, -5.0f, 2.1f, 5.0f, 5.0f);
+    CameraTarget t = wall.target(3, 1.0f, 1.0f, 1.0f);
+    CameraSettings s = small(33, 8);   // 가운데 열(16)에 경계가 걸리도록 홀수 폭
+    s.background[0] = s.background[1] = s.background[2] = 0.0f;
+    Camera plain(s);
+    CameraImage a;
+    plain.Render(dhMat(), &t, 1, &a);
+    s.antialias = 3;
+    Camera smooth(s);
+    CameraImage b;
+    smooth.Render(dhMat(), &t, 1, &b);
+    check(b.width == 33 && b.height == 8 && b.bgr.size() == 33 * 8 * 3 && b.depth.size() == 33 * 8, "antialiased image has the requested size");
+    check(near(b.intrinsics.fx, a.intrinsics.fx, 1e-4) && near(b.intrinsics.cx, a.intrinsics.cx, 1e-4), "intrinsics are those of the final image");
+    // 경계는 가운데 열 (u = 16, 중심이 정확히 y = 0): 하위 픽셀의 절반이 벽
+    const size_t row = 4 * 33;
+    int edgeG = -1;
+    bool hasMid = false;
+    for (int u = 0; u < 33; u++) {
+        const int g = b.bgr[(row + static_cast<size_t>(u)) * 3 + 1];
+        if (g > 0 && g < 200) {
+            hasMid = true;
+            edgeG = g;
+        }
+    }
+    check(hasMid, "the edge pixel is a blend of wall and background");
+    (void)edgeG;
+    int aMid = 0;
+    for (int u = 0; u < 33; u++) {
+        const int g = a.bgr[(row + static_cast<size_t>(u)) * 3 + 1];
+        if (g > 0 && g < 200) aMid++;
+    }
+    check(aMid == 0, "without antialiasing every pixel is either wall or background");
+    // 깊이는 섞이지 않는다: 벽이면 정확히 2.0, 아니면 0
+    bool depthOk = true;
+    for (size_t i = 0; i < b.depth.size(); i++) depthOk = depthOk && (b.depth[i] == 0.0f || near(b.depth[i], 2.0, 1e-4));
+    check(depthOk, "depth is never blended at edges");
+    // 안쪽(경계에서 먼 곳)은 같은 색
+    check(a.bgr[(row + 2) * 3 + 1] == b.bgr[(row + 2) * 3 + 1] && a.bgr[(row + 30) * 3 + 1] == b.bgr[(row + 30) * 3 + 1], "away from edges the image is unchanged");
+    s.antialias = 5;
+    check(!Camera(s).Valid(), "antialias above 4 is invalid");
+    s.antialias = 0;
+    check(!Camera(s).Valid(), "antialias 0 is invalid");
+    s.antialias = 4;
+    s.width = 5000;
+    check(!Camera(s).Valid(), "the supersampled size is limited too");
+    // 잡음은 안티앨리어싱과 함께여도 반복 가능하다
+    s = small(16, 12);
+    s.antialias = 2;
+    s.noiseStdDev = 0.01f;
+    s.seed = 9;
+    const BoxMesh wall2(3.0f, -5.0f, -5.0f, 3.1f, 5.0f, 5.0f);
+    CameraTarget t2 = wall2.target(1, 1, 1, 1);
+    Camera n1(s), n2(s);
+    CameraImage i1, i2;
+    n1.Render(dhMat(), &t2, 1, &i1);
+    n2.Render(dhMat(), &t2, 1, &i2);
+    bool same = true, noisy = false;
+    for (size_t i = 0; i < i1.depth.size(); i++) {
+        same = same && i1.depth[i] == i2.depth[i];
+        noisy = noisy || Abs(i1.depth[i] - 3.0f) > 1e-6f;
+    }
+    check(same && noisy, "noise with antialiasing is repeatable and nonzero");
+}
+
 void testEdgeCases() {
     CameraSettings s = small(0, 10);
     Camera bad(s);
@@ -290,6 +357,7 @@ int main() {
     testOcclusionRangeAndBackground();
     testPoseNoiseBvh();
     testSun();
+    testAntialias();
     testEdgeCases();
     if (g_fail) {
         printf("test_ccamera: %d failure(s)\n", g_fail);
