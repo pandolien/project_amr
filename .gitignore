@@ -21,3 +21,5 @@ qrc_*.cpp
 
 # run.bat 이 내려받는 vcpkg
 .vcpkg/
+__pycache__/
+*.pyc
