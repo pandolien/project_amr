@@ -334,6 +334,7 @@ private:
     bool shadows_, shadowActive_;
     bool skyOn_;
     bool sunGuide_;
+    bool sunHover_;                                         // 마우스가 태양 표시 위에 있다 (그날의 태양 경로는 이때와 끄는 동안에만 보인다)
     bool dragSun_;                                          // 3D 화면의 태양 표시를 끌어서 시각을 바꾸는 중
     bool sunHit(const QPoint& pos) const;                    // 마우스가 태양 표시(선 끝) 위인가
     void setSunFromScreen(const QPoint& pos);                // 그날의 태양 경로에서 화면상 마우스에 가장 가까운 시각으로 바꾼다
