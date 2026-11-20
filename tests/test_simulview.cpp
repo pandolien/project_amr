@@ -562,7 +562,7 @@ int main(int argc, char** argv) {
         ModelViewer sv;
         int changed = 0;
         QObject::connect(&sv, &ModelViewer::sunChanged, [&](const simul::env::SunState&) { changed++; });
-        CHECK(!sv.SunEnabled(), "sun is off by default");
+        CHECK(sv.SunEnabled(), "sun is on by default");
         CHECK(sv.Sun().time.hour == 10 && sv.Sun().time.minute == 0 && sv.Sun().time.utcOffsetHours == 9.0, "the default sun time is 10:00 (not the current time)");
         ModelViewer::SunSettings ss;
         ss.enabled = true;

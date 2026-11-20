@@ -63,6 +63,7 @@ const char* kFragmentShader =
     "uniform mat4 uLightFromView;\n"    // 카메라 좌표 -> 태양 쪽 클립 좌표
     "uniform float uShadowTexel;\n"     // 그림자 맵 한 칸의 월드 크기 (m)
     "uniform float uShadowInv;\n"       // 1 / 그림자 맵 크기
+    "uniform float uCatcher;\n"         // 1 이면 바닥 그림자 받이: 그림자인 곳만 반투명 검정으로 그린다 (바닥 모델이 없어도 그림자가 보이게)
     "uniform float uUseTex;\n"   // 1 이면 기본 색 텍스처를 곱한다
     "uniform float uUseVC;\n"    // 1 이면 정점 색을 곱한다
     "uniform int uAlphaMode;\n"  // 0 불투명 (텍스처/정점 색의 알파는 무시), 1 마스크, 2 블렌드
@@ -133,6 +134,12 @@ const char* kFragmentShader =
     "}\n"
     "\n"
     "void main() {\n"
+    "    if (uCatcher > 0.5) {\n"
+    "        float s = uShadowOn > 0.5 ? shadowFactor(normalize(uUp), uSunDir) : 1.0;\n"
+    "        if (s > 0.999) discard;\n"
+    "        gl_FragColor = vec4(0.0, 0.0, 0.0, (1.0 - s) * 0.30);\n"
+    "        return;\n"
+    "    }\n"
     "    if (uLit < 0.5) { gl_FragColor = uColor; return; }\n"
     "    vec4 base = uColor;\n"                                     // 재질 색 x 정점 색 x 텍스처 (glTF 의 baseColor 규칙)
     "    float baseA = uColor.a;\n"
@@ -279,6 +286,11 @@ ModelViewer::ModelViewer(QWidget* parent)
     : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), sunGuide_(false), sunHover_(false), dragSun_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
+    {   // 기본으로 태양 조명을 켠다 (오늘 날짜 10:00, 서울): 그림자와 하늘이 보이는 모습이 기본이다. 끄려면 SetSunEnabled(false) 또는 --no-sun
+        SunSettings s;
+        s.enabled = true;
+        SetSun(s, nullptr);
+    }
     selectedLink_ = -1;
     selectedModel_ = false;
     showFrame_ = true;
@@ -2279,6 +2291,7 @@ void ModelViewer::paintScene() {
     }
 
     prog_->setUniformValue("uShadowOn", 0.0f);
+    prog_->setUniformValue("uCatcher", 0.0f);
     prog_->setUniformValue("uShadowMap", 1);
     shadowActive_ = renderShadowMap(view, sun);
 
@@ -2402,6 +2415,21 @@ void ModelViewer::paintScene() {
     prog_->setUniformValue("uUseTex", 0.0f);
     prog_->setUniformValue("uUseVC", 0.0f);
     prog_->setUniformValue("uAlphaMode", 0);
+    if (shadowActive_) {   // 바닥 그림자 받이: 바닥(z = 0) 바로 아래의 투명한 면에 그림자만 그린다. 바닥 모델이 있으면 그 아래에 가려진다.
+        const float h = gridCell_ * 10.0f, z = -simul::Max(radius_ * 1e-3f, 1e-4f);
+        const float quad[18] = {-h, -h, z, h, -h, z, h, h, z, -h, -h, z, h, h, z, -h, h, z};
+        prog_->setUniformValue("uCatcher", 1.0f);
+        prog_->setUniformValue("uMVP", proj * view);
+        prog_->setUniformValue("uModelView", view);
+        prog_->enableAttributeArray(0);
+        prog_->disableAttributeArray(1);
+        prog_->setAttributeArray(0, GL_FLOAT, quad, 3);
+        glDepthMask(GL_FALSE);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glDepthMask(GL_TRUE);
+        prog_->disableAttributeArray(0);
+        prog_->setUniformValue("uCatcher", 0.0f);
+    }
     if (lidarOn_ && lidarDraw_) {
         prog_->setUniformValue("uLit", 0.0f);
         prog_->setUniformValue("uMVP", proj * view);
