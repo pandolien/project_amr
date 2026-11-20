@@ -1734,19 +1734,8 @@ void ModelViewer::drawSunGuide() {
     const QVector3D sd(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z);
     const double nb = sunSettings_.site.northBearingDeg;
     glLineWidth(1.5f);
-    // 나침반: 바닥의 원과 북(붉은색)/동/남/서 눈금
+    // 나침반: 북(붉은색)/동/남/서 눈금 (원은 그리지 않는다)
     {
-        const int N = 64;
-        simul::Array<float> ring;
-        for (int i = 0; i <= N; i++) {
-            const double a = 2.0 * 3.14159265358979323846 * i / N;
-            ring.push_back(o.x() + L * static_cast<float>(sin(a)));
-            ring.push_back(o.y() + L * static_cast<float>(cos(a)));
-            ring.push_back(0.0f);
-        }
-        prog_->setUniformValue("uColor", QVector4D(0.30f, 0.36f, 0.50f, 1.0f));
-        prog_->setAttributeArray(0, GL_FLOAT, ring.data(), 3);
-        glDrawArrays(GL_LINE_STRIP, 0, N + 1);
         for (int k = 0; k < 4; k++) {
             const QVector3D d = BearingDir(90.0 * k, nb);
             const float t[6] = {o.x() + d.x() * L * 0.9f, o.y() + d.y() * L * 0.9f, 0.0f, o.x() + d.x() * L * 1.08f, o.y() + d.y() * L * 1.08f, 0.0f};
