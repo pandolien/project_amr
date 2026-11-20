@@ -553,6 +553,30 @@ bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList
     return true;
 }
 
+bool ModelViewer::SaveModelFolder(int index, const QString& dir, QString* error, QStringList* warnings, int meshFormat) const {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) {
+        if (error) *error = QString::fromUtf8("없는 모델입니다");
+        return false;
+    }
+    const simul::urdf::WorldEntry& e = world_.entry(static_cast<size_t>(index));
+    simul::urdf::FolderSaveResult res;
+    simul::urdf::FolderOptions fo;
+    fo.glbToStl = meshFormat == 1;
+    fo.keepGlb = meshFormat == 2;
+    simul::urdf::WriteOptions wo;
+    wo.robotName = e.name;
+    simul::String err;
+    if (!simul::urdf::SaveUrdfFolder(e.robot, simulqt::FromQ(dir), options_, &err, &res, wo, fo)) {
+        if (error) *error = simulqt::ToQ(err);
+        return false;
+    }
+    if (warnings) {
+        warnings->clear();
+        for (size_t i = 0; i < res.warnings.size(); i++) *warnings << simulqt::ToQ(res.warnings[i]);
+    }
+    return true;
+}
+
 void ModelViewer::SetJointValues(const simul::urdf::JointValues& q) {
     if (!hasRobot_) return;
     q_ = q;
