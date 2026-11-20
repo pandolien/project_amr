@@ -69,6 +69,9 @@ struct Options {
     simul::env::SunSite sunSite;   // --sun-site 위도,경도[,UTC오프셋[,월드+y방위]]
     bool sunOffsetSet;          // UTC 오프셋을 직접 줬는가 (안 줬으면 서울 기본이면 +9, 위치를 줬으면 경도/15 반올림)
     bool sunSiteSet;
+    bool viewSet;               // --view-angle 방위각,고도각 (도)
+    double viewYaw, viewPitch;
+    bool noSky;                 // --no-sky: 3D 화면의 하늘(구름)을 끄고 단색 배경
     bool noShadow;              // --no-shadow: 3D 화면의 그림자를 끈다
     simul::String cameraLink;    // --camera: 카메라를 달 링크 이름 (비어 있으면 없음)
     float cameraMount[3];      //   그 링크 좌표계에서의 센서 위치 (m). 센서 +x 가 보는 방향
@@ -95,6 +98,9 @@ struct Options {
         sunOffsetSet = false;
         sunSiteSet = false;
         noShadow = false;
+        noSky = false;
+        viewSet = false;
+        viewYaw = viewPitch = 0.0;
         cameraW = 320;
         cameraH = 240;
         cameraFov = 60.0f;
@@ -146,7 +152,8 @@ void PrintUsage(const char* exe) {
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 지금). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
         "  --sun-now  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
-        "  --no-shadow  3D 화면의 그림자를 끈다 (태양 조명일 때 기본은 켜짐)\n"
+        "  --no-shadow  3D 화면의 그림자를 끈다 (태양 조명일 때 기본은 켜짐)  --no-sky  하늘과 구름을 끄고 단색 배경\n"
+        "  --view-angle 방위각,고도각  시작 시점(도, 고도각 -89~89, 음수면 올려다봄)\n"
         "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
@@ -312,6 +319,15 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (a == "--no-shadow") { o->noShadow = true; continue; }
+        if (a == "--view-angle" && hasNext) {   // 시작 시점: 방위각,고도각 (도). 고도각이 음수면 아래에서 올려다본다 (하늘 확인용)
+            double y = 0, pt = 0;
+            if (sscanf(argv[++i], "%lf,%lf", &y, &pt) != 2 || pt < -89.0 || pt > 89.0) { fprintf(stderr, "--view-angle 은 방위각,고도각(도, -89~89) 형식입니다\n"); return false; }
+            o->viewYaw = y;
+            o->viewPitch = pt;
+            o->viewSet = true;
+            continue;
+        }
+        if (a == "--no-sky") { o->noSky = true; continue; }
         if (a == "--sun-now") { o->sunOn = true; o->sunTimeSet = false; continue; }
         if (a == "--sun-site" && hasNext) {   // 위도,경도[,UTC오프셋[,월드+y방위]]
             double lat, lon, off = 0, nb = 0;
@@ -861,11 +877,13 @@ public:
         if (o.uiScale != 1.0) view_->SetUiScale(o.uiScale);
         if (o.onlyView) onlyViewAct_->setChecked(true);
         applySun(o);
+        if (o.viewSet) viewer_->SetCamera(viewer_->CameraTarget(), viewer_->CameraDistance(), dhRad(o.viewYaw), dhRad(o.viewPitch));
     }
 
     // 태양: 명령행에서 켠 경우. 날짜를 주지 않으면 지금 시각 (그 컴퓨터의 시간대), 위치만 주고 UTC 오프셋을 안 주면 경도/15 를 반올림한다.
     void applySun(const Options& o) {
         viewer_->SetShadowsEnabled(!o.noShadow);
+        viewer_->SetSkyEnabled(!o.noSky);
         if (!o.sunOn) return;
         ModelViewer::SunSettings s;
         s.enabled = true;

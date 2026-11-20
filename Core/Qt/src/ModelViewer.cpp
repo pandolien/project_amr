@@ -197,6 +197,65 @@ const char* kShadowFragmentShader =
     "    gl_FragColor = e;\n"
     "}\n";
 
+// 하늘: 화면 전체를 덮는 삼각형 하나에 시선 방향별로 색을 계산한다 (하늘색 그라데이션 + 프랙탈 값 잡음 구름 + 태양 빛무리).
+// 구름은 높은 곳의 평면에 투영한 잡음이라 수평선 쪽으로 갈수록 촘촘해진다.
+const char* kSkyVertexShader =
+    "#version 120\n"
+    "attribute vec2 aPos;\n"
+    "varying vec2 vNdc;\n"
+    "void main() {\n"
+    "    vNdc = aPos;\n"
+    "    gl_Position = vec4(aPos, 1.0, 1.0);\n"
+    "}\n";
+
+const char* kSkyFragmentShader =
+    "#version 120\n"
+    "uniform mat4 uInvVP;\n"       // 클립 -> 월드
+    "uniform vec3 uEye;\n"         // 카메라 위치 (월드)
+    "uniform vec3 uSkyTop;\n"      // 천정 색
+    "uniform vec3 uSkyHorizon;\n"  // 수평선 색
+    "uniform vec3 uSunDirW;\n"     // 표면 -> 태양 (월드)
+    "uniform vec3 uSunCol;\n"
+    "uniform float uSunStrength;\n" // 0..1 해 세기
+    "uniform float uDay;\n"         // 0 밤 .. 1 낮
+    "varying vec2 vNdc;\n"
+    "float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
+    "float vnoise(vec2 p) {\n"
+    "    vec2 i = floor(p);\n"
+    "    vec2 f = fract(p);\n"
+    "    f = f * f * (3.0 - 2.0 * f);\n"
+    "    float a = hash(i), b = hash(i + vec2(1.0, 0.0)), c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));\n"
+    "    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n"
+    "}\n"
+    "float fbm(vec2 p) {\n"
+    "    float v = 0.0;\n"
+    "    float a = 0.5;\n"
+    "    for (int i = 0; i < 5; i++) {\n"
+    "        v += a * vnoise(p);\n"
+    "        p = p * 2.03 + vec2(17.0, 9.0);\n"
+    "        a *= 0.5;\n"
+    "    }\n"
+    "    return v;\n"
+    "}\n"
+    "void main() {\n"
+    "    vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);\n"
+    "    vec3 d = normalize(w.xyz / w.w - uEye);\n"
+    "    float up = max(d.z, 0.0);\n"
+    "    vec3 col = mix(uSkyHorizon, uSkyTop, pow(up, 0.5));\n"
+    "    if (d.z > 0.0) {\n"
+    "        vec2 p = d.xy / (d.z + 0.12) * 1.1 + vec2(3.0, 7.0);\n"
+    "        float f = fbm(p);\n"
+    "        float cover = smoothstep(0.38, 0.66, f) * smoothstep(0.0, 0.22, d.z);\n"
+    "        float body = smoothstep(0.45, 0.85, fbm(p * 1.7 + vec2(5.0, 2.0)));\n"   // 구름 안쪽이 밝고 가장자리가 어둡다
+    "        vec3 cloud = mix(vec3(0.62, 0.66, 0.74), vec3(1.0), body) * (0.30 + 0.70 * uDay);\n"
+    "        cloud *= mix(vec3(1.0), uSunCol, 0.65);\n"
+    "        col = mix(col, cloud, cover * 0.92);\n"
+    "        float s = max(dot(d, uSunDirW), 0.0);\n"
+    "        col += uSunCol * (pow(s, 600.0) * 2.0 + pow(s, 24.0) * 0.18) * uSunStrength * (1.0 - cover * 0.8);\n"   // 태양 원반과 빛무리 (구름에 가려진다)
+    "    }\n"
+    "    gl_FragColor = vec4(col, 1.0);\n"
+    "}\n";
+
 const int kShadowMapSize = 2048;
 
 QMatrix4x4 ToQt(const dhMat& m) {
@@ -216,7 +275,7 @@ const float kDefaultRough = 0.45f;
 }  // namespace
 
 ModelViewer::ModelViewer(QWidget* parent)
-    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
+    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
@@ -275,6 +334,7 @@ ModelViewer::~ModelViewer() {
     prog_.reset();
     shadowProg_.reset();
     shadowFbo_.reset();
+    skyProg_.reset();
     doneCurrent();
 }
 
@@ -1248,6 +1308,15 @@ void ModelViewer::initializeGL() {
         fprintf(stderr, "%s\n", shadowProg_->log().toUtf8().constData());
         shadowProg_.reset();
     }
+    skyProg_.reset(new QOpenGLShaderProgram);
+    skyProg_->addShaderFromSourceCode(QOpenGLShader::Vertex, kSkyVertexShader);
+    skyProg_->addShaderFromSourceCode(QOpenGLShader::Fragment, kSkyFragmentShader);
+    skyProg_->bindAttributeLocation("aPos", 0);
+    if (!skyProg_->link()) {   // 하늘만 단색으로 그린다
+        shaderLog_ += QString::fromUtf8("\n하늘 셰이더를 만들 수 없습니다 (단색 하늘)\n") + skyProg_->log();
+        fprintf(stderr, "%s\n", skyProg_->log().toUtf8().constData());
+        skyProg_.reset();
+    }
     buffersDirty_ = !items_.empty();
 }
 
@@ -1398,6 +1467,43 @@ void ModelViewer::SetSunEnabled(bool on) {
     s.enabled = on;
     QString err;
     if (!SetSun(s, &err)) return;   // 시각/위치가 올바르지 않으면 켜지 않는다 (기본값은 항상 올바르다)
+}
+
+void ModelViewer::SetSkyEnabled(bool on) {
+    if (skyOn_ == on) return;
+    skyOn_ = on;
+    update();
+}
+
+void ModelViewer::drawSky(const QMatrix4x4& proj, const QMatrix4x4& view, const SunLighting& sun) {
+    if (!skyOn_ || !sun.on || !skyProg_ || !skyProg_->isLinked()) return;
+    bool ok = false;
+    const QMatrix4x4 inv = (proj * view).inverted(&ok);
+    if (!ok) return;
+    const QVector3D eye = view.inverted().column(3).toVector3D();
+    const float day = sun.ambient > 0.1f ? (sun.ambient - 0.1f) / 0.9f : 0.0f;
+    // 천정은 지평 쪽(sun.sky)보다 짙고, 낮에는 수평선이 하얗게 흐리다
+    const QVector3D horizon(sun.sky[0] + (1.0f - sun.sky[0]) * 0.40f * day, sun.sky[1] + (1.0f - sun.sky[1]) * 0.40f * day, sun.sky[2] + (1.0f - sun.sky[2]) * 0.30f * day);
+    const QVector3D top(sun.sky[0] * 0.55f, sun.sky[1] * 0.72f, simul::Min(sun.sky[2] * 1.05f, 1.0f));
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    skyProg_->bind();
+    skyProg_->setUniformValue("uInvVP", inv);
+    skyProg_->setUniformValue("uEye", eye);
+    skyProg_->setUniformValue("uSkyTop", top);
+    skyProg_->setUniformValue("uSkyHorizon", horizon);
+    skyProg_->setUniformValue("uSunDirW", QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z).normalized());
+    skyProg_->setUniformValue("uSunCol", QVector3D(sun.color[0], sun.color[1], sun.color[2]));
+    skyProg_->setUniformValue("uSunStrength", sun.sunK);
+    skyProg_->setUniformValue("uDay", day);
+    static const float tri[6] = {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f};
+    skyProg_->enableAttributeArray(0);
+    skyProg_->setAttributeArray(0, GL_FLOAT, tri, 2);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    skyProg_->disableAttributeArray(0);
+    skyProg_->release();
+    glEnable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
 }
 
 void ModelViewer::SetShadowsEnabled(bool on) {
@@ -1725,6 +1831,8 @@ void ModelViewer::paintScene() {
     const QMatrix4x4 proj = projMatrix();
     const QMatrix4x4 view = viewMatrix();
 
+    drawSky(proj, view, sun);
+
     prog_->bind();
     prog_->setUniformValue("uLit", 0.0f);
     prog_->setUniformValue("uUseTex", 0.0f);
@@ -1742,9 +1850,12 @@ void ModelViewer::paintScene() {
         const QVector3D d = view.mapVector(QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z)).normalized();
         prog_->setUniformValue("uSunDir", sun.on ? d : QVector3D(0.0f, 0.0f, 1.0f));
         prog_->setUniformValue("uSunColor", sun.on ? QVector3D(sun.color[0], sun.color[1], sun.color[2]) : QVector3D(1.0f, 1.0f, 1.0f));
-        prog_->setUniformValue("uSunK", sun.on ? sun.sunK : 1.0f);
-        prog_->setUniformValue("uFillK", sun.on ? 0.0f : 1.0f);
-        prog_->setUniformValue("uAmb", sun.on ? sun.ambient : 1.0f);
+        prog_->setUniformValue("uSunK", sun.on ? sun.sunK * 1.25f : 1.0f);
+        // 태양 모드: 그림자와 태양 반대쪽 면이 너무 어둡지 않게 낮에는 보조광(카메라 쪽 약한 빛)을 조금 켜고 주변광을 키운다. 밤에는 같이 줄어든다.
+        // (센서 카메라 영상의 밝기는 SunLighting::ambient 를 그대로 써서 바뀌지 않는다)
+        const float day = sun.ambient > 0.1f ? (sun.ambient - 0.1f) / 0.9f : 0.0f;
+        prog_->setUniformValue("uFillK", sun.on ? 0.8f * day : 1.0f);
+        prog_->setUniformValue("uAmb", sun.on ? sun.ambient * 2.0f : 1.0f);
     }
 
     prog_->setUniformValue("uShadowOn", 0.0f);
