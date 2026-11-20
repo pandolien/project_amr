@@ -51,6 +51,12 @@ const char* kFragmentShader =
     "uniform float uMetal;\n"     // 금속성 0..1 (PBR)
     "uniform float uRough;\n"     // 거칠기 0..1 (Blinn-Phong 은 광택도로 바꿔 쓴다)
     "uniform vec3 uUp;\n"         // 월드 +z 를 카메라 좌표로 (주변 환경의 위/아래)
+    "uniform float uSunOn;\n"     // 1 이면 주광을 태양(uSunDir)으로 쓰고 보조광은 끈다. 0 이면 카메라에 고정된 두 빛 (기본)
+    "uniform vec3 uSunDir;\n"     // 표면에서 태양으로 가는 방향 (카메라 좌표)
+    "uniform vec3 uSunColor;\n"   // 태양 빛의 색 (낮게 뜨면 붉다)
+    "uniform float uSunK;\n"      // 주광 세기 배율 (기본 1, 해가 지면 0)
+    "uniform float uFillK;\n"     // 보조광 세기 배율 (기본 1, 태양 모드는 0)
+    "uniform float uAmb;\n"       // 주변광/하늘 밝기 배율 (기본 1, 밤에는 작다)
     "uniform sampler2D uTex;\n"
     "uniform float uUseTex;\n"   // 1 이면 기본 색 텍스처를 곱한다
     "uniform float uUseVC;\n"    // 1 이면 정점 색을 곱한다

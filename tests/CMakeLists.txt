@@ -105,6 +105,17 @@ if(TARGET simul_main)
     set_tests_properties(sample_urdf_obb_folded PROPERTIES PASS_REGULAR_EXPRESSION "OBB 충돌 2건: base_link <-> upper_arm, base_link <-> forearm")
 endif()
 
+# 셰이더가 실제 OpenGL 드라이버에서 컴파일되는가 (offscreen 에는 GL 이 없어서 다른 테스트로는 못 잡는다).
+# xvfb-run 이 있으면 소프트웨어 OpenGL(Mesa)로 창을 열어 본다. 셰이더 오류가 나면 "셰이더를 만들 수 없습니다" 가 출력된다.
+find_program(SIMUL_XVFB_RUN xvfb-run)
+if(SIMUL_BUILD_QT AND SIMUL_XVFB_RUN)
+    foreach(mode pbr phong lambert)
+        add_test(NAME gl_shader_${mode} COMMAND ${SIMUL_XVFB_RUN} -a env LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb $<TARGET_FILE:simul_main>
+                 ${CMAKE_SOURCE_DIR}/Data/Object/samples/camera_scene.urdf --shading ${mode} --sun 2026-06-21T14:00 --shot ${CMAKE_BINARY_DIR}/gl_shader_${mode}.png)
+        set_tests_properties(gl_shader_${mode} PROPERTIES FAIL_REGULAR_EXPRESSION "셰이더를 만들 수 없습니다|error: " TIMEOUT 120)
+    endforeach()
+endif()
+
 # 프로젝트 소스에 C++ 표준 라이브러리(std::, 표준 헤더)가 없어야 한다
 add_test(NAME no_std COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckNoStd.cmake)
 
