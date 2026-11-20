@@ -28,6 +28,7 @@
 #include "CCollision/RobotCollision.h"
 #include "CMesh/Mesh.h"
 #include "CCollision/Bvh.h"
+#include "CSensor/Camera.h"
 #include "CSensor/Lidar.h"
 #include "CURDF/Urdf.h"
 #include "CURDF/World.h"
@@ -165,6 +166,19 @@ public:
     dhVector LidarOrigin() const { return lidarOrigin_; }  // 마지막 스캔의 센서 원점/방향각 (ScanLidar 뒤에 유효)
     float LidarHeading() const { return lidarHeading_; }
     const simul::sensor::LidarScan& ScanLidar();  // 지금 자세로 한 번 스캔한 결과 (그리기도 같은 결과를 쓴다)
+    // 센서 카메라 (3D 화면을 보는 시점인 CameraTarget/CameraYaw 등과 다르다): 로봇 링크 link 에 달고 (mount = 그 링크 좌표계에서 센서까지의 변환. 센서의 +x 가 보는 방향, +y 가 왼쪽, +z 가 위),
+    // 그 링크 자신을 뺀 나머지 메시를 찍는다. 정적 모델만 열려 있으면 link = -1 (월드 기준). 라이다와 달리 매 프레임 찍지 않고
+    // RenderSensorCamera 를 부를 때만 찍는다 (영상이 크면 CPU 광선 추적이 느리다). 영상은 BGR 8비트 + 깊이 m (CSensor/Camera.h 에 규약이 있다).
+    // 3D 화면에는 시야 절두체(노랑)를 그린다. 색은 메시의 기본 색이고 텍스처와 정점 색은 아직 쓰지 않는다.
+    void SetSensorCamera(int link, const simul::sensor::CameraSettings& settings, const dhMat& mount = dhMat());
+    void ClearSensorCamera();
+    bool SensorCameraEnabled() const { return cameraOn_; }
+    const simul::sensor::CameraSettings& SensorCameraSettings() const { return camera_.Settings(); }
+    void SetSensorCameraDrawn(bool on) { cameraDraw_ = on; update(); }
+    bool SensorCameraDrawn() const { return cameraDraw_; }
+    dhMat SensorCameraPose() const;  // 지금 센서 자세 (월드)
+    const simul::sensor::CameraImage& RenderSensorCamera();  // 지금 자세로 한 번 찍은 영상 (sensorCameraRendered 도 나간다). 카메라가 없으면 빈 영상
+    const simul::sensor::CameraImage& LastSensorCameraImage() const { return cameraImage_; }
     void SetObjectPosition(float x, float y, float z);
     dhVector ObjectPosition() const;
     void ResetObjectPosition() { SetObjectPosition(0, 0, 0); }
@@ -202,6 +216,7 @@ signals:
     void structureChanged();  // 링크 구성이 바뀌었다 (모델 하나를 처음 돌리면 world 가 생긴다): 트리/패널을 다시 채운다
     void collisionsChanged();  // 겹치는 링크 쌍이 달라졌을 때
     void jointValuesDragged(const simul::urdf::JointValues& q);  // 링크를 끌어서 (IK 로) 관절 값이 바뀌었을 때
+    void sensorCameraRendered(const simul::sensor::CameraImage& image);  // RenderSensorCamera 로 찍을 때마다
     void lidarScanned(const simul::sensor::LidarScan& scan, const dhVector& origin, float heading);  // 그릴 때마다 (센서 +x 의 월드 xy 방향각 rad)
     void objectMoved();  // 좌표계 화살표를 끌어서 위치가 바뀌었을 때
     void selectionChanged(int link);   // SetSelectedLink 로 선택이 바뀌었을 때 (-1 이면 해제)
@@ -262,6 +277,8 @@ private:
     dhMat itemWorld(const Item& it) const;
     float objectMinZ() const;  // 이동량을 뺀 오브젝트 좌표계에서 가장 낮은 점의 높이 (캐시)
     void drawLidar();
+    void drawSensorCameraFrustum();
+    void collectTargets(int skipLink, simul::Array<simul::sensor::CameraTarget>* out);
     void drawSelectionFrame(const QMatrix4x4& proj, const QMatrix4x4& view);
     void recomputeCollisions();
     void drawBoxEdges(const dhVector c[8], const QVector4D& color);
@@ -286,6 +303,12 @@ private:
     bool dragged_;
     dhVector objectPos_;   // 이동량 (월드, m)
     bool lidarOn_;
+    bool cameraOn_;
+    bool cameraDraw_;
+    int cameraLink_;
+    dhMat cameraMount_;
+    simul::sensor::Camera camera_;
+    simul::sensor::CameraImage cameraImage_;
     bool lidarDraw_;
     simul::urdf::World world_;      // 올려 둔 모델들 (합친 결과가 robot_)
     bool rebuildWorld(QString* error, bool keepView = false);

@@ -40,7 +40,7 @@ project_simul/
 | CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
-| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위) | CCollision, 3d |
+| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상) | CCollision, 3d |
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
@@ -226,6 +226,20 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 - 3D 예제: `Data/Object/samples/lidar_room_3d.urdf` 는 같은 방에 수직 채널 16 개(고각 -20~+15 도), 방위각 360 개(광선 5760 개)짜리 3D 라이다를 단 것입니다. 아래를 보는 채널이 낮은 상자와 바닥을 잡고, 그래프 도크는 고각 0 에 가장 가까운 채널을 그립니다. `tests/test_csensor.cpp` 의 `testLidarRoom3dExample` 이 검증합니다.
 - 예제: `Data/Object/samples/lidar_room.urdf` 는 8×6 m 방(벽, 상자, 원기둥, 라이다 높이 아래의 낮은 상자)과 그 안을 x, y 로 미끄러지고 회전하는 라이다 기둥입니다. `simul_main Data/Object/samples/lidar_room.urdf --joint x_slide=-0.5 --joint yaw=-20 --lidar-csv scan.csv` (라이다 설정은 이 URDF 의 `<gazebo>` 에 있습니다) 로 스캔을 CSV 로 저장하고, `python3 tools/plot_lidar_scan.py scan.csv out.png --room-example --sensor=-0.5,0,-20` 으로 위에서 본 지도와 방위각-거리 그래프를 그립니다 (matplotlib 필요). 정답 거리는 `tests/test_csensor.cpp` 의 `testLidarRoomExample` 이 검증합니다.
 - 아직 없는 것: 정적 모델(장애물)과 로봇을 한 화면에 같이 여는 것, 스캔 도중 센서가 움직이는 효과, 반사 강도.
+
+## 카메라 (CSensor: Camera.h)
+
+핀홀 카메라. 픽셀마다 광선을 하나씩 쏴서(CPU, 메시 BVH 사용) 가장 가까운 면의 색과 깊이를 잰다.
+
+- **좌표계**: 라이다와 같은 센서 좌표계. +x 가 보는 방향, +y 왼쪽, +z 위. 영상의 u 는 오른쪽, v 는 아래쪽으로 커지고 원점은 왼쪽 위다 (OpenCV 영상 규약). OpenCV/ROS 광학 좌표계(z 가 앞)와는 축이 다르다.
+- **컬러 영상은 BGR 8비트**: 픽셀마다 B, G, R, 행 우선, 행 사이 빈틈 없음(`stride = width*3`). `CameraImage::bgr` 를 `cv::Mat(height, width, CV_8UC3, image.bgr.data())` 로 복사 없이 감쌀 수 있다.
+- **깊이 영상은 float(CV_32FC1 배치), 단위 m**: 센서 +x 방향의 거리(z-depth)이고 광선 길이가 아니다. 안 보이거나 near/far 밖이면 0. `CameraImage::PixelPoint(u, v, &p)` 가 센서 좌표의 점을 준다. 내부 변수 `intrinsics`(fx, fy, cx, cy)는 OpenCV 카메라 행렬과 같은 뜻이다.
+- **설정**: `CameraSettings` 가로/세로 픽셀, 가로 시야각(rad, 세로는 비율로 결정), near/far, 깊이 잡음 표준편차(시드 고정), 배경색.
+- **색**: 메시의 기본 색에 카메라 방향 조명(밝기 = 0.3 + 0.7×|법선·광선|)을 곱한다. 텍스처, 정점 색, 그림자, 반사는 아직 없다 (1단계). 나중에 GPU 렌더로 바꿀 수 있게 `Camera::Render` 한 곳만 바꾸면 되도록 두었다.
+- **뷰어**: `ModelViewer::SetSensorCamera(link, settings, mount)` 로 링크에 달고(그 링크 자신은 안 찍는다), `RenderSensorCamera()` 를 부를 때만 찍는다 (매 프레임 찍지 않는다. 호스트가 원하는 주기로 부르고, `sensorCameraRendered` 시그널로도 받는다). 3D 화면에는 시야 절두체(노랑, 위쪽 변에 작은 삼각형)가 나온다. 3D 화면을 보는 시점(`CameraYaw` 등)과 이름이 비슷하니 헷갈리지 말 것.
+- **영상 창**: `CoreQt/CameraView` (컬러/깊이 보기, 마우스를 올리면 픽셀의 깊이와 센서 좌표 표시). Qt 5.12 에는 `QImage::Format_BGR888` 이 없어 표시할 때만 채널을 바꿔 복사하고, 데이터는 BGR 그대로다.
+- **앱**: `simul_main 모델.urdf --camera 링크,x,y,z --camera-size 640x480 --camera-fov 70 --camera-range 0.05,10 --camera-save out/c` (영상 창이 같이 뜬다. `--camera-save` 는 `c.png` 컬러, `c_depth.png` 회색 깊이, `c_depth16.png` 16비트 mm 를 저장한다). 메뉴 센서 > 카메라 영상 으로 창을 켜고 끈다.
+- **검증**: `test_ccamera` (깊이 해석해, BGR 순서, 영상 방향, 가림, near/far, 잡음 재현성, BVH 일치, 내부 변수, 예외), `test_simulview` (링크에 달아 찍기, 시그널).
 
 ## 충돌 감지 (CCollision)
 
