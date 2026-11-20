@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "CMesh/MeshLoader.h"
+#include "CMesh/MeshWriter.h"
 #include "TestGlb.h"
 #include "TestUtil.h"
 
@@ -280,10 +281,77 @@ void testDae() {
 
 }  // namespace
 
+
+// ---------------- OBJ 쓰기 ----------------
+void testObjWrite() {
+    Scene sc;
+    {
+        Material red;   // 텍스처(가짜 PNG 바이트) + 반투명
+        red.baseColor = Color(0.5f, 0.25f, 0.125f, 0.5f);
+        red.alphaMode = 2;
+        const unsigned char png[12] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4};
+        red.baseColorImage.assign(png, png + 12);
+        sc.materials.push_back(red);
+        Material green;
+        green.baseColor = Color(0.0f, 1.0f, 0.0f, 1.0f);
+        sc.materials.push_back(green);
+        Primitive quad;   // 색, uv 가 있는 사각형
+        const float pos[12] = {0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0};
+        quad.positions.assign(pos, pos + 12);
+        const float uv[8] = {0, 0, 1, 0, 1, 1, 0, 1};
+        quad.uvs.assign(uv, uv + 8);
+        const float col[16] = {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1};
+        quad.colors.assign(col, col + 16);
+        const uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+        quad.indices.assign(idx, idx + 6);
+        quad.material = 0;
+        Primitive tri;
+        const float tp[9] = {0, 0, 1, 1, 0, 1, 0, 1, 1};
+        tri.positions.assign(tp, tp + 9);
+        const uint32_t ti[3] = {0, 1, 2};
+        tri.indices.assign(ti, ti + 3);
+        tri.material = 1;
+        Mesh m;
+        m.name = "m";
+        m.primitives.push_back(quad);
+        m.primitives.push_back(tri);
+        sc.meshes.push_back(m);
+        SceneNode node;
+        node.mesh = 0;
+        node.local = dhMat::Trans(1, 2, 3) * dhMat::RotZ(0.5f) * dhMat::Scale(2.0f, 1.0f, 0.5f);   // 비균등 크기 + 회전 + 이동
+        sc.nodes.push_back(node);
+        sc.roots.push_back(0);
+    }
+    const simul::String dir = tu::Tmp("simul_objw");
+    tu::MkDir(dir);
+    simul::String err;
+    Array<simul::String> warn;
+    check(SaveObj(sc, dir + "/out.obj", &err, &warn), ("SaveObj: " + err).c_str());
+    Scene back;
+    check(LoadObj(dir + "/out.obj", &back, &err), ("reload obj: " + err).c_str());
+    check(back.TriangleCount() == sc.TriangleCount() && back.meshes[0].primitives.size() == 2, "triangle and primitive count survive");
+    dhVector a0, a1, b0, b1;
+    sc.ComputeBounds(&a0, &a1);
+    back.ComputeBounds(&b0, &b1);
+    check(nearly(a0.x, b0.x, 1e-4) && nearly(a0.y, b0.y, 1e-4) && nearly(a0.z, b0.z, 1e-4) && nearly(a1.x, b1.x, 1e-4) && nearly(a1.y, b1.y, 1e-4) && nearly(a1.z, b1.z, 1e-4), "node transform is baked into the vertices");
+    check(back.materials.size() == 2 && nearly(back.materials[0].baseColor.r, 0.5) && nearly(back.materials[0].baseColor.g, 0.25) && nearly(back.materials[0].baseColor.a, 0.5) && back.materials[0].alphaMode == 2 &&
+              nearly(back.materials[1].baseColor.g, 1.0),
+          "material colors and alpha survive");
+    simul::Array<unsigned char> tex;
+    check(!back.materials[0].baseColorTexture.empty() && ReadAllBytes(back.materials[0].baseColorTexture, &tex, &err) && tex.size() == 12 && tex[1] == 'P', "the embedded image is written next to the obj and found again");
+    const Primitive& q = back.meshes[0].primitives[0];
+    check(q.uvs.size() == 8 && nearly(q.uvs[1], 0) && nearly(q.uvs[3], 0) && nearly(q.uvs[5], 1), "uv round trip (v is flipped twice)");
+    check(q.colors.size() == 16 && nearly(q.colors[0], 1) && nearly(q.colors[5], 1) && nearly(q.colors[10], 1), "vertex colors survive");
+    // 법선: 사각형은 z 평면 -> 비균등 크기(2,1,0.5) 뒤에도 월드의 법선은 회전한 z (0,0,1) 이다
+    check(q.normals.size() == 12 && nearly(q.normals[2], 1.0, 1e-3), "normals follow the inverse-transpose");
+    check(warn.empty(), "no warnings for a PNG");
+}
+
 int main() {
     testStl();
     testObj();
     testDae();
+    testObjWrite();
     if (g_fail == 0) printf("test_cmesh_formats: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

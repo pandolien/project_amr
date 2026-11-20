@@ -153,11 +153,12 @@ struct Exporter {
     simul::String dir;      // 저장 폴더 (슬래시, 끝 슬래시 없음)
     simul::String objDir;   // dir/obj
     FolderSaveResult* res;
+    bool toStl;
     simul::Map<simul::String, simul::String> nameOfKey;   // 원본 키 -> obj/ 아래 상대 경로 ("a.stl", "dir/x.obj")
     simul::Map<simul::String, int> used;                   // 쓴 이름(소문자) -> 개수
     simul::String error;
 
-    Exporter(const Robot& r, const LoadOptions& l, FolderSaveResult* result) : robot(r), load(l), res(result) {}
+    Exporter(const Robot& r, const LoadOptions& l, FolderSaveResult* result, bool stl) : robot(r), load(l), res(result), toStl(stl) {}
 
     void Warn(const simul::String& w) { res->warnings.push_back(w); }
 
@@ -204,7 +205,7 @@ struct Exporter {
             g->filename = src;
             return true;
         }
-        const simul::String key = "glb|" + src + "|" + simul::ToString(g->scale[0]) + "," + simul::ToString(g->scale[1]) + "," + simul::ToString(g->scale[2]);
+        const simul::String key = (toStl ? "glb-stl|" : "glb-obj|") + src + "|" + simul::ToString(g->scale[0]) + "," + simul::ToString(g->scale[1]) + "," + simul::ToString(g->scale[2]);
         simul::Map<simul::String, simul::String>::iterator it = nameOfKey.find(key);
         simul::String rel;
         if (it != nameOfKey.end()) {
@@ -214,15 +215,34 @@ struct Exporter {
                 error = "폴더를 만들 수 없습니다: " + objDir;
                 return false;
             }
-            rel = Unique(Stem(src), ".stl");
-            if (!SaveStl(sc, detail::JoinPath(objDir, rel), &err)) {
-                Warn(where + ": " + err);
-                g->filename = src;
-                return true;
+            if (toStl) {
+                rel = Unique(Stem(src), ".stl");
+                if (!SaveStl(sc, detail::JoinPath(objDir, rel), &err)) {
+                    Warn(where + ": " + err);
+                    g->filename = src;
+                    return true;
+                }
+            } else {   // OBJ + MTL + 텍스처는 한 폴더에 모은다
+                const simul::String sub = Unique(Stem(src), "");
+                if (!MakeDirectories(detail::JoinPath(objDir, sub))) {
+                    error = "폴더를 만들 수 없습니다: " + detail::JoinPath(objDir, sub);
+                    return false;
+                }
+                rel = sub + "/" + sub + ".obj";
+                simul::Array<simul::String> w;
+                if (!SaveObj(sc, detail::JoinPath(objDir, rel), &err, &w)) {
+                    Warn(where + ": " + err);
+                    g->filename = src;
+                    return true;
+                }
+                for (size_t i = 0; i < w.size(); i++) Warn(where + ": " + w[i]);
             }
             nameOfKey[key] = rel;
             res->converted++;
         }
+        g->filename = "obj/" + rel;
+        g->scale[0] = g->scale[1] = g->scale[2] = 1.0f;
+        if (!toStl) return true;   // OBJ 는 색과 텍스처를 파일이 가진다
         // STL 에 담지 못하는 정보
         bool textured = false, vertexColors = false;
         for (size_t m = 0; m < sc.materials.size(); m++)
@@ -248,8 +268,6 @@ struct Exporter {
                 if (several) Warn(where + ": 재질이 여러 색이라 첫 번째 색 하나만 남깁니다 (" + BaseName(src) + ")");
             }
         }
-        g->filename = "obj/" + rel;
-        g->scale[0] = g->scale[1] = g->scale[2] = 1.0f;
         return true;
     }
 
@@ -320,7 +338,7 @@ struct Exporter {
 }  // namespace
 
 bool SaveUrdfFolder(const Robot& robot, const simul::String& dirIn, const LoadOptions& load, simul::String* error,
-                    FolderSaveResult* result, const WriteOptions& opt) {
+                    FolderSaveResult* result, const WriteOptions& opt, const FolderOptions& folder) {
     FolderSaveResult local;
     FolderSaveResult* res = result ? result : &local;
     res->warnings.clear();
@@ -338,7 +356,7 @@ bool SaveUrdfFolder(const Robot& robot, const simul::String& dirIn, const LoadOp
     }
 
     Robot r = robot;
-    Exporter ex(robot, load, res);
+    Exporter ex(robot, load, res, folder.glbToStl);
     ex.dir = dir;
     ex.objDir = dir + "/obj";
     for (size_t i = 0; i < r.links.size(); i++) {

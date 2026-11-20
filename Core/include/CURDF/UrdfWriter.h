@@ -23,21 +23,27 @@ simul::String UrdfToString(const Robot& robot, const simul::String& outDir, cons
 bool SaveUrdf(const Robot& robot, const simul::String& path, simul::String* error, const WriteOptions& opt = WriteOptions());
 
 // 폴더로 저장: dir/ 아래에 <폴더이름>.urdf 와 obj/ (메시와 그 부속 파일) 를 만든다. 폴더째 옮겨도 열린다 (메시 경로가 모두 상대 경로).
-//   GLB/glTF  -> 바이너리 STL (obj/<이름>.stl). URDF 의 scale 과 Y-up->Z-up 회전(load.glbYUpToZUp)을 정점에 미리 적용하고 scale 은 1 로 쓴다.
-//                STL 에는 색이 없으므로 시각 형상에 URDF 색이 없으면 GLB 의 기본 색을 URDF <material> 로 옮긴다. 텍스처와 정점 색은 버려지고 warnings 에 남는다.
+//   GLB/glTF  -> 기본은 OBJ + MTL + 텍스처 이미지 (obj/<이름>/<이름>.obj). 색, 여러 재질, 텍스처, 정점 색, 반투명이 유지된다.
+//                URDF 의 scale 과 Y-up->Z-up 회전(load.glbYUpToZUp)을 정점에 미리 적용하고 scale 은 1 로 쓴다.
+//                options.glbToStl 이면 바이너리 STL (obj/<이름>.stl). STL 에는 색이 없으므로 시각 형상에 URDF 색이 없으면 GLB 의 기본 색 하나만 URDF <material> 로 옮기고,
+//                텍스처, 정점 색, 여러 색은 버려져 warnings 에 남는다.
 //   STL       -> obj/<이름>.stl 로 복사
 //   OBJ, DAE  -> obj/<이름>/ 폴더에 복사 (OBJ 는 mtl 과 그 안의 텍스처, DAE 는 <init_from> 의 이미지)
 //   기본 도형(box, cylinder, sphere)은 파일이 없다. 같은 원본은 한 번만 만들고, 이름이 겹치면 _2, _3 을 붙인다.
 //   <material><texture> 이미지는 obj/ 로 복사한다.
+struct FolderOptions {
+    bool glbToStl;   // false(기본): GLB 를 OBJ+MTL 로, true: 바이너리 STL 로
+    FolderOptions() : glbToStl(false) {}
+};
 struct FolderSaveResult {
     simul::Array<simul::String> warnings;
     simul::String urdfPath;   // 만들어진 <dir>/<이름>.urdf
-    int converted;            // GLB -> STL 로 쓴 수
+    int converted;            // GLB 를 OBJ/STL 로 바꿔 쓴 수
     int copied;               // 그대로 복사한 메시 수
     FolderSaveResult() : converted(0), copied(0) {}
 };
 bool SaveUrdfFolder(const Robot& robot, const simul::String& dir, const LoadOptions& load, simul::String* error,
-                    FolderSaveResult* result = 0, const WriteOptions& opt = WriteOptions());
+                    FolderSaveResult* result = 0, const WriteOptions& opt = WriteOptions(), const FolderOptions& folder = FolderOptions());
 
 // 자세(회전 행렬) -> URDF 의 rpy (고정축 roll, pitch, yaw. R = Rz(yaw) Ry(pitch) Rx(roll)), 라디안.
 void RpyFromMat(const dhMat& m, double rpy[3]);

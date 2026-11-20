@@ -61,8 +61,9 @@ public:
     bool SaveUrdf(const QString& path, QString* error = nullptr) const;
     // 지금 장면을 URDF 로 저장하면 나올 본문 (모델이 없으면 빈 문자열). 파일 보기 위젯이 쓴다.
     QString UrdfText() const;
-    // 폴더로 저장: dir/<폴더이름>.urdf + dir/obj/ (GLB 는 바이너리 STL 로 바꿔 넣는다). warnings 에는 STL 로 옮기지 못한 색/텍스처 같은 것이 들어간다.
-    bool SaveUrdfFolder(const QString& dir, QString* error = nullptr, QStringList* warnings = nullptr) const;
+    // 폴더로 저장: dir/<폴더이름>.urdf + dir/obj/. GLB 는 기본으로 OBJ+MTL(+텍스처 이미지)로 바꿔 넣어 색과 텍스처가 유지된다.
+    // glbToStl 이면 바이너리 STL 로 넣는다 (가장 호환이 좋지만 색이 없다: 기본 색 하나만 URDF 로 옮기고 나머지는 warnings 에 남는다).
+    bool SaveUrdfFolder(const QString& dir, QString* error = nullptr, QStringList* warnings = nullptr, bool glbToStl = false) const;
     int ModelCount() const { return static_cast<int>(world_.size()); }
     QString ModelName(int index) const;
     int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)

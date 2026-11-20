@@ -367,7 +367,7 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 구조: 가상 링크 `world` 아래에 모델마다 고정 관절 `<모델이름>_attach` 로 매달리고, 그 관절의 `origin` 이 모델의 위치/회전이다. 이름이 겹치면 뒤에 온 모델에 `<모델>/` 가 붙는다.
 - 담기는 것: 링크, 관절(회전/직동/고정, 축, limit, 감쇠/마찰, mimic), 질량/관성, visual/collision(도형, 메시, scale, 색), 라이다 센서. 현재 관절 값(자세)은 URDF 에 없으므로 담기지 않는다.
 - 간결하게: 기본값과 같은 요소는 생략하고, 같은 재질은 `<robot>` 아래에 한 번만 정의해 이름으로 부른다. 메시 경로는 저장하는 파일 기준 상대 경로로 쓴다.
-- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdf(robot, path, &err)` / `UrdfToString`, 뷰어는 `ModelViewer::SaveUrdf(path)`, `SimulView` 기본 메뉴(파일)에도 같은 항목이 있다 (`urdfSaved` / `urdfSaveFailed` 신호).
+- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result, WriteOptions(), FolderOptions)` (`FolderOptions::glbToStl`), 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings, glbToStl)`. 쓰기는 `CMesh/MeshWriter.h` 의 `SaveObj` / `SaveStl` / `StlBytes`.
 - 검증: 쓴 파일을 다시 읽어 링크/관절/질량·관성/형상/색이 같은지 `test_curdf_write` 가 확인한다 (회전 rpy 변환은 짐벌 락 근처 포함).
 
 ### 폴더로 저장 / 폴더 열기
@@ -379,11 +379,12 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 ```
 
 - 앱: 파일 > **장면을 폴더로 저장...** (위치 선택 후 폴더 이름 입력, 이미 있으면 덮어쓸지 묻는다), 파일 > **폴더 열기 (추가)...**. 명령행 `--export-dir 폴더` (예: `simul_main arm.urdf --export-dir out/myscene`), 폴더 경로를 그냥 열 파일로 줘도 된다 (`simul_main out/myscene`, 폴더 끌어다 놓기도 같다).
-- **GLB/glTF 는 바이너리 STL 로 바꿔 `obj/이름.stl` 에 넣는다** (다른 URDF 도구가 읽을 수 있는 형식). URDF 의 scale 과 Y-up→Z-up 회전을 정점에 미리 적용하고 scale 은 1 로 쓰므로 화면에 보이던 모양 그대로다. STL 에는 색이 없어서, 시각 형상에 URDF 색이 없으면 GLB 의 기본 색(baseColorFactor)을 URDF `<material>` 로 옮긴다. 텍스처, 정점 색, 여러 재질의 색 차이는 버려지고 경고로 남는다 (로그 창).
+- **GLB/glTF 는 기본으로 OBJ + MTL 로 바꿔 `obj/이름/이름.obj` 에 넣는다.** 색(Kd), 여러 재질, 반투명(d), 텍스처 이미지(GLB 안에 든 이미지는 파일로 꺼내 `map_Kd`), 정점 색(`v x y z r g b`)이 유지된다. 금속성/거칠기는 OBJ 에 없어 버려진다. URDF 의 scale 과 Y-up→Z-up 회전은 정점에 미리 적용하고 scale 은 1 로 쓰므로 화면에 보이던 모양 그대로다. 색은 메시 파일이 가지므로 URDF `<material>` 로 옮기지 않는다 (URDF 색이 장면 재질보다 우선하기 때문).
+- **STL 선택**: 저장할 때 형식으로 STL 을 고르면(메뉴 대화상자, 또는 `--export-mesh stl`) 바이너리 STL `obj/이름.stl` 로 넣는다. 호환은 가장 좋지만 색이 없어서, 시각 형상에 URDF 색이 없으면 GLB 의 기본 색 하나만 URDF `<material>` 로 옮기고 텍스처, 정점 색, 여러 색은 버려져 경고(로그 창)로 남는다.
 - STL 은 그대로 복사, OBJ/DAE 는 `obj/이름/` 폴더에 부속 파일(mtl, 텍스처)과 함께 복사한다. `<material><texture>` 이미지는 `obj/` 로 복사한다. 박스/원통/구는 파일이 필요 없다.
 - 같은 원본은 한 번만 만들고, 이름이 겹치면 `_2`, `_3` 을 붙인다. 폴더째 옮기거나 압축해서 보내도 열린다.
-- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result)`, 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings)`. STL 쓰기는 `CMesh/MeshWriter.h` 의 `SaveStl` / `StlBytes`.
-- 검증: `test_curdf_write` 의 폴더 테스트가 STL 크기(84 + 50×삼각형), 색 이전, 상대 경로, 다시 읽었을 때 모양(경계 상자) 일치를 확인한다.
+- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result, WriteOptions(), FolderOptions)` (`FolderOptions::glbToStl`), 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings, glbToStl)`. 쓰기는 `CMesh/MeshWriter.h` 의 `SaveObj` / `SaveStl` / `StlBytes`.
+- 검증: `test_curdf_write` 의 폴더 테스트가 OBJ/MTL 색 유지, 상대 경로, 다시 읽었을 때 모양(경계 상자)·삼각형 수·색 일치와 STL 모드(크기 84 + 50×삼각형, 색 이전)를, `test_cmesh_formats` 가 SaveObj→LoadObj 왕복(재질, 알파, 텍스처 파일, uv, 정점 색, 법선)을 확인한다.
 
 ## 관절로 연결하기 (모델 조립)
 

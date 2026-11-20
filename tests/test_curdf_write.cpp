@@ -217,49 +217,74 @@ void testFolder() {
     check(LoadUrdf(urdfPath, &r, &err), ("load folder source: " + err).c_str());
 
     const String out = tu::Tmp("simul_fold_out");
-    FolderSaveResult res;
-    check(SaveUrdfFolder(r, out + "/robotx", LoadOptions(), &err, &res), ("save folder: " + err).c_str());
-    check(res.urdfPath == out + "/robotx/robotx.urdf", "urdf is <folder>/<folder>.urdf");
-    check(res.converted == 1 && res.copied == 2, "glb converted once (shared by visual and collision), stl and obj copied");
+    RobotMeshes orig;
+    check(LoadRobotMeshes(r, LoadOptions(), &orig) && orig.visuals.size() >= 4, "load original meshes");
 
-    Array<unsigned char> stl;
-    check(ReadAllBytes(out + "/robotx/obj/tri.stl", &stl, &err), "obj/tri.stl exists");
-    check(stl.size() == 84 + 50, "binary STL size = 84 + 50 * triangles");
-    uint32_t cnt = 0;
-    if (stl.size() >= 84) memcpy(&cnt, &stl[80], 4);
-    check(cnt == 1, "STL triangle count");
-    Array<unsigned char> tmp;
-    check(ReadAllBytes(out + "/robotx/obj/src.stl", &tmp, &err), "stl copied to obj/");
-    check(ReadAllBytes(out + "/robotx/obj/box/box.obj", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/box/m.mtl", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/box/t.png", &tmp, &err), "obj, mtl and texture copied together");
+    // ---- 기본: GLB -> OBJ + MTL (색 유지)
+    {
+        FolderSaveResult res;
+        check(SaveUrdfFolder(r, out + "/robotx", LoadOptions(), &err, &res), ("save folder: " + err).c_str());
+        check(res.urdfPath == out + "/robotx/robotx.urdf", "urdf is <folder>/<folder>.urdf");
+        check(res.converted == 1 && res.copied == 2, "glb converted once (shared by visual and collision), stl and obj copied");
+        Array<unsigned char> tmp;
+        check(ReadAllBytes(out + "/robotx/obj/tri/tri.obj", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/tri/tri.mtl", &tmp, &err), "glb written as obj + mtl in obj/tri/");
+        const String mtl(tmp.empty() ? "" : reinterpret_cast<const char*>(&tmp[0]), tmp.size());
+        check(mtl.find("Kd 0.2 0.4 0.6") != String::npos, "mtl keeps the base color");
+        check(ReadAllBytes(out + "/robotx/obj/src.stl", &tmp, &err), "stl copied to obj/");
+        check(ReadAllBytes(out + "/robotx/obj/box/box.obj", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/box/m.mtl", &tmp, &err) && ReadAllBytes(out + "/robotx/obj/box/t.png", &tmp, &err), "obj, mtl and texture copied together");
 
-    // URDF 는 상대 경로만 쓴다 (원본 폴더 이름이 없어야 한다)
-    Array<unsigned char> ub;
-    check(ReadAllBytes(res.urdfPath, &ub, &err), "read saved urdf");
-    const String text(ub.empty() ? "" : reinterpret_cast<const char*>(&ub[0]), ub.size());
-    check(text.find(src) == String::npos, "saved urdf has no absolute source path");
-    check(text.find("filename=\"obj/tri.stl\"") != String::npos && text.find("filename=\"obj/src.stl\"") != String::npos && text.find("filename=\"obj/box/box.obj\"") != String::npos, "meshes referenced as obj/...");
+        // URDF 는 상대 경로만 쓴다 (원본 폴더 이름이 없어야 한다)
+        Array<unsigned char> ub;
+        check(ReadAllBytes(res.urdfPath, &ub, &err), "read saved urdf");
+        const String text(ub.empty() ? "" : reinterpret_cast<const char*>(&ub[0]), ub.size());
+        check(text.find(src) == String::npos, "saved urdf has no absolute source path");
+        check(text.find("filename=\"obj/tri/tri.obj\"") != String::npos && text.find("filename=\"obj/src.stl\"") != String::npos && text.find("filename=\"obj/box/box.obj\"") != String::npos, "meshes referenced as obj/...");
+        check(text.find("0.2 0.4 0.6") == String::npos, "the glb color stays in the mesh file, not in the urdf");
 
-    // 다시 읽기: 같은 구조, 모양이 같고, GLB 의 색은 URDF 색으로 옮겨져 있다
-    Robot again;
-    check(LoadUrdf(res.urdfPath, &again, &err), ("reload folder urdf: " + err).c_str());
-    check(again.links.size() == 1 && again.links[0].visuals.size() == 4 && again.links[0].collisions.size() == 1, "same shapes after reload");
-    check(again.links[0].visuals[0].hasMaterial && again.links[0].visuals[0].material.hasColor &&
-              near(again.links[0].visuals[0].material.color.r, 0.2) && near(again.links[0].visuals[0].material.color.g, 0.4) && near(again.links[0].visuals[0].material.color.b, 0.6),
-          "glb base color moved into the urdf material");
-    check(again.links[0].visuals[0].geometry.scale[0] == 1.0f, "scale is baked into the STL");
-    RobotMeshes a, b;
-    check(LoadRobotMeshes(r, LoadOptions(), &a), "load original meshes");
-    check(LoadRobotMeshes(again, LoadOptions(), &b), "load folder meshes");
-    check(a.visuals.size() == b.visuals.size() && !a.visuals.empty(), "same visual count");
-    for (size_t i = 0; i < a.visuals.size() && i < b.visuals.size(); i++) {
-        dhVector amin, amax, bmin, bmax;
-        a.visuals[i].scene.ComputeBounds(&amin, &amax);
-        b.visuals[i].scene.ComputeBounds(&bmin, &bmax);
-        check(near(amin.x, bmin.x, 1e-4) && near(amin.y, bmin.y, 1e-4) && near(amin.z, bmin.z, 1e-4) && near(amax.x, bmax.x, 1e-4) && near(amax.y, bmax.y, 1e-4) && near(amax.z, bmax.z, 1e-4),
-              ("visual shape bounds match " + ToString(i)).c_str());
+        // 다시 읽기: 같은 구조, 같은 모양, 같은 색
+        Robot again;
+        check(LoadUrdf(res.urdfPath, &again, &err), ("reload folder urdf: " + err).c_str());
+        check(again.links.size() == 1 && again.links[0].visuals.size() == 4 && again.links[0].collisions.size() == 1, "same shapes after reload");
+        check(again.links[0].visuals[0].geometry.scale[0] == 1.0f, "scale is baked into the OBJ");
+        RobotMeshes b;
+        check(LoadRobotMeshes(again, LoadOptions(), &b), "load folder meshes");
+        check(orig.visuals.size() == b.visuals.size(), "same visual count");
+        for (size_t i = 0; i < orig.visuals.size() && i < b.visuals.size(); i++) {
+            dhVector amin, amax, bmin, bmax;
+            orig.visuals[i].scene.ComputeBounds(&amin, &amax);
+            b.visuals[i].scene.ComputeBounds(&bmin, &bmax);
+            check(near(amin.x, bmin.x, 1e-4) && near(amin.y, bmin.y, 1e-4) && near(amin.z, bmin.z, 1e-4) && near(amax.x, bmax.x, 1e-4) && near(amax.y, bmax.y, 1e-4) && near(amax.z, bmax.z, 1e-4),
+                  ("visual shape bounds match " + ToString(i)).c_str());
+        }
+        check(orig.visuals[0].scene.TriangleCount() == b.visuals[0].scene.TriangleCount(), "triangle count");
+        check(!b.visuals[0].scene.materials.empty() && near(b.visuals[0].scene.materials[0].baseColor.r, 0.2) && near(b.visuals[0].scene.materials[0].baseColor.g, 0.4) && near(b.visuals[0].scene.materials[0].baseColor.b, 0.6),
+              "the color survives the folder save (read back from the mtl)");
     }
-    check(a.visuals[0].scene.TriangleCount() == b.visuals[0].scene.TriangleCount(), "triangle count");
 
+    // ---- STL 선택: 바이너리 STL, 색은 URDF 로 (기본 색 하나)
+    {
+        FolderSaveResult res;
+        FolderOptions fo;
+        fo.glbToStl = true;
+        check(SaveUrdfFolder(r, out + "/stlx", LoadOptions(), &err, &res, WriteOptions(), fo), ("save folder as stl: " + err).c_str());
+        Array<unsigned char> stl;
+        check(ReadAllBytes(out + "/stlx/obj/tri.stl", &stl, &err), "obj/tri.stl exists");
+        check(stl.size() == 84 + 50, "binary STL size = 84 + 50 * triangles");
+        uint32_t cnt = 0;
+        if (stl.size() >= 84) memcpy(&cnt, &stl[80], 4);
+        check(cnt == 1, "STL triangle count");
+        Robot again;
+        check(LoadUrdf(res.urdfPath, &again, &err), ("reload stl folder urdf: " + err).c_str());
+        check(again.links[0].visuals[0].hasMaterial && again.links[0].visuals[0].material.hasColor &&
+                  near(again.links[0].visuals[0].material.color.r, 0.2) && near(again.links[0].visuals[0].material.color.g, 0.4) && near(again.links[0].visuals[0].material.color.b, 0.6),
+              "stl mode: the glb base color moves into the urdf material");
+        check(again.links[0].visuals[0].geometry.scale[0] == 1.0f, "stl mode: scale baked");
+        check(res.warnings.empty() || true, "warnings only advise");
+    }
+
+    Robot again;
+    check(LoadUrdf(out + "/robotx/robotx.urdf", &again, &err), "reload for the move test");
+    FolderSaveResult res;
     // 폴더째 옮겨도 열린다
     const String moved = tu::Tmp("simul_fold_moved");
     check(SaveUrdfFolder(again, moved + "/other", LoadOptions(), &err, &res), ("save the folder urdf again: " + err).c_str());

@@ -398,14 +398,16 @@ QString ModelViewer::UrdfText() const {
     return simulqt::ToQ(simul::urdf::UrdfToString(robot_, simul::String(), opt));
 }
 
-bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList* warnings) const {
+bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList* warnings, bool glbToStl) const {
     if (!hasRobot_) {
         if (error) *error = QString::fromUtf8("저장할 모델이 없습니다");
         return false;
     }
     simul::urdf::FolderSaveResult res;
+    simul::urdf::FolderOptions fo;
+    fo.glbToStl = glbToStl;
     simul::String err;
-    if (!simul::urdf::SaveUrdfFolder(robot_, simulqt::FromQ(dir), options_, &err, &res)) {
+    if (!simul::urdf::SaveUrdfFolder(robot_, simulqt::FromQ(dir), options_, &err, &res, simul::urdf::WriteOptions(), fo)) {
         if (error) *error = simulqt::ToQ(err);
         return false;
     }
