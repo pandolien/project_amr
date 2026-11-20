@@ -384,6 +384,33 @@ register(SwingArm)
 - **Python 편집기 (오른쪽 도크, 메뉴 Python > Python 편집기, Ctrl+E, `--python-editor`)**: 줄 번호, 문법 색, Tab 들여쓰기, 자동 들여쓰기가 있는 편집기. 새 파일은 Behavior 틀로 시작하고, 위쪽 버튼으로 열기/저장, 아래 `저장 후 등록` 은 저장하고 Main.py 에 등록한다 (같은 파일을 다시 누르면 이전 클래스를 `on_stop` 으로 내리고 새로 읽는다. 시뮬레이션이 돌고 있어도 바로 바뀐다). 맨 아래 입력줄은 한 줄 실행 (`simul.find("arm").joints`). 새 파일 기본 저장 위치는 `Data/Python/user/`. 결과와 오류는 로그 창.
 - 지금은 인터프리터와 클래스 등록까지다. 스크립트를 파일 이름으로 오브젝트에 자동으로 붙이는 것, 제어기 DLL(모터 토크 입력 경로)은 다음 단계.
 
+### 정보를 받고 움직임을 돌려주는 방식 (update 함수)
+
+Main 이 매 틱 정보 묶음(`info`)을 python 프로그램(함수) 하나에 넘기고, 함수가 오브젝트 움직임 정보를 돌려주면 Main 이 그것을 장면에 적용한다. 클래스 등록과 오브젝트별 권한이 필요 없다.
+
+```
+Main  --(오브젝트 정보, 시간, 충돌)-->  update(info)
+Main  <--(오브젝트 움직임 정보)--------  update(info)
+```
+
+```python
+from Main import register
+
+def update(info):
+    arm = info.objects["arm"]                 # .name .kind .position .quaternion .joints["joint_1"].value / .lower / .upper
+    hit = info.collided("arm")                # 지금 arm 이 들어 있는 충돌 쌍 [Contact]: .a .b .link_a .link_b .same
+    if hit:
+        return {"arm": {"joints": {"joint_1": (arm.joints["joint_1"].value, 1.0)}}}   # 지금 값에 머문다
+    return {"arm": {"joints": {"joint_1": 1.57}}}                                     # 목표 rad (또는 (목표, 속도 rad/s))
+
+register(update)                              # register(update, period=0.05) 처럼 부르는 간격도 줄 수 있다
+```
+
+- `info`: `time`, `dt`, `objects` (이름 -> 상태), `collisions` (지금 겹친 쌍 전부), `collided(이름)`. 한 틱 안에서는 모두 같은 값(스냅샷)이다.
+- 돌려주는 값: `{오브젝트 이름: {"joints": {관절: 목표}, "position": (x, y, z), "speed": m/s}}`. 같은 목표는 다시 내지 않고, 바뀔 때만 명령으로 낸다. `None` 이나 `{}` 이면 아무것도 하지 않는다.
+- 충돌은 OBB 까지 겹친 링크 쌍이고, 같은 오브젝트 안의 링크끼리면 `same` 이 True 이다 (자기충돌). python 에서는 `simul.collisions()` 로도 읽을 수 있다.
+- 기존의 `Behavior` 클래스 방식도 그대로 쓸 수 있고, 한 파일에 둘을 섞어도 된다. 예제: `Data/Python/examples/demo_update.py`.
+
 ### 오브젝트 / 관절 값 패널
 
 메뉴 Python > "오브젝트 / 관절 값" (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. 시뮬레이션이 도는 동안 값이 0.1 초마다 갱신된다. 이름이나 관절 행을 더블클릭하면 Python 편집기 커서 위치에 `"elbow_pitch"` 처럼 따옴표 붙은 이름이 들어간다.

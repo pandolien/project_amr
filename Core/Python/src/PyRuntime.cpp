@@ -283,6 +283,23 @@ PyObject* M_dt(PyObject*, PyObject*) { return PyFloat_FromDouble(Eng()->LastDt()
 PyObject* M_tick(PyObject*, PyObject*) { return PyLong_FromUnsignedLongLong(Eng()->TickCount()); }
 PyObject* M_running(PyObject*, PyObject*) { return PyBool_FromLong(Eng()->Running() ? 1 : 0); }
 
+PyObject* M_collisions(PyObject*, PyObject*) {
+    simul::Array<sim::ContactInfo> list;
+    Eng()->Contacts(&list);
+    PyObject* l = PyList_New(0);
+    for (size_t i = 0; i < list.size(); i++) {
+        const sim::ContactInfo& c = list[i];
+        PyObject* d = Py_BuildValue("{s:s,s:s,s:s,s:s,s:O}", "a", c.objectA.c_str(), "link_a", c.linkA.c_str(), "b", c.objectB.c_str(), "link_b", c.linkB.c_str(), "same", c.sameObject ? Py_True : Py_False);
+        if (!d) {
+            Py_DECREF(l);
+            return nullptr;
+        }
+        PyList_Append(l, d);
+        Py_DECREF(d);
+    }
+    return l;
+}
+
 PyObject* M_objects(PyObject*, PyObject*) {
     Eng()->Refresh();
     PyObject* l = PyList_New(0);
@@ -358,6 +375,7 @@ PyMethodDef g_modMethods[] = {
     {"tick", M_tick, METH_NOARGS, "틱 번호"},
     {"running", M_running, METH_NOARGS, "시뮬레이션이 돌고 있는가"},
     {"objects", M_objects, METH_NOARGS, "지금 있는 모든 오브젝트 [Object]"},
+    {"collisions", M_collisions, METH_NOARGS, "지금 겹친 충돌 쌍 [{a, link_a, b, link_b, same}]"},
     {"find", M_find, METH_VARARGS, "find(이름) -> Object 또는 None"},
     {"on_start", M_on_start, METH_VARARGS, "on_start(fn): 시작할 때 fn()"},
     {"on_tick", M_on_tick, METH_VARARGS, "on_tick(fn): 매 틱 fn(t, dt)"},

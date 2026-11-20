@@ -12,6 +12,22 @@
   * lockstep: 명령은 다음 틱 시작에 적용된다. 한 틱 안에서 명령을 내려도 on_tick 안에서 값은 바로 바뀌지 않는다.
   * 한 클래스에서 예외가 나면 그 클래스만 멈추고 (traceback 출력) 나머지는 계속 돈다.
 
+프로그램(update 함수) 방식: 클래스 대신 함수 하나로 쓴다. Main 이 매 틱 정보 묶음(info) 을 넘기고, 함수는 오브젝트 움직임 정보를 돌려준다.
+
+    from Main import register
+
+    def update(info):
+        # info.time, info.dt                       시뮬레이션 시계 (s), 틱 간격 (s)
+        # info.objects["arm"]                      오브젝트 상태: .name .kind .position .quaternion .joints["joint_1"].value (.lower .upper)
+        # info.collisions                          지금 겹친 쌍 [Contact]: .a .b (오브젝트 이름) .link_a .link_b .same (자기충돌이면 True)
+        # info.collided("arm")                     arm 이 들어 있는 충돌 쌍만
+        return {"arm": {"joints": {"joint_1": 1.57}}}      # 오브젝트 움직임 정보
+        #  "joints": {이름: 목표 rad}  또는 {이름: (목표, 속도 rad/s)},  "position": (x, y, z),  "speed": 위치 이동 속도 m/s
+
+    register(update)                                       # 또는 @register / register(update, period=0.05)
+
+    같은 목표를 계속 돌려줘도 된다 (바뀔 때만 명령으로 낸다). None 이나 빈 dict 를 돌려주면 아무것도 하지 않는다.
+
 외부 파일 예 (Data/Python/examples/*.py 참고):
 
     from Main import Behavior, register
@@ -137,6 +153,118 @@ class Event(object):
         return "<Event %s %s%s>" % (self.type, self.name, (" " + self.joint) if self.joint else "")
 
 
+class Joint(object):
+    """info.objects[이름].joints[이름]: 관절 하나의 지금 상태."""
+
+    def __init__(self, name, d):
+        self.name = name
+        self.value = d["value"]
+        self.lower = d["lower"]
+        self.upper = d["upper"]
+        self.has_limit = d["has_limit"]
+        self.velocity = d["velocity"]
+
+    def __repr__(self):
+        return "<Joint %s %.4f>" % (self.name, self.value)
+
+
+class ObjectState(object):
+    """info.objects[이름]: 오브젝트의 지금 상태 (읽기 전용 값)."""
+
+    def __init__(self, name, d):
+        self.name = name
+        self.kind = d["kind"]
+        self.position = d["position"]
+        self.quaternion = d["quaternion"]
+        self.joints = dict((k, Joint(k, v)) for k, v in d["joints"].items())
+
+    def __repr__(self):
+        return "<ObjectState %s %s>" % (self.name, self.kind)
+
+
+class Contact(object):
+    """info.collisions 의 원소: 지금 서로 겹친 두 부분. a, b 는 오브젝트 이름, link_a, link_b 는 링크 이름."""
+
+    def __init__(self, d):
+        self.a = d["a"]
+        self.link_a = d["link_a"]
+        self.b = d["b"]
+        self.link_b = d["link_b"]
+        self.same = d["same"]          # 같은 오브젝트 안의 링크끼리 (자기충돌)
+
+    def involves(self, name):
+        return self.a == name or self.b == name
+
+    def other(self, name):
+        return self.b if self.a == name else self.a
+
+    def __repr__(self):
+        return "<Contact %s.%s <-> %s.%s>" % (self.a, self.link_a, self.b, self.link_b)
+
+
+class Info(object):
+    """Main 이 프로그램(update 함수)에게 넘기는 정보 묶음. 그 틱의 스냅샷이다."""
+
+    def __init__(self, time, dt, data, collisions):
+        self.time = time
+        self.dt = dt
+        self.objects = dict((n, ObjectState(n, d)) for n, d in data.items())
+        self.collisions = [Contact(c) for c in collisions]
+
+    def collided(self, name):
+        return [c for c in self.collisions if c.involves(name)]
+
+    def __repr__(self):
+        return "<Info t=%.3f 오브젝트 %d개 충돌 %d건>" % (self.time, len(self.objects), len(self.collisions))
+
+
+class _Program(object):
+    """update(info) 함수 하나. 매 틱 호출되고, 돌려준 움직임 정보를 Main 이 명령으로 낸다."""
+
+    def __init__(self, func, period, source):
+        self.func = func
+        self.period = period
+        self.source = source
+        self.state = "ready"     # ready running error stopped
+        self.acc = 0.0
+        self.sent = {}           # (오브젝트, 관절 또는 "position") -> 마지막으로 낸 목표. 같은 목표는 다시 내지 않는다
+
+    def label(self):
+        return "%s%s" % (getattr(self.func, "__name__", "update"), (" (" + os.path.basename(self.source) + ")") if self.source else "")
+
+    def run(self, hub, info):
+        result = self.func(info)
+        if not result:
+            return
+        if not isinstance(result, dict):
+            raise TypeError("update 는 {오브젝트: 움직임} dict 를 돌려줘야 합니다 (받은 것: %s)" % type(result).__name__)
+        for name, mv in result.items():
+            o = hub._raw(name)
+            if o is None:
+                raise simul.CommandError("움직임 정보의 오브젝트 '%s' 가 없습니다" % name)
+            if not isinstance(mv, dict):
+                raise TypeError("'%s' 의 움직임은 dict 여야 합니다: {\"joints\": {...}, \"position\": (x, y, z)}" % name)
+            unknown = [k for k in mv if k not in ("joints", "position", "speed")]
+            if unknown:
+                raise simul.CommandError("'%s' 의 움직임에 알 수 없는 항목이 있습니다: %s (joints, position, speed 만 됩니다)" % (name, ", ".join(unknown)))
+            for jn, v in (mv.get("joints") or {}).items():
+                if isinstance(v, (tuple, list)):
+                    target, speed = float(v[0]), float(v[1])
+                else:
+                    target, speed = float(v), 0.0
+                key = (name, jn)
+                if self.sent.get(key) != (target, speed):
+                    o.move_joint(jn, target, speed)
+                    self.sent[key] = (target, speed)
+            pos = mv.get("position")
+            if pos is not None:
+                tgt = (float(pos[0]), float(pos[1]), float(pos[2]), float(mv.get("speed", 0.5)))
+                key = (name, "position")
+                if self.sent.get(key) != tgt:
+                    o.move_to(*tgt)
+                    self.sent[key] = tgt
+
+
 class Behavior(object):
     """등록해서 쓰는 클래스의 부모. 필요한 것만 덮어쓴다.
 
@@ -186,6 +314,8 @@ class Hub(object):
     def __init__(self):
         self.data = {}          # 이름 -> info dict (그 틱의 스냅샷)
         self.entries = []
+        self.programs = []      # update(info) 함수들
+        self.collisions = []    # 그 틱의 충돌 쌍 (dict 목록)
         self.started = False
         self.time = 0.0
         self._loading = None
@@ -213,6 +343,7 @@ class Hub(object):
                 pass
         self.data = data
         self._raws = raws
+        self.collisions = simul.collisions()
 
     def world(self):
         return dict((n, View(self, n)) for n in self.data)
@@ -234,12 +365,27 @@ class Hub(object):
         lines.append("[Main] 등록된 클래스 %d개" % len(self.entries))
         for e in self.entries:
             lines.append("  %-24s 권한: %s" % (e.label(), ", ".join(e.grants) if e.grants else "(없음, 읽기만)"))
+        lines.append("[Main] 등록된 프로그램(update) %d개" % len(self.programs))
+        for p in self.programs:
+            lines.append("  %s" % p.label())
         return "\n".join(lines)
 
     # ---- 등록 ----
+    def register_program(self, func, period=None):
+        src = self._loading["path"] if self._loading is not None else (sys.modules.get(func.__module__).__file__ if func.__module__ in sys.modules and hasattr(sys.modules[func.__module__], "__file__") else "")
+        prog = _Program(func, getattr(func, "period", 0.0) if period is None else period, src)
+        self.programs.append(prog)
+        if self._loading is not None:
+            self._loading["count"] += 1
+        if self.started:
+            prog.state = "running"
+        return prog
+
     def register(self, cls, objects=None, period=None):
+        if not isinstance(cls, type) and callable(cls):
+            return self.register_program(cls, period)
         if not (isinstance(cls, type) and issubclass(cls, Behavior)):
-            raise TypeError("register 에는 Behavior 를 상속한 클래스를 줘야 합니다")
+            raise TypeError("register 에는 Behavior 를 상속한 클래스나 update(info) 함수를 줘야 합니다")
         grants = objects
         if grants is None and self._loading is not None:
             grants = self._loading["objects"]
@@ -259,6 +405,9 @@ class Hub(object):
     def unregister_file(self, path):
         """그 파일에서 등록된 클래스를 모두 뺀다 (돌고 있으면 on_stop 을 부르고 멈춘다). 빼낸 개수를 돌려준다."""
         path = os.path.abspath(path)
+        gonep = [p for p in self.programs if p.source and os.path.abspath(p.source) == path]
+        for p in gonep:
+            self.programs.remove(p)
         gone = [e for e in self.entries if e.source and os.path.abspath(e.source) == path]
         for e in gone:
             if e.state == "running":
@@ -267,7 +416,7 @@ class Hub(object):
                 except Exception:
                     self._fail(e, "on_stop")
             self.entries.remove(e)
-        return len(gone)
+        return len(gone) + len(gonep)
 
     def reload_file(self, path, objects=None):
         """저장한 파일을 다시 읽는다: 이전에 등록된 것을 빼고 새로 등록한다 (돌고 있으면 새 클래스가 바로 시작된다)."""
@@ -305,7 +454,7 @@ class Hub(object):
             count = self._loading["count"]
             self._loading = None
         if count == 0:
-            print("[Main] 경고: %s 에서 register 된 클래스가 없습니다" % path, file=sys.stderr)
+            print("[Main] 경고: %s 에서 register 된 클래스나 update 함수가 없습니다" % path, file=sys.stderr)
         return count > 0
 
     # ---- 실행 ----
@@ -348,6 +497,10 @@ class Hub(object):
                 e.state = "ready"
                 e.acc = 0.0
                 self._launch(e)
+        for p in self.programs:
+            p.state = "running"
+            p.acc = 0.0
+            p.sent = {}
 
     def _tick(self, t, dt):
         self.time = t
@@ -368,6 +521,27 @@ class Hub(object):
             except Exception:
                 self._fail(e, "on_tick")
             self._check_slow(e, "on_tick", _time.perf_counter() - t0)
+        self._run_programs(t, dt)
+
+    def _run_programs(self, t, dt):
+        info = None
+        for p in list(self.programs):
+            if p.state != "running":
+                continue
+            p.acc += dt
+            if p.acc + 1e-12 < p.period:
+                continue
+            step, p.acc = p.acc, 0.0
+            if info is None or info.dt != step:
+                info = Info(t, step, self.data, self.collisions)
+            t0 = _time.perf_counter()
+            try:
+                p.run(self, info)
+            except Exception:
+                p.state = "error"
+                traceback.print_exc()
+                print("[Main] %s 에서 예외가 나서 그 프로그램을 멈춥니다" % p.label(), file=sys.stderr)
+            self._check_slow(p, "update", _time.perf_counter() - t0)
 
     def _event(self, d):
         ev = Event(self, d)
@@ -391,6 +565,9 @@ class Hub(object):
                     self._fail(e, "on_stop")
                 else:
                     e.state = "stopped"
+        for p in self.programs:
+            if p.state == "running":
+                p.state = "stopped"
         self.started = False
 
 
@@ -398,7 +575,7 @@ hub = Hub()
 
 
 def register(cls=None, objects=None, period=None):
-    """클래스를 등록한다. register(Cls), register(Cls, objects=[...]), @register, @register(objects=[...]) 모두 된다."""
+    """클래스나 update(info) 함수를 등록한다. register(Cls), register(Cls, objects=[...]), register(update), @register, @register(objects=[...]) 모두 된다."""
     if cls is None:
         def deco(c):
             hub.register(c, objects=objects, period=period)

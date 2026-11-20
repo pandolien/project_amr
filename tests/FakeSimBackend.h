@@ -12,6 +12,7 @@ using namespace simul::sim;
 
 struct FakeBackend : simul::sim::Backend {
     Array<ObjectInfo> objs;
+    Array<ContactInfo> contacts;
     int poseCalls;
     FakeBackend() : poseCalls(0) {}
     int ObjectCount() const override { return static_cast<int>(objs.size()); }
@@ -20,6 +21,7 @@ struct FakeBackend : simul::sim::Backend {
         *out = objs[static_cast<size_t>(i)];
         return true;
     }
+    void ReadCollisions(Array<ContactInfo>* out) const override { *out = contacts; }
     bool SetPose(int i, const dhPose& p, String*) override {
         poseCalls++;
         objs[static_cast<size_t>(i)].pose = p;

@@ -124,10 +124,61 @@ int main() {
     eng.Stop();
     check(Has("O:V2 stop"), "reloaded class stops with the simulation");
 
+    // 프로그램(update) 방식: 정보 묶음(시간, 오브젝트, 충돌)을 받고 움직임 정보를 돌려준다
+    {
+        g_out.clear();
+        const char* prog =
+            "from Main import register\n"
+            "def update(info):\n"
+            "    hits = info.collided('arm')\n"
+            "    if not hasattr(update, 'seen'):\n"
+            "        update.seen = 1\n"
+            "        print('U objs', sorted(info.objects), 'j1 lim', info.objects['arm'].joints['j1'].upper > 0.5)\n"
+            "    if hits:\n"
+            "        print('U hit', hits[0].a, hits[0].link_b, hits[0].b, hits[0].same)\n"
+            "        return {'arm': {'joints': {'j1': 0.0}}}\n"
+            "    return {'arm': {'joints': {'j1': (0.5, 10.0)}}, 'box': {'position': (0.9, 0, 0), 'speed': 5.0}}\n"
+            "register(update)\n";
+        check(WriteFileText("t_py_prog.py", prog), "write program script");
+        check(rt.RunSnippet("import Main; Main.register_file('t_py_prog.py')", &err), "register update function");
+        b.contacts.clear();
+        eng.Start();
+        for (int i = 0; i < 20; i++) eng.Step(0.05);
+        check(Has("O:U objs ['arm', 'box'] j1 lim True"), "update gets time, objects and joint limits in one info");
+        check(fabs(b.objs[0].joints[0].value - 0.5) < 1e-6, "returned joint target (with speed) moves the joint");
+        check(fabs(b.objs[1].pose.position.x - 0.9) < 1e-6, "returned position moves the object");
+        sim::ContactInfo c;
+        c.objectA = "arm";
+        c.linkA = "l1";
+        c.objectB = "box";
+        c.linkB = "base";
+        b.contacts.push_back(c);
+        for (int i = 0; i < 40; i++) eng.Step(0.05);
+        check(Has("O:U hit arm base box False"), "collision pair arrives in info.collisions");
+        check(fabs(b.objs[0].joints[0].value - 0.0) < 1e-6, "program reacts to the collision");
+        eng.Stop();
+        check(rt.RunSnippet("import Main; print('N', Main.hub.unregister_file('t_py_prog.py'))", &err) && Has("O:N 1"), "unregister_file removes the program");
+
+        g_out.clear();
+        const char* bad = "from Main import register\ndef update(info):\n    return 5\nregister(update)\n";
+        check(WriteFileText("t_py_prog.py", bad), "write bad program");
+        check(rt.RunSnippet("import Main; Main.register_file('t_py_prog.py')", &err), "register bad program");
+        eng.Start();
+        eng.Step(0.05);
+        eng.Step(0.05);
+        eng.Stop();
+        check(Has("E:TypeError: update 는 {오브젝트: 움직임} dict 를 돌려줘야 합니다 (받은 것: int)"), "wrong return type is reported");
+        size_t te = 0;
+        for (size_t i = 0; i < g_out.size(); i++) te += g_out[i].compare(0, 12, "E:TypeError:") == 0;
+        check(te == 1, "failed program stops (reported once)");
+        check(rt.RunSnippet("import Main; Main.hub.unregister_file('t_py_prog.py')", &err), "cleanup program");
+        RemoveFile("t_py_prog.py");
+    }
+
     // 대화형 한 줄
     g_out.clear();
     check(rt.RunSnippet("print(len(simul.objects()), simul.find('arm').joints)", &err), "snippet");
-    check(Has("O:2 {'j1': 0.8"), "snippet output");
+    check(Has("O:2 {'j1': 0.0"), "snippet output");
     check(!rt.RunSnippet("1/0", &err) && err.find(String("ZeroDivisionError")) != String::npos, "snippet error is reported");
     check(rt.RunSnippet("raise SystemExit(0)", &err) && rt.QuitRequested(), "SystemExit becomes a quit request (not an error)");
     RemoveFile("t_py_user.py");
