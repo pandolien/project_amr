@@ -23,6 +23,9 @@
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
 #include "CMarker/Marker.h"
+#ifdef SIMUL_HAS_PYTHON
+#include "CorePy/PyRuntime.h"
+#endif
 
 namespace {
 
@@ -47,6 +50,12 @@ struct Options {
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
+    bool pyEnabled;            // --python: 내장 Python 을 시작 때 띄운다 (안 주면 메뉴에서 처음 시작할 때)
+    simul::String pyMain;      // --python-main: Main.py 경로 (기본 Data/Python/Main.py)
+    simul::Array<simul::Pair<simul::String, simul::String> > pyScripts;   // --python-script 파일[:오브젝트,...]
+    double pyHz;               // --python-hz: 초당 틱 수
+    int pySteps;               // --python-steps N: 시작하자마자 N 틱을 돌린 뒤 멈춘다 (확인용)
+    bool pyRun;                // --python-run: 시작하자마자 실시간으로 돌린다
     simul::String makeMarker;  // --make-marker 명세: ArUco/ChArUco 마커 메시와 URDF 를 만들고 끝낸다
     simul::String makeMarkerDir;  // --marker-dir: 마커 파일을 쓸 폴더 (기본 현재 폴더)
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
@@ -96,7 +105,7 @@ struct Options {
     simul::Array<simul::Pair<simul::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     simul::Array<simul::Pair<simul::String, simul::String> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : onlyView(false), hideMenu(false), shading(2), info(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : onlyView(false), hideMenu(false), shading(2), info(false), pyEnabled(false), pyHz(60.0), pySteps(0), pyRun(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
@@ -134,6 +143,10 @@ void PrintUsage(const char* exe) {
         "사용법: %s [옵션] [파일]\n"
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
+        "  --python           내장 Python 을 시작 때 띄운다 (Data/Python/Main.py 를 올린다. 메뉴 Python 으로도 된다)\n"
+        "  --python-script 파일[:오브젝트,...]  Main.py 에 등록할 외부 python 파일과, 그 파일의 클래스가 움직일 수 있는 오브젝트 (여러 번 가능, --python 을 포함)\n"
+        "  --python-main 파일  Main.py 대신 쓸 파일    --python-hz N  초당 틱 수 (기본 60)\n"
+        "  --python-run       시작하자마자 시뮬레이션을 실시간으로 돌린다    --python-steps N  N 틱을 바로 돌리고 멈춘다 (확인용)\n"
         "  --make-marker 명세 ArUco/ChArUco 마커를 만들어 STL 2개 + URDF 로 쓰고 끝낸다 (--marker-dir 폴더 기본 .)\n"
         "                     aruco,사전,id,한변(m)  예: aruco,4x4,0,0.15\n"
         "                     charuco,사전,가로칸,세로칸,칸길이(m),마커한변(m)[,첫id]  예: charuco,4x4,5,7,0.04,0.03\n"
@@ -205,6 +218,32 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         const bool hasNext = i + 1 < argc;
+        if (a == "--python") { o->pyEnabled = true; continue; }
+        if (a == "--python-run") { o->pyEnabled = true; o->pyRun = true; continue; }
+        if (a == "--python-main" && hasNext) { o->pyEnabled = true; o->pyMain = argv[++i]; continue; }
+        if (a == "--python-hz" && hasNext) {
+            o->pyHz = atof(argv[++i]);
+            if (!(o->pyHz >= 1.0 && o->pyHz <= 1000.0)) { fprintf(stderr, "--python-hz 는 1~1000 입니다\n"); return false; }
+            continue;
+        }
+        if (a == "--python-steps" && hasNext) {
+            o->pySteps = atoi(argv[++i]);
+            if (o->pySteps < 1) { fprintf(stderr, "--python-steps 는 1 이상입니다\n"); return false; }
+            o->pyEnabled = true;
+            continue;
+        }
+        if (a == "--python-script" && hasNext) {
+            simul::String spec = argv[++i], file = spec, objs;
+            for (size_t k = spec.size(); k-- > 1;) {   // 마지막 ':' 뒤에 경로 구분자가 없으면 오브젝트 목록 (C:\... 의 드라이브 콜론은 건드리지 않는다)
+                if (spec[k] != ':') continue;
+                const simul::String tail = spec.substr(k + 1);
+                if (tail.find('/') == simul::String::npos && tail.find('\\') == simul::String::npos) { file = spec.substr(0, k); objs = tail; }
+                break;
+            }
+            o->pyScripts.push_back(simul::MakePair(file, objs));
+            o->pyEnabled = true;
+            continue;
+        }
         if (a == "--make-marker" && hasNext) { o->makeMarker = argv[++i]; continue; }
         if (a == "--marker-dir" && hasNext) { o->makeMarkerDir = argv[++i]; continue; }
         if (a == "--fps") { o->showFps = true; continue; }
@@ -557,6 +596,7 @@ int PrintInfo(const Options& o) {
 #include <QFileDialog>
 #include <QInputDialog>
 #include "CoreQt/SimulView.h"
+#include "CoreQt/SimulRunner.h"
 #include "CoreQt/LogView.h"
 #include <QSet>
 #include <QLineEdit>
@@ -954,6 +994,108 @@ public:
     }
 
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
+#ifdef SIMUL_HAS_PYTHON
+    // ---- 내장 Python: 엔진 + Main.py + 등록된 외부 클래스 ----
+    ~MainWindow() override {
+        if (runner_) runner_->Stop();
+        delete py_;   // 인터프리터를 끝낸다 (엔진보다 먼저)
+        py_ = nullptr;
+    }
+
+    static void pyOutput(bool isError, const char* line, void* user) {
+        MainWindow* w = static_cast<MainWindow*>(user);
+        const QString text = QString::fromUtf8(line);
+        if (isError) { fprintf(stderr, "%s\n", line); w->log_->Error(text); }
+        else { printf("%s\n", line); fflush(stdout); w->log_->Info(text); }
+    }
+
+    // 처음 필요할 때 엔진, 인터프리터, Main.py 를 만든다. 실패하면 로그에 남기고 false
+    bool ensurePython(const Options& o) {
+        if (py_) return pyReady_;
+        backend_ = new ViewerBackend(viewer_);
+        engine_ = new simul::sim::Engine(backend_);
+        runner_ = new SimulRunner(engine_, this);
+        runner_->SetRate(o.pyHz);
+        py_ = new simul::py::Runtime(engine_);
+        py_->SetOutput(&MainWindow::pyOutput, this);
+        QObject::connect(runner_, &SimulRunner::started, this, [this]() { log_->Info(QString::fromUtf8("시뮬레이션 시작 (%1 Hz)").arg(runner_->Rate())); });
+        QObject::connect(runner_, &SimulRunner::stopped, this, [this]() { log_->Info(QString::fromUtf8("시뮬레이션 정지 (시계 %1 s)").arg(engine_->Time(), 0, 'f', 2)); });
+        QObject::connect(runner_, &SimulRunner::stepFailed, this, [this](const QString& e) { log_->Error(e); });
+        simul::String err;
+        if (!py_->Initialize(&err)) { logError(QString::fromUtf8("Python 을 시작하지 못했습니다: %1").arg(simulqt::ToQ(err))); return false; }
+        log_->Info(QString::fromUtf8("Python %1 시작").arg(simulqt::ToQ(simul::py::Runtime::PythonVersion())));
+        simul::String mainPy = o.pyMain.empty() ? simul::String(SIMUL_DATA_DIR) + "/Python/Main.py" : o.pyMain;
+        if (!py_->RunFile(mainPy, &err)) { logError(QString::fromUtf8("Main.py 를 올리지 못했습니다: %1 (%2)").arg(simulqt::ToQ(mainPy)).arg(simulqt::ToQ(err))); return false; }
+        log_->Info(QString::fromUtf8("Main.py: %1").arg(simulqt::ToQ(mainPy)));
+        pyReady_ = true;
+        return true;
+    }
+
+    bool registerScript(const simul::String& file, const simul::String& objects) {
+        if (!pyReady_) return false;
+        // 경로와 목록은 Python 문자열로 안전하게 넘긴다 (작은따옴표, 역슬래시 처리)
+        simul::String f, ob;
+        for (size_t i = 0; i < file.size(); i++) { if (file[i] == '\\' || file[i] == '\'') f += '\\'; f += file[i]; }
+        for (size_t i = 0; i < objects.size(); i++) { if (objects[i] == '\\' || objects[i] == '\'') ob += '\\'; ob += objects[i]; }
+        simul::String code = "import Main; _r = Main.register_file('" + f + "'" + (objects.empty() ? simul::String() : simul::String(", '") + ob + "'") + ")";
+        simul::String err;
+        py_->RunSnippet(code, &err);
+        if (!err.empty()) { logError(QString::fromUtf8("등록 실패: %1").arg(simulqt::ToQ(err))); return false; }
+        log_->Info(QString::fromUtf8("스크립트 등록: %1%2").arg(simulqt::ToQ(file)).arg(objects.empty() ? QString() : QString::fromUtf8("  (권한: %1)").arg(simulqt::ToQ(objects))));
+        return true;
+    }
+
+    // 메뉴 Python 을 만들고, 옵션에 따라 바로 시작하거나 N 틱을 돌린다. 모델을 모두 연 뒤에 부른다.
+    void setupPython(const Options& o) {
+        QMenu* m = menuBar()->addMenu(QString::fromUtf8("Python"));
+        nativeMenus_ << m;
+        QAction* start = m->addAction(QString::fromUtf8("시작"));
+        start->setShortcut(Qt::Key_F5);
+        QAction* stop = m->addAction(QString::fromUtf8("정지"));
+        stop->setShortcut(Qt::SHIFT + Qt::Key_F5);
+        QAction* once = m->addAction(QString::fromUtf8("한 틱"));
+        once->setShortcut(Qt::Key_F10);
+        m->addSeparator();
+        QAction* reg = m->addAction(QString::fromUtf8("스크립트 등록..."));
+        QAction* info = m->addAction(QString::fromUtf8("오브젝트와 등록 현황 보기"));
+        const Options opt = o;
+        QObject::connect(start, &QAction::triggered, this, [this, opt]() { if (ensurePython(opt)) { logDock_->show(); runner_->Start(); } });
+        QObject::connect(stop, &QAction::triggered, this, [this]() { if (runner_) runner_->Stop(); });
+        QObject::connect(once, &QAction::triggered, this, [this, opt]() { if (ensurePython(opt)) { logDock_->show(); runner_->StepOnce(); } });
+        QObject::connect(reg, &QAction::triggered, this, [this, opt]() {
+            const QString f = QFileDialog::getOpenFileName(this, QString::fromUtf8("등록할 python 파일"), QString(), QString::fromUtf8("Python (*.py)"));
+            if (f.isEmpty() || !ensurePython(opt)) return;
+            bool ok = false;
+            const QString objs = QInputDialog::getText(this, QString::fromUtf8("움직일 수 있는 오브젝트"), QString::fromUtf8("오브젝트 이름 (쉼표로 구분, 비우면 파일 안의 objects 설정을 따름, * 는 전부)"), QLineEdit::Normal, QString(), &ok);
+            if (!ok) return;
+            logDock_->show();
+            registerScript(simulqt::FromQ(f), simulqt::FromQ(objs.trimmed()));
+        });
+        QObject::connect(info, &QAction::triggered, this, [this, opt]() {
+            if (!ensurePython(opt)) return;
+            logDock_->show();
+            simul::String err;
+            py_->RunSnippet("Main.hub.refresh(); print(Main.hub.describe())", &err);
+        });
+        if (!o.pyEnabled) return;
+        if (!ensurePython(o)) return;
+        for (size_t i = 0; i < o.pyScripts.size(); i++) registerScript(o.pyScripts[i].first, o.pyScripts[i].second);
+        if (o.pySteps > 0) {
+            runner_->Start();
+            for (int i = 0; i < o.pySteps; i++) runner_->StepOnce();
+            runner_->Stop();
+            printf("시뮬레이션 %d 틱 (시계 %.3f s)\n", o.pySteps, engine_->Time());
+        } else if (o.pyRun) {
+            logDock_->show();
+            runner_->Start();
+        }
+    }
+    bool pythonQuitRequested() const { return py_ && py_->QuitRequested(); }
+#else
+    void setupPython(const Options&) {}
+    bool pythonQuitRequested() const { return false; }
+#endif
+
     bool openFile(const QString& path) {
         const bool beamsWere = viewer_->LidarEnabled() && viewer_->LidarDrawn();
         const bool graphWere = lidarDock_ && lidarDock_->isVisible();
@@ -1619,6 +1761,13 @@ private:
     bool statusWasVisible_ = true;
     QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
+#ifdef SIMUL_HAS_PYTHON
+    ViewerBackend* backend_ = nullptr;
+    simul::sim::Engine* engine_ = nullptr;
+    SimulRunner* runner_ = nullptr;
+    simul::py::Runtime* py_ = nullptr;
+    bool pyReady_ = false;
+#endif
     QDockWidget* logDock_ = nullptr;
     SunPanel* sunPanel_ = nullptr;
     QDockWidget* sunDock_ = nullptr;
@@ -1672,6 +1821,7 @@ int main(int argc, char** argv) {
         }
     }
     w.startHidden(o);
+    w.setupPython(o);
     if (!o.shot.empty() || !o.shotWindow.empty()) {
         const simul::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();

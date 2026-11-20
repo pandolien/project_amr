@@ -1,0 +1,7 @@
+# CorePy: 앱 안에 내장하는 Python 인터프리터와 `simul` 모듈 (선택 사항)
+file(GLOB_RECURSE COREPY_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+add_library(CorePy STATIC ${COREPY_SOURCES})
+target_include_directories(CorePy PUBLIC include)
+target_link_libraries(CorePy PUBLIC Core Python3::Python)
+set_target_properties(CorePy PROPERTIES POSITION_INDEPENDENT_CODE ON)
+simul_set_warnings(CorePy)
