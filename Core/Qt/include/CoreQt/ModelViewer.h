@@ -54,6 +54,8 @@ public:
     void RemoveModel(int index);
     int ModelCount() const { return static_cast<int>(world_.size()); }
     QString ModelName(int index) const;
+    QString ModelSourcePath(int index) const;           // 읽은 파일 (파일 없이 만든 도형이면 빈 문자열)
+    QStringList ModelReferencedFiles(int index) const;  // 그 URDF 가 쓰는 메시/텍스처 파일 (찾은 것의 절대 경로)
     int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)
     int ModelOfRoot(int link) const { return world_.EntryOfRoot(robot_, link); }  // 링크가 어떤 모델의 루트이면 그 모델 번호, 아니면 -1
     // 모델의 월드 위치(m)와 z축 회전(도). 모델이 하나면 오브젝트 위치로 움직인다 (회전은 둘 이상일 때만).
