@@ -353,6 +353,36 @@ simul_main --make-marker charuco,4x4,5,7,0.04,0.03 --marker-dir Data/Object/mark
 - 기본 제공: `Data/Object/markers/` (ArUco 4x4~7x7 id 0, 4x4 id 20, ChArUco 4x4 / 5x5 5x7 보드), 장면 예제 `Data/Object/samples/marker_scene.urdf` (`--camera-save` 로 찍으면 OpenCV `ArucoDetector` / `CharucoDetector` 가 18개 마커와 보드 코너 24개를 모두 찾는다).
 - 마커 칸이 몇 픽셀은 되어야 읽히므로 카메라 해상도와 거리를 맞춘다 (예제는 1280x960, 가로 시야각 40도, 약 1.5 m).
 
+## 시뮬레이션 루프와 내장 Python (CSimul, CorePy)
+
+```
+Simul(C++ 엔진, 틱 루프) -> Python 인터프리터(내장) -> Main.py -> 등록된 외부 python 파일의 클래스
+```
+
+- **엔진 (`Core/include/CSimul/Engine.h`, Qt/Python 무관)**: 오브젝트 등록부(이름 -> 핸들, 지워졌다 다시 생겨도 옛 핸들은 거부), 명령 큐, 시간(틱), `move_to`/`move_joint`(속도로 이동), 이벤트(`added removed arrived joint_reached command_failed`). 한 틱 순서: 등록부 맞춤 -> 큐의 명령 적용 -> 이동 진행 -> 시간 증가 -> 이벤트/`on_tick` 전달. 스크립트가 낸 명령은 다음 틱에 적용되므로 스크립트가 느려도 결과는 같다(lockstep). 오브젝트 = 3D 화면에 올린 모델 하나 (`ViewerBackend`), 관절/자세/이름을 읽고 쓴다.
+- **내장 Python (`Core/Python`, 선택 빌드)**: Ubuntu 는 `sudo apt install python3-dev` 가 있으면 자동으로 켜진다 (`-DSIMUL_BUILD_PYTHON=OFF` 로 끌 수 있다). 인터프리터는 `simul` 모듈 (`objects()`, `find(이름)`, `on_tick` 등)로 엔진과 통신한다.
+- **Main.py (`Data/Python/Main.py`)**: 시작할 때 먼저 올라가서 모든 오브젝트 데이터를 쥐고(틱마다 스냅샷), 외부 파일의 클래스를 등록받아 시뮬레이션이 시작되면 실행한다. 클래스마다 **움직일 수 있는 오브젝트**(권한)를 정한다. 읽기는 모두 되고, 권한 밖의 오브젝트에 명령하면 `PermissionError` (약속이지 보안 장치는 아니다). 클래스에서 예외가 나면 그 클래스만 멈춘다. 틱 안의 콜백이 0.1 초 넘게 걸리면 경고한다 (같은 스레드라 화면이 멈춘다).
+- **외부 파일 쓰는 법** (`Data/Python/examples/demo_arm.py`):
+
+```python
+from Main import Behavior, register
+
+class SwingArm(Behavior):
+    objects = ["arm"]                         # 움직일 수 있는 오브젝트
+    def on_start(self):
+        self.objects["arm"].move_joint("base_yaw", 1.0)      # 속도를 안 주면 관절 최대 속도
+    def on_tick(self, t, dt): ...             # 매 틱 (period 로 간격을 늘릴 수 있다)
+    def on_event(self, ev):                   # ev.type, ev.name, ev.joint
+        if ev.type == "joint_reached": print("도착", ev.joint)
+    def on_stop(self): ...
+
+register(SwingArm)
+```
+
+  오브젝트 명령: `set_pose(x,y,z,qx,qy,qz,qw)`, `set_position(x,y,z)`, `set_joint(이름, 값)`, `move_to(x,y,z,속도)`, `move_joint(이름, 목표[, 속도])`, `stop()`, `command("이름", ...)`. 읽기: `name kind position quaternion joints moving info()`. 단위 m, rad, s.
+- **실행**: `simul_main arm.urdf --python-script Data/Python/examples/demo_arm.py:arm --python-run` (`파일:오브젝트,오브젝트` 로 그 파일 클래스의 권한을 정한다). 메뉴 **Python**: 시작(F5) / 정지 / 한 틱(F10) / 스크립트 등록 / 현황 보기. `--python`(인터프리터만), `--python-hz`(틱 수), `--python-steps N`(N 틱 바로 돌리고 멈춤, 확인용), `--python-main`(다른 Main.py). print 와 오류는 로그 창에 나온다.
+- 지금은 인터프리터와 클래스 등록까지다. 스크립트를 파일 이름으로 오브젝트에 자동으로 붙이는 것, 제어기 DLL(모터 토크 입력 경로)은 다음 단계.
+
 ## 서드파티 라이선스
 
 | 라이브러리 | 용도 | 라이선스 |
