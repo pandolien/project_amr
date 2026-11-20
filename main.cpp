@@ -74,6 +74,7 @@ struct Options {
     int cameraW, cameraH;      // --camera-size 가로x세로
     float cameraFov;           // --camera-fov 가로 시야각 (도)
     float cameraRange[2];      // --camera-range 최소,최대 (m)
+    int cameraAa;              // --camera-aa 1~4: 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균, 1 = 끔)
     simul::String cameraSave;  // --camera-save: 찍은 영상을 저장할 PNG 파일 (깊이는 이름_depth.png, 16비트 mm 는 이름_depth16.png)
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
@@ -95,6 +96,7 @@ struct Options {
         cameraFov = 60.0f;
         cameraRange[0] = 0.05f;
         cameraRange[1] = 10.0f;
+        cameraAa = 1;
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -simul::dynamics::kStandardGravity;
@@ -133,6 +135,7 @@ void PrintUsage(const char* exe) {
         "  --lidar-channels 개수,최소고각,최대고각  (도) 수직 채널을 늘려 3D 라이다로 (예: 16,-15,15). 큰 메시에서는 느리다\n"
         "  --camera 링크[,x,y,z]  그 링크에 카메라를 달고 시야 절두체(노랑)와 영상 창을 표시. 센서 +x 가 보는 방향, +y 왼쪽, +z 위\n"
         "  --camera-size 가로x세로  --camera-fov 도(가로 시야각)  --camera-range 최소,최대  (기본 320x240, 60도, 0.05~10 m)\n"
+        "  --camera-aa 1~4  카메라 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균. 1 = 끔, 시간은 n^2 배)\n"
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 지금). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
         "  --sun-now  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
@@ -225,6 +228,11 @@ int ParseArgs(int argc, char** argv, Options* o) {
                 fprintf(stderr, "--camera-range 는 최소,최대 형식입니다 (최대가 더 커야 함, 예: 0.05,10)\n");
                 return false;
             }
+            continue;
+        }
+        if (a == "--camera-aa" && hasNext) {
+            o->cameraAa = atoi(argv[++i]);
+            if (o->cameraAa < 1 || o->cameraAa > 4) { fprintf(stderr, "--camera-aa 는 1~4 입니다 (1 = 끔, n 이면 픽셀을 n x n 으로 나눠 찍는다)\n"); return false; }
             continue;
         }
         if (a == "--camera-save" && hasNext) { o->cameraSave = argv[++i]; continue; }
@@ -470,6 +478,8 @@ int PrintInfo(const Options& o) {
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QCheckBox>
+#include <QHBoxLayout>
+#include <QSpinBox>
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QMimeData>
@@ -964,6 +974,7 @@ public:
         } else {
             return;
         }
+        sp.settings.antialias = o.cameraAa;
         cameraSpec_ = sp;
         viewer_->SetSensorCamera(sp.link, sp.settings, sp.mount);
         viewer_->SetSensorCameraDrawn(false);
@@ -988,6 +999,20 @@ public:
             QCheckBox* depth = new QCheckBox(QString::fromUtf8("깊이 보기"));
             QObject::connect(depth, &QCheckBox::toggled, cameraView_, &CameraView::SetShowDepth);
             lay->addWidget(depth);
+            QHBoxLayout* aaRow = new QHBoxLayout;
+            aaRow->addWidget(new QLabel(QString::fromUtf8("안티앨리어싱 (1 = 끔, n = n x n)")));
+            QSpinBox* aa = new QSpinBox;
+            aa->setRange(1, 4);
+            aa->setValue(cameraSpec_.settings.antialias);
+            aa->setToolTip(QString::fromUtf8("픽셀을 가로세로 n 배로 나눠 찍어 평균합니다. 경계가 부드러워지고 시간은 n^2 배 걸립니다"));
+            QObject::connect(aa, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), this, [this](int v) {
+                if (cameraSpec_.link < 0) return;
+                cameraSpec_.settings.antialias = v;
+                viewer_->SetSensorCamera(cameraSpec_.link, cameraSpec_.settings, cameraSpec_.mount);
+                log_->Info(QString::fromUtf8("카메라 안티앨리어싱: %1").arg(v));
+            });
+            aaRow->addWidget(aa);
+            lay->addLayout(aaRow);
             lay->addWidget(cameraView_, 1);
             cameraDock_ = new QDockWidget(QString::fromUtf8("카메라"), this);
             cameraDock_->setWidget(box);

@@ -25,6 +25,7 @@ void Camera::SetSettings(const CameraSettings& s) {
 
 bool Camera::Valid() const {
     return settings_.width > 0 && settings_.height > 0 && settings_.width <= 16384 && settings_.height <= 16384 &&
+           settings_.antialias >= 1 && settings_.antialias <= 4 && settings_.width * settings_.antialias <= 16384 && settings_.height * settings_.antialias <= 16384 &&
            settings_.horizontalFov > 0.0f && settings_.horizontalFov < static_cast<float>(dhPI) - 0.01f && settings_.nearClip >= 0.0f && settings_.farClip > settings_.nearClip &&
            IsFinite(settings_.farClip);
 }
@@ -73,6 +74,44 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
     out->depth.clear();
     out->targetIds.clear();
     if (!Valid()) return;
+    if (settings_.antialias > 1) {   // 큰 영상으로 찍은 뒤 줄인다
+        const int k = settings_.antialias;
+        CameraSettings hi = settings_;
+        hi.width *= k;
+        hi.height *= k;
+        hi.antialias = 1;
+        hi.noiseStdDev = 0.0f;   // 잡음은 줄인 깊이에 한 번만 더한다
+        Camera big(hi);
+        big.sun_ = sun_;
+        CameraImage src;
+        big.Render(sensorPose, targets, targetCount, &src);
+        const size_t w = static_cast<size_t>(settings_.width), h = static_cast<size_t>(settings_.height), K = static_cast<size_t>(k), W = static_cast<size_t>(hi.width);
+        out->width = settings_.width;
+        out->height = settings_.height;
+        out->intrinsics = Intrinsics();
+        out->bgr.assign(w * h * 3, 0);
+        out->depth.assign(w * h, 0.0f);
+        out->targetIds.assign(w * h, -1);
+        const size_t c = K / 2;   // 가운데에 가장 가까운 하위 픽셀 (K 가 짝수면 아래쪽 오른쪽)
+        for (size_t y = 0; y < h; y++)
+            for (size_t x = 0; x < w; x++) {
+                unsigned sum[3] = {0, 0, 0};
+                for (size_t sy = 0; sy < K; sy++)
+                    for (size_t sx = 0; sx < K; sx++) {
+                        const size_t si = ((y * K + sy) * W + (x * K + sx)) * 3;
+                        for (int ch = 0; ch < 3; ch++) sum[ch] += src.bgr[si + static_cast<size_t>(ch)];
+                    }
+                const size_t i = y * w + x, ci = (y * K + c) * W + (x * K + c);
+                for (int ch = 0; ch < 3; ch++) out->bgr[i * 3 + static_cast<size_t>(ch)] = static_cast<uint8_t>((sum[ch] + K * K / 2) / (K * K));
+                out->depth[i] = src.depth[ci];
+                out->targetIds[i] = src.targetIds[ci];
+                if (settings_.noiseStdDev > 0.0f && out->targetIds[i] >= 0) {
+                    const float d = out->depth[i] + settings_.noiseStdDev * gaussian();
+                    out->depth[i] = d > 0.0f ? d : 0.0f;
+                }
+            }
+        return;
+    }
     const size_t w = static_cast<size_t>(settings_.width), h = static_cast<size_t>(settings_.height), n = w * h;
     out->width = settings_.width;
     out->height = settings_.height;
