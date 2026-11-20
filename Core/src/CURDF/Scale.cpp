@@ -62,6 +62,7 @@ bool ScaleRobot(const Robot& in, double sd, bool massScales, Robot* out) {
         }
     }
     for (size_t i = 0; i < out->lidars.size(); i++) ScaleTranslation(&out->lidars[i].pose, s);
+    for (size_t i = 0; i < out->cameras.size(); i++) ScaleTranslation(&out->cameras[i].pose, s);
     return true;
 }
 

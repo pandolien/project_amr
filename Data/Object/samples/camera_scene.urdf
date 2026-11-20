@@ -1,0 +1,146 @@
+<?xml version="1.0"?>
+<!--
+  카메라 예제: 탁자 위의 색 물체 여러 개와, 그것을 바라보는 팬/틸트 카메라 스탠드.
+  기본 도형만 쓰므로 메시 파일이 필요 없다. 카메라 설정은 아래 <gazebo> 의 <sensor type="camera"> 에 있다 (Gazebo 형식).
+
+  장면:   바닥(z = 0), 탁자(x 1.6 m 앞, 높이 0.7 m), 탁자 위 물체 4개 (빨강 상자, 초록 원기둥, 파랑 구, 노랑 낮은 상자),
+          뒤쪽 벽(x = 3.0) 하나. 카메라는 스탠드 위(높이 0.9 m)에서 +x 쪽을 본다.
+  관절:   pan (z 축 회전, 도) 으로 좌우, tilt (y 축 회전, 도) 로 위아래를 본다. tilt 가 +면 아래를 본다.
+          오른쪽 패널 슬라이더로 움직이면 영상이 바뀐다.
+
+  센서 좌표계: +x 가 보는 방향, +y 가 왼쪽, +z 가 위. 영상은 BGR 8비트(OpenCV 와 같은 배치) + 깊이(m).
+    방향 확인: 빨강 상자(y = +0.35)는 영상 왼쪽, 파랑 구(y = -0.35)는 영상 오른쪽에 보인다.
+
+  실행:   simul_main Data/Object/samples/camera_scene.urdf
+            -> 메뉴 센서 > 카메라 영상 으로 영상 창을 켠다 (3D 화면에는 노란 시야 절두체가 나온다).
+          영상을 파일로:  ... --camera-save out/cam      (out/cam.png 컬러, out/cam_depth.png 회색 깊이, out/cam_depth16.png 16비트 mm)
+          다른 설정으로:  ... --camera cam_link,0,0,0 --camera-size 640x480 --camera-fov 70 --camera-range 0.1,6
+          고개를 돌려서: ... --joint pan=25 --joint tilt=15 --camera-save out/cam2
+-->
+<robot name="camera_scene">
+  <material name="floor"><color rgba="0.62 0.62 0.60 1"/></material>
+  <material name="wall"><color rgba="0.85 0.82 0.74 1"/></material>
+  <material name="table"><color rgba="0.55 0.38 0.22 1"/></material>
+  <material name="red"><color rgba="0.85 0.15 0.15 1"/></material>
+  <material name="green"><color rgba="0.20 0.70 0.25 1"/></material>
+  <material name="blue"><color rgba="0.20 0.35 0.85 1"/></material>
+  <material name="yellow"><color rgba="0.95 0.80 0.15 1"/></material>
+  <material name="stand"><color rgba="0.25 0.27 0.32 1"/></material>
+  <material name="camera"><color rgba="0.10 0.10 0.12 1"/></material>
+
+  <!-- 장면 (움직이지 않는다) -->
+  <link name="scene">
+    <visual>  <!-- 바닥 (z 0 ~ 0.02) -->
+      <origin xyz="1.5 0 0.01"/>
+      <geometry><box size="4.0 3.0 0.02"/></geometry>
+      <material name="floor"/>
+    </visual>
+    <visual>  <!-- 뒤쪽 벽 (x = 3.0) -->
+      <origin xyz="3.05 0 0.75"/>
+      <geometry><box size="0.1 3.0 1.5"/></geometry>
+      <material name="wall"/>
+    </visual>
+    <visual>  <!-- 탁자 윗판 (높이 0.7 m) -->
+      <origin xyz="1.6 0 0.68"/>
+      <geometry><box size="0.8 1.2 0.04"/></geometry>
+      <material name="table"/>
+    </visual>
+    <visual><origin xyz="1.25 0.5 0.34"/><geometry><box size="0.05 0.05 0.64"/></geometry><material name="table"/></visual>
+    <visual><origin xyz="1.25 -0.5 0.34"/><geometry><box size="0.05 0.05 0.64"/></geometry><material name="table"/></visual>
+    <visual><origin xyz="1.95 0.5 0.34"/><geometry><box size="0.05 0.05 0.64"/></geometry><material name="table"/></visual>
+    <visual><origin xyz="1.95 -0.5 0.34"/><geometry><box size="0.05 0.05 0.64"/></geometry><material name="table"/></visual>
+    <visual>  <!-- 빨강 상자 (왼쪽, y = +0.35) -->
+      <origin xyz="1.6 0.35 0.8"/>
+      <geometry><box size="0.16 0.16 0.20"/></geometry>
+      <material name="red"/>
+    </visual>
+    <visual>  <!-- 초록 원기둥 (가운데) -->
+      <origin xyz="1.7 0.0 0.80"/>
+      <geometry><cylinder radius="0.07" length="0.20"/></geometry>
+      <material name="green"/>
+    </visual>
+    <visual>  <!-- 파랑 구 (오른쪽, y = -0.35) -->
+      <origin xyz="1.6 -0.35 0.78"/>
+      <geometry><sphere radius="0.09"/></geometry>
+      <material name="blue"/>
+    </visual>
+    <visual>  <!-- 노랑 낮은 상자 (앞쪽, 초록 원기둥 앞) -->
+      <origin xyz="1.4 0.0 0.74"/>
+      <geometry><box size="0.12 0.12 0.08"/></geometry>
+      <material name="yellow"/>
+    </visual>
+    <collision><origin xyz="1.6 0 0.68"/><geometry><box size="0.8 1.2 0.04"/></geometry></collision>
+    <collision><origin xyz="3.05 0 0.75"/><geometry><box size="0.1 3.0 1.5"/></geometry></collision>
+  </link>
+
+  <!-- 카메라 스탠드: 바닥에 고정된 기둥 + 좌우(pan) + 위아래(tilt) -->
+  <link name="stand">
+    <inertial>
+      <origin xyz="0 0 0.4"/>
+      <mass value="3.0"/>
+      <inertia ixx="0.15" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.4"/>
+      <geometry><cylinder radius="0.04" length="0.8"/></geometry>
+      <material name="stand"/>
+    </visual>
+  </link>
+  <joint name="stand_mount" type="fixed">
+    <parent link="scene"/>
+    <child link="stand"/>
+    <origin xyz="0 0 0.02"/>
+  </joint>
+
+  <link name="pan_link">
+    <inertial><origin xyz="0 0 0.03"/><mass value="0.5"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
+    <visual>
+      <origin xyz="0 0 0.03"/>
+      <geometry><cylinder radius="0.06" length="0.06"/></geometry>
+      <material name="stand"/>
+    </visual>
+  </link>
+  <joint name="pan" type="revolute">
+    <parent link="stand"/>
+    <child link="pan_link"/>
+    <origin xyz="0 0 0.8"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="5" velocity="2"/>
+    <dynamics damping="0.5"/>
+  </joint>
+
+  <!-- 카메라 본체. 센서 +x 가 앞이고, 이 링크 자신은 영상에 찍히지 않는다 -->
+  <link name="cam_link">
+    <inertial><origin xyz="0.02 0 0"/><mass value="0.3"/><inertia ixx="0.0005" ixy="0" ixz="0" iyy="0.0005" iyz="0" izz="0.0005"/></inertial>
+    <visual>
+      <origin xyz="0.02 0 0"/>
+      <geometry><box size="0.08 0.12 0.06"/></geometry>
+      <material name="camera"/>
+    </visual>
+    <visual>  <!-- 렌즈 -->
+      <origin xyz="0.07 0 0" rpy="0 1.5707963 0"/>
+      <geometry><cylinder radius="0.02" length="0.03"/></geometry>
+      <material name="stand"/>
+    </visual>
+  </link>
+  <joint name="tilt" type="revolute">
+    <parent link="pan_link"/>
+    <child link="cam_link"/>
+    <origin xyz="0 0 0.1"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.8" upper="0.8" effort="5" velocity="2"/>
+    <dynamics damping="0.5"/>
+  </joint>
+
+  <!-- 카메라 설정 (Gazebo 형식): 640x480, 가로 시야각 60도(1.0472 rad), 0.05 ~ 6 m. pose 는 cam_link 기준 센서 위치/자세 (x y z roll pitch yaw) -->
+  <gazebo reference="cam_link">
+    <sensor type="camera" name="camera">
+      <pose>0.09 0 0 0 0 0</pose>
+      <camera>
+        <horizontal_fov>1.0472</horizontal_fov>
+        <image><width>640</width><height>480</height></image>
+        <clip><near>0.05</near><far>6</far></clip>
+      </camera>
+    </sensor>
+  </gazebo>
+</robot>

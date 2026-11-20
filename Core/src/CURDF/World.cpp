@@ -280,6 +280,12 @@ bool World::Build(const LoadOptions& opt, Robot* out, String* error) {
             if (li >= 0) d.link = newLink[k][static_cast<size_t>(li)];
             out->lidars.push_back(d);
         }
+        for (size_t i = 0; i < r.cameras.size(); i++) {
+            CameraDef d = r.cameras[i];
+            const int li = r.FindLink(d.link);
+            if (li >= 0) d.link = newLink[static_cast<size_t>(li)];
+            out->cameras.push_back(d);
+        }
         for (size_t i = 0; i < r.warnings.size(); i++) out->warnings.push_back(e.name + ": " + r.warnings[i]);
         // 월드(또는 부모 모델의 링크)에 매다는 관절
         Joint a;

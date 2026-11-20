@@ -364,6 +364,32 @@ void testDynamicsAndUnits() {
     check(simul::String(j1.TorqueUnit()) == "N*m" && simul::String(j2.TorqueUnit()) == "N", "torque units");
 }
 
+void testCameraSensor() {
+    const char* base = "<robot name='s'><link name='a'/><link name='b'/>"
+                       "<joint name='j' type='fixed'><parent link='a'/><child link='b'/></joint>";
+    Robot r;
+    simul::String err;
+    check(LoadUrdfFromString(simul::String(base) +
+              "<gazebo reference='b'><sensor type='camera' name='eye'><pose>0.1 0.2 0.3 0 0 1.5707963</pose><camera>"
+              "<horizontal_fov>1.2</horizontal_fov><image><width>640</width><height>480</height></image><clip><near>0.1</near><far>8</far></clip>"
+              "</camera></sensor></gazebo></robot>", &r, &err), ("camera loads: " + err).c_str());
+    check(r.cameras.size() == 1 && r.lidars.empty(), "one camera, no lidar");
+    if (r.cameras.size() == 1) {
+        const CameraDef& d = r.cameras[0];
+        check(d.name == "eye" && d.link == "b" && d.width == 640 && d.height == 480 && nearly(d.horizontalFov, 1.2) && nearly(d.nearClip, 0.1) && nearly(d.farClip, 8), "camera fields");
+        check(nearly(d.pose.v[12], 0.1) && nearly(d.pose.v[13], 0.2) && nearly(d.pose.v[14], 0.3), "camera pose position");
+        check(nearly(d.pose.v[1], 1.0, 1e-5) && nearly(d.pose.v[4], -1.0, 1e-5), "camera pose yaw 90 deg (x axis -> +y)");
+    }
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='depth_camera'><camera/></sensor></gazebo></robot>", &r, &err) && r.cameras.size() == 1 && r.cameras[0].name == "a" && r.cameras[0].width == 320, "defaults");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='zz'><sensor type='camera'><camera/></sensor></gazebo></robot>", &r, &err), "unknown link rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><image><width>0</width></image></camera></sensor></gazebo></robot>", &r, &err), "zero width rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><horizontal_fov>4</horizontal_fov></camera></sensor></gazebo></robot>", &r, &err), "fov over pi rejected");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><clip><near>5</near><far>1</far></clip></camera></sensor></gazebo></robot>", &r, &err), "bad clip rejected");
+    Robot s;
+    check(LoadUrdf(simul::String(SIMUL_TEST_DATA_DIR) + "/Object/samples/camera_scene.urdf", &s, &err), ("camera sample loads: " + err).c_str());
+    check(s.cameras.size() == 1 && s.cameras[0].link == "cam_link" && s.cameras[0].width == 640 && s.cameras[0].farClip == 6.0f, "camera sample has its camera");
+}
+
 void testLidarSensor() {
     const char* base = "<robot name='s'><link name='a'/><link name='b'/>"
                        "<joint name='j' type='fixed'><parent link='a'/><child link='b'/></joint>";
@@ -375,7 +401,7 @@ void testLidarSensor() {
               "<vertical><samples>8</samples><min_angle>-0.2</min_angle><max_angle>0.2</max_angle></vertical></scan>"
               "<range><min>0.1</min><max>12</max></range><noise><type>gaussian</type><stddev>0.02</stddev></noise></ray></sensor>"
               "<sensor type='camera' name='cam'/></gazebo></robot>", &r, &err), "lidar sensor loads");
-    check(r.lidars.size() == 1, "camera sensor is skipped, lidar kept");
+    check(r.lidars.size() == 1 && r.cameras.size() == 1, "lidar and camera sensors are both kept");
     if (r.lidars.size() == 1) {
         const LidarDef& d = r.lidars[0];
         check(d.name == "scan" && d.link == "b", "lidar name/link");
@@ -404,6 +430,7 @@ void testLidarSensor() {
 }
 
 int main() {
+    testCameraSensor();
     testLidarSensor();
     testDynamicsAndUnits();
     testParse();

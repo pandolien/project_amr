@@ -121,12 +121,25 @@ struct LidarDef {
     LidarDef() : hSamples(640), hMin(-1.5707963f), hMax(1.5707963f), vSamples(1), vMin(0), vMax(0), rangeMin(0.05f), rangeMax(30.0f), noiseStdDev(0) {}
 };
 
+// <gazebo reference="링크"><sensor type="camera|depth_camera|rgbd_camera"> 로 적은 카메라 (Gazebo 형식).
+// 센서 좌표계는 라이다와 같다: +x 가 보는 방향, +y 왼쪽, +z 위. 각도는 rad, 거리는 m.
+struct CameraDef {
+    simul::String name;     // sensor name (없으면 링크 이름)
+    simul::String link;     // 센서가 붙은 링크
+    dhMat pose;           // 링크 기준 센서 자세 (<pose>x y z roll pitch yaw</pose>)
+    int width, height;    // <image><width>, <height>
+    float horizontalFov;  // <horizontal_fov> (rad)
+    float nearClip, farClip;  // <clip><near>, <far>
+    CameraDef() : width(320), height(240), horizontalFov(1.0471976f), nearClip(0.05f), farClip(10.0f) {}
+};
+
 struct Robot {
     simul::String name;
     simul::Array<Link> links;
     simul::Array<Joint> joints;
     simul::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
     simul::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
+    simul::Array<CameraDef> cameras;       // <gazebo> 센서 중 카메라
     int root;                            // 루트 link 인덱스
     simul::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
     simul::String baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)

@@ -238,7 +238,8 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 - **색**: 메시의 기본 색에 카메라 방향 조명(밝기 = 0.3 + 0.7×|법선·광선|)을 곱한다. 텍스처, 정점 색, 그림자, 반사는 아직 없다 (1단계). 나중에 GPU 렌더로 바꿀 수 있게 `Camera::Render` 한 곳만 바꾸면 되도록 두었다.
 - **뷰어**: `ModelViewer::SetSensorCamera(link, settings, mount)` 로 링크에 달고(그 링크 자신은 안 찍는다), `RenderSensorCamera()` 를 부를 때만 찍는다 (매 프레임 찍지 않는다. 호스트가 원하는 주기로 부르고, `sensorCameraRendered` 시그널로도 받는다). 3D 화면에는 시야 절두체(노랑, 위쪽 변에 작은 삼각형)가 나온다. 3D 화면을 보는 시점(`CameraYaw` 등)과 이름이 비슷하니 헷갈리지 말 것.
 - **영상 창**: `CoreQt/CameraView` (컬러/깊이 보기, 마우스를 올리면 픽셀의 깊이와 센서 좌표 표시). Qt 5.12 에는 `QImage::Format_BGR888` 이 없어 표시할 때만 채널을 바꿔 복사하고, 데이터는 BGR 그대로다.
-- **앱**: `simul_main 모델.urdf --camera 링크,x,y,z --camera-size 640x480 --camera-fov 70 --camera-range 0.05,10 --camera-save out/c` (영상 창이 같이 뜬다. `--camera-save` 는 `c.png` 컬러, `c_depth.png` 회색 깊이, `c_depth16.png` 16비트 mm 를 저장한다). 메뉴 센서 > 카메라 영상 으로 창을 켜고 끈다.
+- **URDF 에서 읽기**: Gazebo 형식 `<gazebo reference="링크"><sensor type="camera">` (`depth_camera`, `rgbd_camera` 도 같은 카메라로 읽음) 의 `<pose>`, `<camera><horizontal_fov>`, `<image><width/><height>`, `<clip><near/><far>` 를 읽는다 (`Robot::cameras`, `CameraDef`). 없는 값은 기본값(320x240, 60도, 0.05~10 m). 여럿이면 첫 번째만 쓴다. 앱은 URDF 의 카메라를 자동으로 달아 두고 영상 창은 메뉴 센서 > 카메라 영상 으로 켠다. 예제: `Data/Object/samples/camera_scene.urdf` (탁자 위 색 물체 4개를 보는 팬/틸트 카메라, 슬라이더 `pan`, `tilt` 로 돌려 본다).
+- **앱**: `simul_main 모델.urdf --camera 링크,x,y,z --camera-size 640x480 --camera-fov 70 --camera-range 0.05,10 --camera-save out/c` (명령행이 URDF 보다 우선하고 영상 창이 같이 뜬다. `--camera-save` 는 `c.png` 컬러, `c_depth.png` 회색 깊이, `c_depth16.png` 16비트 mm 를 저장한다). 메뉴 센서 > 카메라 영상 으로 창을 켜고 끈다.
 - **검증**: `test_ccamera` (깊이 해석해, BGR 순서, 영상 방향, 가림, near/far, 잡음 재현성, BVH 일치, 내부 변수, 예외), `test_simulview` (링크에 달아 찍기, 시그널).
 
 ## 충돌 감지 (CCollision)
