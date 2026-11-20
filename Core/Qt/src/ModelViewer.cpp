@@ -391,6 +391,13 @@ bool ModelViewer::SaveUrdf(const QString& path, QString* error) const {
     return true;
 }
 
+QString ModelViewer::UrdfText() const {
+    if (!hasRobot_) return QString();
+    simul::urdf::WriteOptions opt;
+    opt.robotName = robot_.name.empty() || robot_.name == "world" ? simul::String("scene") : robot_.name;
+    return simulqt::ToQ(simul::urdf::UrdfToString(robot_, simul::String(), opt));
+}
+
 bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList* warnings) const {
     if (!hasRobot_) {
         if (error) *error = QString::fromUtf8("저장할 모델이 없습니다");

@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QMenu>
 #include <QSlider>
+#include <QTextBlock>
+#include <QTextDocument>
 #include <QToolButton>
 #include <stdio.h>
 
@@ -14,6 +16,7 @@
 #include "CoreQt/QtString.h"
 #include "CoreQt/PropertiesPanel.h"
 #include "CoreQt/SimulView.h"
+#include "CoreQt/UrdfView.h"
 #include "CURDF/UrdfWriter.h"
 #include "TestUtil.h"
 
@@ -363,6 +366,32 @@ int main(int argc, char** argv) {
             v->ModelPlacement6(v->ModelOfLink(armRoot), pl);
             CHECK(simul::Abs(pl[0] - 1.5f) < 1e-3f && simul::Abs(pl[5] - 30.0f) < 0.05f, "external panel controls the engine");
             CHECK(!ext.isAncestorOf(view.viewer()) && view.viewer()->findChild<PropertiesPanel*>() == nullptr, "panel is not inside the 3D view");
+        }
+        // URDF 파일 보기 (읽기 전용, 엔진 밖의 독립 위젯): 장면 내용을 보여 주고 선택을 서로 따라간다
+        {
+            UrdfView uv(v);
+            uv.RefreshNow();
+            CHECK(uv.Edit()->isReadOnly(), "urdf view is read only");
+            CHECK(uv.Text() == v->UrdfText() && uv.Text().contains("<robot name=\"scene\">") && uv.Text().contains("<link name=\"forearm\">"), "urdf view shows the scene urdf");
+            CHECK(!uv.isAncestorOf(view.viewer()) && view.viewer()->findChild<UrdfView*>() == nullptr, "urdf view is not inside the 3D view");
+            const int fore = v->Robot().FindLink(simul::String("forearm"));
+            v->SetSelectedLink(fore);   // 엔진에서 선택 -> 그 <link> 블록이 강조된다
+            int a = -1, b = -1;
+            CHECK(uv.LinkRange("forearm", &a, &b) && a >= 0 && b > a, "link block range found");
+            CHECK(uv.Edit()->extraSelections().size() == 1, "selected link block is highlighted");
+            CHECK(uv.LinkAtLine(a) == fore && uv.LinkAtLine(b - 1) == fore, "lines inside the block map to the link");
+            CHECK(uv.LinkAtLine(0) == -1, "the header line maps to no link");
+            // <joint> 줄은 그 관절의 자식 링크로 이어진다
+            int jl = -1;
+            for (int i = 0; i < uv.Edit()->document()->blockCount(); i++)
+                if (uv.Edit()->document()->findBlockByNumber(i).text().contains("<joint name=\"elbow_pitch\"")) jl = i;
+            CHECK(jl >= 0 && uv.LinkAtLine(jl) == v->Robot().joints[static_cast<size_t>(v->Robot().FindJoint(simul::String("elbow_pitch")))].childIdx, "joint line maps to its child link");
+            // 장면이 바뀌면 (모델 이동) 텍스트가 갱신된다
+            const QString before = uv.Text();
+            const float place[6] = {1.25f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+            v->SetModelPlacement6(v->ModelOfLink(armRoot), place);
+            uv.RefreshNow();
+            CHECK(uv.Text() != before && uv.Text().contains("1.25"), "urdf view follows scene changes");
         }
         view.SetMenuVisible(false);
         view.SetSelectionPanelVisible(false);

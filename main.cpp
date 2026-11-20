@@ -442,6 +442,7 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/LidarPlot.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
+#include "CoreQt/UrdfView.h"
 
 namespace {
 
@@ -501,12 +502,19 @@ public:
         log_ = new LogView;   // 열기/제거/이동/충돌/경고/오류를 시간순으로 모아 둔다
         logDock_ = new QDockWidget(QString::fromUtf8("로그"), this);
         logDock_->setWidget(log_);
-        addDockWidget(Qt::BottomDockWidgetArea, logDock_);
-        logDock_->hide();
+        addDockWidget(Qt::BottomDockWidgetArea, logDock_);   // 화면 구성: 위 메뉴 / 가운데 3D 화면 + 오른쪽 URDF 파일 / 아래 로그
         // 속성: 엔진(3D 화면) 밖의 독립 위젯. 엔진의 공개 함수와 신호만으로 제어한다 (3D 화면 안에는 들어가지 않는다)
         propDock_ = new QDockWidget(QString::fromUtf8("속성"), this);
         propDock_->setWidget(new PropertiesPanel(viewer_));
         addDockWidget(Qt::RightDockWidgetArea, propDock_);
+        // URDF 파일 보기: 지금 장면이 URDF 로 저장되면 어떻게 되는지를 읽기 전용으로 실시간 보여 준다 (엔진 밖의 독립 위젯)
+        urdfDock_ = new QDockWidget(QString::fromUtf8("URDF 파일"), this);
+        urdfDock_->setWidget(new UrdfView(viewer_));
+        addDockWidget(Qt::RightDockWidgetArea, urdfDock_);
+        tabifyDockWidget(urdfDock_, propDock_);   // 같은 자리에 탭으로 겹친다 (속성은 두 번째 탭)
+        urdfDock_->raise();
+        resizeDocks(QList<QDockWidget*>() << urdfDock_, QList<int>() << qMax(300, o.width * 2 / 5), Qt::Horizontal);
+        resizeDocks(QList<QDockWidget*>() << logDock_, QList<int>() << qMax(120, o.height / 5), Qt::Vertical);
         QObject::connect(viewer_, &ModelViewer::modelDragFinished, this, [this](int model, bool rotated) {
             float v[6];
             viewer_->ModelPlacement6(model, v);
@@ -666,6 +674,10 @@ public:
         propAct->setText(QString::fromUtf8("속성"));
         propAct->setShortcut(Qt::Key_P);
         view->insertAction(viewSep, propAct);
+        QAction* urdfAct = urdfDock_->toggleViewAction();
+        urdfAct->setText(QString::fromUtf8("URDF 파일 보기"));
+        urdfAct->setShortcut(Qt::Key_U);
+        view->insertAction(viewSep, urdfAct);
         QAction* logAct = logDock_->toggleViewAction();
         logAct->setText(QString::fromUtf8("로그"));
         logAct->setShortcut(Qt::Key_L);
@@ -1251,6 +1263,7 @@ private:
     void configureDocks() {
         configureDock(dock_);
         configureDock(propDock_);
+        configureDock(urdfDock_);
         configureDock(logDock_);
         configureDock(lidarDock_);
     }
@@ -1363,6 +1376,7 @@ private:
     LogView* log_ = nullptr;
     QDockWidget* logDock_ = nullptr;
     QDockWidget* propDock_ = nullptr;
+    QDockWidget* urdfDock_ = nullptr;
     QSet<QString> loggedWarnings_;
     QStringList lastCollisions_;
     bool collisionLabelHit_ = false;

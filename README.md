@@ -385,6 +385,18 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result)`, 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings)`. STL 쓰기는 `CMesh/MeshWriter.h` 의 `SaveStl` / `StlBytes`.
 - 검증: `test_curdf_write` 의 폴더 테스트가 STL 크기(84 + 50×삼각형), 색 이전, 상대 경로, 다시 읽었을 때 모양(경계 상자) 일치를 확인한다.
 
+## 화면 구성과 URDF 파일 보기
+
+```
+┌ 메뉴 ──────────────────────────────────┐
+├ 3D 화면 (구조 트리 오버레이) ┬ URDF 파일 | 속성 ┤
+├ 로그 ──────────────────────────────────┘
+```
+
+- 오른쪽 **URDF 파일** 탭은 지금 장면을 URDF 로 저장하면 나올 내용을 **읽기 전용**으로 실시간 보여 준다 (XML 색칠). 모델 추가/제거, 이동, 크기, 도형 추가가 있으면 0.15초 모아 한 번 갱신하고, 보던 위치는 유지한다. 같은 자리의 두 번째 탭이 속성이다. 보기 > URDF 파일 보기(U), 속성(P), 로그(L)로 켜고 끈다.
+- 선택 연동: 3D 에서 링크를 고르면 그 `<link>` 블록이 강조되고 그 줄로 이동한다. 반대로 텍스트에서 `<link>` 블록 안을 클릭하면 그 링크가, `<joint>` 블록 안을 클릭하면 그 관절의 자식 링크가 3D 에서 선택된다.
+- 위젯: `CoreQt/UrdfView.h` (엔진 밖의 독립 위젯, 속성 패널과 같은 방식). 엔진의 공개 함수 `ModelViewer::UrdfText()` 와 신호만 쓴다. 도크로 떼어 내거나 숨길 수 있고, 3D 화면만 보기(F11)에서는 함께 숨는다.
+
 ## 엔진 밖에서 제어하는 위젯 (PropertiesPanel)
 
 3D 화면(엔진)은 그리기와 조작만 맡고, 속성 같은 입력 UI 는 엔진 밖에 호스트가 둔다. `PropertiesPanel(ModelViewer*)` 는 그 예다.
