@@ -398,14 +398,15 @@ QString ModelViewer::UrdfText() const {
     return simulqt::ToQ(simul::urdf::UrdfToString(robot_, simul::String(), opt));
 }
 
-bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList* warnings, bool glbToStl) const {
+bool ModelViewer::SaveUrdfFolder(const QString& dir, QString* error, QStringList* warnings, int meshFormat) const {
     if (!hasRobot_) {
         if (error) *error = QString::fromUtf8("저장할 모델이 없습니다");
         return false;
     }
     simul::urdf::FolderSaveResult res;
     simul::urdf::FolderOptions fo;
-    fo.glbToStl = glbToStl;
+    fo.glbToStl = meshFormat == 1;
+    fo.keepGlb = meshFormat == 2;
     simul::String err;
     if (!simul::urdf::SaveUrdfFolder(robot_, simulqt::FromQ(dir), options_, &err, &res, simul::urdf::WriteOptions(), fo)) {
         if (error) *error = simulqt::ToQ(err);

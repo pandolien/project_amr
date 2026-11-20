@@ -154,11 +154,12 @@ struct Exporter {
     simul::String objDir;   // dir/obj
     FolderSaveResult* res;
     bool toStl;
+    bool keepGlb;
     simul::Map<simul::String, simul::String> nameOfKey;   // 원본 키 -> obj/ 아래 상대 경로 ("a.stl", "dir/x.obj")
     simul::Map<simul::String, int> used;                   // 쓴 이름(소문자) -> 개수
     simul::String error;
 
-    Exporter(const Robot& r, const LoadOptions& l, FolderSaveResult* result, bool stl) : robot(r), load(l), res(result), toStl(stl) {}
+    Exporter(const Robot& r, const LoadOptions& l, FolderSaveResult* result, bool stl, bool keep) : robot(r), load(l), res(result), toStl(stl), keepGlb(keep) {}
 
     void Warn(const simul::String& w) { res->warnings.push_back(w); }
 
@@ -190,6 +191,7 @@ struct Exporter {
         }
         src = Slashes(src);
         const simul::String ext = detail::LowerExtension(src);
+        if (ext == "glb" && keepGlb) return CopyMesh(g, src, ext, where);
         if (ext == "glb" || ext == "gltf") return ConvertGlb(g, src, wantColor, gotColor, color, where);
         if (ext == "stl" || ext == "obj" || ext == "dae") return CopyMesh(g, src, ext, where);
         Warn(where + ": 지원하지 않는 형식이라 경로를 그대로 둡니다 (" + src + ")");
@@ -340,8 +342,8 @@ struct Exporter {
             return false;
         }
         simul::String rel, err;
-        if (ext == "stl") {
-            rel = Unique(Stem(src), ".stl");
+        if (ext == "stl" || ext == "glb") {
+            rel = Unique(Stem(src), "." + ext);
             if (!CopyFileBytes(src, detail::JoinPath(objDir, rel), &err)) {
                 Warn(where + ": " + err);
                 g->filename = src;
@@ -413,7 +415,7 @@ bool SaveUrdfFolder(const Robot& robot, const simul::String& dirIn, const LoadOp
     }
 
     Robot r = robot;
-    Exporter ex(robot, load, res, folder.glbToStl);
+    Exporter ex(robot, load, res, folder.glbToStl, folder.keepGlb);
     ex.dir = dir;
     ex.objDir = dir + "/obj";
     for (size_t i = 0; i < r.links.size(); i++) {
@@ -425,7 +427,7 @@ bool SaveUrdfFolder(const Robot& robot, const simul::String& dirIn, const LoadOp
             const simul::String where = "link '" + l.name + "' visual " + simul::ToString(v);
             const bool wantColor = !(vis.hasMaterial && vis.material.hasColor);
             simul::Array<Visual> parts;
-            if (folder.glbToStl && wantColor && ex.SplitGlb(vis, where, &parts)) {
+            if (folder.glbToStl && !folder.keepGlb && wantColor && ex.SplitGlb(vis, where, &parts)) {
                 for (size_t k = 0; k < parts.size(); k++) l.visuals.push_back(parts[k]);
                 continue;
             }

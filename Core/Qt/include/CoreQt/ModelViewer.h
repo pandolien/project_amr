@@ -63,7 +63,7 @@ public:
     QString UrdfText() const;
     // 폴더로 저장: dir/<폴더이름>.urdf + dir/obj/. GLB 는 기본으로 OBJ+MTL(+텍스처 이미지)로 바꿔 넣어 색과 텍스처가 유지된다.
     // glbToStl 이면 바이너리 STL 로 넣는다 (가장 호환이 좋지만 색이 없다: 기본 색 하나만 URDF 로 옮기고 나머지는 warnings 에 남는다).
-    bool SaveUrdfFolder(const QString& dir, QString* error = nullptr, QStringList* warnings = nullptr, bool glbToStl = false) const;
+    bool SaveUrdfFolder(const QString& dir, QString* error = nullptr, QStringList* warnings = nullptr, int meshFormat = 0) const;   // meshFormat: 0 OBJ+MTL, 1 STL, 2 GLB 그대로
     int ModelCount() const { return static_cast<int>(world_.size()); }
     QString ModelName(int index) const;
     int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)

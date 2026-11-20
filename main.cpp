@@ -46,7 +46,7 @@ struct Options {
     bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     simul::String exportUrdf;  // --export-urdf 파일: 장면을 URDF 하나로 저장하고 끝낸다
-    bool exportStl = false;    // --export-mesh stl: GLB 를 STL 로 (기본 obj)
+    int exportFormat = 0;      // --export-mesh obj|stl|glb (기본 obj)
     simul::String exportDir;   // --export-dir 폴더: 장면을 폴더(폴더이름.urdf + obj/)로 저장하고 끝낸다
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
@@ -110,7 +110,7 @@ void PrintUsage(const char* exe) {
         "  --connect 자식=부모링크[:종류[:x,y,z[:최소,최대]]]  모델을 다른 모델의 링크에 관절로 연결 (종류 fixed/revolute/continuous/prismatic, 기본 fixed, 축 기본 0,0,1, 회전 한계는 도)\n"
         "                  예: --connect gripper=tool:revolute:0,0,1:-90,90   (지금 자리 그대로 붙는다. 여러 번 쓸 수 있다)\n"
         "  --export-dir 폴더 같은 장면을 폴더로 저장하고 끝낸다: 폴더/폴더이름.urdf + 폴더/obj/ (GLB 는 OBJ+MTL+텍스처로 바꿔 넣어 색이 유지된다)\n"
-        "  --export-mesh obj|stl  --export-dir 에서 GLB 를 넣는 형식 (기본 obj. stl 은 호환이 가장 좋지만 색이 빠진다)\n"
+        "  --export-mesh obj|stl|glb  --export-dir 에서 GLB 를 넣는 형식 (기본 obj. stl 은 호환 최고지만 색이 URDF 로만 남고 용량이 큼, glb 는 변환 없이 복사해 가장 작다)\n"
         "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --add-box 이름=가로,세로,높이[@x,y,z]  / --add-cylinder 이름=반지름,길이[@x,y,z] / --add-sphere 이름=반지름[@x,y,z]  파일 없이 기본 도형을 장면에 올린다 (여러 번 가능)\n"
@@ -188,8 +188,8 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--export-dir" && hasNext) { o->exportDir = argv[++i]; continue; }
         if (a == "--export-mesh" && hasNext) {
             const simul::String v = argv[++i];
-            if (v != "obj" && v != "stl") { fprintf(stderr, "--export-mesh 는 obj 또는 stl 입니다\n"); return 2; }
-            o->exportStl = v == "stl";
+            if (v != "obj" && v != "stl" && v != "glb") { fprintf(stderr, "--export-mesh 는 obj, stl, glb 중 하나입니다\n"); return 2; }
+            o->exportFormat = v == "stl" ? 1 : (v == "glb" ? 2 : 0);
             continue;
         }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
@@ -592,10 +592,10 @@ public:
             if (!ok || name.isEmpty()) return;
             const QString dir = QDir(parent).filePath(name);
             if (QFileInfo(dir).exists() && QMessageBox::question(this, QString::fromUtf8("폴더로 저장"), QString::fromUtf8("%1 이(가) 이미 있습니다. 같은 이름의 파일을 덮어씁니다. 계속할까요?").arg(dir)) != QMessageBox::Yes) return;
-            const QStringList formats = QStringList() << QString::fromUtf8("OBJ + MTL (색과 텍스처 유지)") << QString::fromUtf8("STL (호환이 가장 좋지만 색이 빠짐)");
+            const QStringList formats = QStringList() << QString::fromUtf8("OBJ + MTL (색과 텍스처 유지)") << QString::fromUtf8("STL (호환 최고, 색은 URDF 로 나눠 저장, 용량 큼)") << QString::fromUtf8("GLB 그대로 복사 (용량 가장 작음, 색/텍스처 유지)");
             const QString f = QInputDialog::getItem(this, QString::fromUtf8("폴더로 저장"), QString::fromUtf8("GLB 모델의 메시 형식"), formats, 0, false, &ok);
             if (!ok) return;
-            exportFolder(dir, f == formats[1]);
+            exportFolder(dir, formats.indexOf(f));
         });
         QAction* openDirAct = file->addAction(QString::fromUtf8("폴더 열기 (추가)..."));
         QObject::connect(openDirAct, &QAction::triggered, this, [this]() {
@@ -844,10 +844,10 @@ public:
     }
 
     // 지금 장면을 폴더로 저장한다: dir/<폴더이름>.urdf + dir/obj/. 성공하면 true
-    bool exportFolder(const QString& dir, bool glbToStl = false) {
+    bool exportFolder(const QString& dir, int meshFormat = 0) {
         QString err;
         QStringList warns;
-        if (!viewer_->SaveUrdfFolder(dir, &err, &warns, glbToStl)) {
+        if (!viewer_->SaveUrdfFolder(dir, &err, &warns, meshFormat)) {
             logError(QString::fromUtf8("폴더 저장 실패: %1").arg(err));
             return false;
         }
@@ -1535,7 +1535,7 @@ int main(int argc, char** argv) {
     if (!o.shapes.empty()) w.applyShapes(o);
     w.applyConnects(o);   // 도형까지 올라간 뒤에 연결한다
     if (!o.exportDir.empty()) {   // 확인용/배치용: 합친 장면을 폴더로 저장하고 끝낸다
-        if (!w.exportFolder(QString::fromLocal8Bit(o.exportDir.c_str()), o.exportStl)) return 1;
+        if (!w.exportFolder(QString::fromLocal8Bit(o.exportDir.c_str()), o.exportFormat)) return 1;
         printf("폴더로 저장: %s\n", o.exportDir.c_str());
         if (o.exportUrdf.empty()) return 0;
     }

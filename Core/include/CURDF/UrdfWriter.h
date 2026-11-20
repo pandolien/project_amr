@@ -33,7 +33,8 @@ bool SaveUrdf(const Robot& robot, const simul::String& path, simul::String* erro
 //   <material><texture> 이미지는 obj/ 로 복사한다.
 struct FolderOptions {
     bool glbToStl;   // false(기본): GLB 를 OBJ+MTL 로, true: 바이너리 STL 로
-    FolderOptions() : glbToStl(false) {}
+    bool keepGlb;    // true: GLB 를 변환 없이 그대로 복사 (가장 작고 색/텍스처 유지. scale 과 Y-up 은 URDF/옵션 그대로. glTF 는 외부 파일이 있어 변환한다)
+    FolderOptions() : glbToStl(false), keepGlb(false) {}
 };
 struct FolderSaveResult {
     simul::Array<simul::String> warnings;

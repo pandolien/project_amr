@@ -322,6 +322,21 @@ void testFolder() {
         check(res.warnings.empty() || true, "warnings only advise");
     }
 
+    // ---- GLB 그대로 복사: 파일이 같고 scale 은 URDF 가 유지
+    {
+        FolderSaveResult res2;
+        FolderOptions fo;
+        fo.keepGlb = true;
+        check(SaveUrdfFolder(r, out + "/glbx", LoadOptions(), &err, &res2, WriteOptions(), fo), ("save folder keeping glb: " + err).c_str());
+        Array<unsigned char> a, b2;
+        check(ReadAllBytes(src + "/tri.glb", &a, &err) && ReadAllBytes(out + "/glbx/obj/tri.glb", &b2, &err) && a == b2, "glb copied byte for byte");
+        Robot again2;
+        check(LoadUrdf(res2.urdfPath, &again2, &err), "reload glb folder");
+        check(again2.links[0].visuals[0].geometry.scale[0] == 2.0f, "scale stays in the urdf");
+        RobotMeshes m2;
+        check(LoadRobotMeshes(again2, LoadOptions(), &m2) && m2.visuals.size() == orig.visuals.size(), "meshes load");
+    }
+
     Robot again;
     check(LoadUrdf(out + "/robotx/robotx.urdf", &again, &err), "reload for the move test");
     FolderSaveResult res;
