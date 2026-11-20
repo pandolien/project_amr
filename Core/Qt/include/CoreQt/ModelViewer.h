@@ -184,7 +184,7 @@ public:
     // 그림자 (태양 조명일 때만): 태양 방향에서 깊이 맵을 그려 가려진 곳의 태양빛을 뺀다. 기본 켜짐. 태양이 꺼져 있거나 해가 졌으면 그리지 않는다.
     void SetShadowsEnabled(bool on);
     bool ShadowsEnabled() const { return shadows_; }
-    // 하늘 (태양 조명일 때만): 하늘색 그라데이션, 구름, 태양 빛무리를 배경에 그린다. 낮에는 흰 구름, 해 질 녘엔 붉게, 밤엔 어둡게. 기본 켜짐.
+    // 하늘 (기본 켜짐): 하늘색 그라데이션, 구름, 태양 빛무리를 배경에 그린다. 태양 조명이 꺼져 있어도 낮 하늘(구름)을 그린다 (태양 원반 없음). 낮에는 흰 구름, 해 질 녘엔 붉게, 밤엔 어둡게. 기본 켜짐.
     void SetSkyEnabled(bool on);
     bool SkyEnabled() const { return skyOn_; }
     bool ShadowsActive() const { return shadowActive_; }   // 마지막으로 그린 화면에 그림자 맵을 썼는가 (확인용)
