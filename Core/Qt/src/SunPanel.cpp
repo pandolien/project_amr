@@ -34,6 +34,10 @@ SunPanel::SunPanel(ModelViewer* viewer, QWidget* parent) : QWidget(parent), view
     shadows_->setChecked(viewer_->ShadowsEnabled());
     top->addWidget(shadows_);
     connect(shadows_, &QCheckBox::toggled, viewer_, &ModelViewer::SetShadowsEnabled);
+    sky_ = new QCheckBox(QString::fromUtf8("하늘과 구름 (3D 화면 배경, 태양 조명일 때)"));
+    sky_->setChecked(viewer_->SkyEnabled());
+    top->addWidget(sky_);
+    connect(sky_, &QCheckBox::toggled, viewer_, &ModelViewer::SetSkyEnabled);
     QFormLayout* form = new QFormLayout;
     time_ = new QDateTimeEdit;
     time_->setDisplayFormat("yyyy-MM-dd HH:mm");
@@ -131,6 +135,7 @@ void SunPanel::refreshFromViewer() {
     updating_ = true;
     enabled_->setChecked(s.enabled);
     shadows_->setChecked(viewer_->ShadowsEnabled());
+    sky_->setChecked(viewer_->SkyEnabled());
     time_->setDateTime(QDateTime(QDate(s.time.year, s.time.month, s.time.day), QTime(s.time.hour, s.time.minute, static_cast<int>(s.time.second))));
     utc_->setValue(s.time.utcOffsetHours);
     lat_->setValue(s.site.latitudeDeg);

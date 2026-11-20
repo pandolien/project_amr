@@ -31,6 +31,7 @@ private:
     ModelViewer* viewer_;
     QCheckBox* enabled_;
     QCheckBox* shadows_;
+    QCheckBox* sky_;
     QDateTimeEdit* time_;
     QDoubleSpinBox *lat_, *lon_, *utc_, *north_, *speed_;
     QCheckBox* lapse_;
