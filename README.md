@@ -381,6 +381,7 @@ register(SwingArm)
 
   오브젝트 명령: `set_pose(x,y,z,qx,qy,qz,qw)`, `set_position(x,y,z)`, `set_joint(이름, 값)`, `move_to(x,y,z,속도)`, `move_joint(이름, 목표[, 속도])`, `stop()`, `command("이름", ...)`. 읽기: `name kind position quaternion joints moving info()`. 단위 m, rad, s.
 - **실행**: `simul_main arm.urdf --python-script Data/Python/examples/demo_arm.py:arm --python-run` (`파일:오브젝트,오브젝트` 로 그 파일 클래스의 권한을 정한다). 메뉴 **Python**: 시작(F5) / 정지 / 한 틱(F10) / 스크립트 등록 / 현황 보기. `--python`(인터프리터만), `--python-hz`(틱 수), `--python-steps N`(N 틱 바로 돌리고 멈춤, 확인용), `--python-main`(다른 Main.py). print 와 오류는 로그 창에 나온다.
+- **Python 편집기 (오른쪽 도크, 메뉴 Python > Python 편집기, Ctrl+E, `--python-editor`)**: 줄 번호, 문법 색, Tab 들여쓰기, 자동 들여쓰기가 있는 편집기. 새 파일은 Behavior 틀로 시작하고, 위쪽 버튼으로 열기/저장, 아래 `저장 후 등록` 은 저장하고 Main.py 에 등록한다 (같은 파일을 다시 누르면 이전 클래스를 `on_stop` 으로 내리고 새로 읽는다. 시뮬레이션이 돌고 있어도 바로 바뀐다). 맨 아래 입력줄은 한 줄 실행 (`simul.find("arm").joints`). 새 파일 기본 저장 위치는 `Data/Python/user/`. 결과와 오류는 로그 창.
 - 지금은 인터프리터와 클래스 등록까지다. 스크립트를 파일 이름으로 오브젝트에 자동으로 붙이는 것, 제어기 DLL(모터 토크 입력 경로)은 다음 단계.
 
 ## 서드파티 라이선스

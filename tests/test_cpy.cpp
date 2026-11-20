@@ -104,6 +104,26 @@ int main() {
     eng.Stop();
     check(Has("O:MOVER stop ticks 40"), "on_stop runs, other classes kept ticking after the failure");
 
+    // 저장 후 다시 읽기: 이전 클래스는 내려가고(on_stop) 새 클래스가 시작된다
+    g_out.clear();
+    check(eng.Running() == false, "stopped before reload test");
+    eng.Start();
+    g_out.clear();
+    const char* v2 =
+        "from Main import Behavior, register\n"
+        "class Mover2(Behavior):\n"
+        "    objects = ['arm']\n"
+        "    def on_start(self): print('V2 start')\n"
+        "    def on_stop(self): print('V2 stop')\n"
+        "register(Mover2)\n";
+    check(WriteFileText("t_py_user.py", v2), "rewrite user script");
+    check(rt.RunSnippet("import Main; _r = Main.reload_file('t_py_user.py')", &err), "reload_file");
+    check(Has("O:V2 start"), "reloaded class starts at once while the simulation is running");
+    check(Has("O:MOVER stop ticks"), "old classes from that file were stopped");
+    eng.Step(0.05);
+    eng.Stop();
+    check(Has("O:V2 stop"), "reloaded class stops with the simulation");
+
     // 대화형 한 줄
     g_out.clear();
     check(rt.RunSnippet("print(len(simul.objects()), simul.find('arm').joints)", &err), "snippet");

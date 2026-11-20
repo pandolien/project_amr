@@ -256,6 +256,26 @@ class Hub(object):
             self._launch(entry)
         return entry
 
+    def unregister_file(self, path):
+        """그 파일에서 등록된 클래스를 모두 뺀다 (돌고 있으면 on_stop 을 부르고 멈춘다). 빼낸 개수를 돌려준다."""
+        path = os.path.abspath(path)
+        gone = [e for e in self.entries if e.source and os.path.abspath(e.source) == path]
+        for e in gone:
+            if e.state == "running":
+                try:
+                    e.inst.on_stop()
+                except Exception:
+                    self._fail(e, "on_stop")
+            self.entries.remove(e)
+        return len(gone)
+
+    def reload_file(self, path, objects=None):
+        """저장한 파일을 다시 읽는다: 이전에 등록된 것을 빼고 새로 등록한다 (돌고 있으면 새 클래스가 바로 시작된다)."""
+        n = self.unregister_file(path)
+        if n:
+            print("[Main] %s: 이전 클래스 %d개를 내리고 다시 읽습니다" % (os.path.basename(path), n))
+        return self.register_file(path, objects)
+
     def register_file(self, path, objects=None):
         """외부 python 파일을 읽어서 그 안의 register(...) 를 실행한다. objects 를 주면 그 파일의 클래스에 모두 그 권한을 준다."""
         import importlib.util
@@ -390,6 +410,10 @@ def register(cls=None, objects=None, period=None):
 
 def register_file(path, objects=None):
     return hub.register_file(path, objects)
+
+
+def reload_file(path, objects=None):
+    return hub.reload_file(path, objects)
 
 
 # 엔진에 연결: 이 파일이 실행되면 hub 가 시뮬레이션 시작/틱/이벤트/정지를 받는다
