@@ -17,8 +17,8 @@
 //   cv::Mat(height, width, CV_8UC3, image.bgr.data()) 로 복사 없이 감쌀 수 있다.
 // 깊이 영상은 32비트 실수 (CV_32FC1 배치), 단위 m. 값은 센서 +x 방향 거리(z-depth)이고 광선을 따라 잰 거리가 아니다.
 //   아무것도 안 맞았거나 near/far 밖이면 0.
-// 색: 메시마다 하나의 기본 색에 머리 위 조명 대신 카메라 방향 조명(밝기 = 0.3 + 0.7 * |면 법선 · 광선 방향|)을 곱한다.
-//   텍스처와 정점 색은 아직 쓰지 않는다. 그림자/반사 없음.
+// 색: 메시마다 하나의 기본 색에 카메라 방향 조명(밝기 = 0.3 + 0.7 * |면 법선 · 광선 방향|)을 곱한다. 텍스처와 정점 색은 아직 쓰지 않는다.
+//   SetSun 으로 태양을 주면 태양 조명으로 바뀐다: 밝기 = 주변광 + 태양 * max(면 법선 · 태양 방향, 0), 그림자는 태양 쪽으로 광선을 하나 더 쏴서 가려지면 태양을 뺀다 (반사 없음).
 namespace simul {
 namespace sensor {
 
@@ -36,6 +36,22 @@ struct CameraSettings {
         background[0] = 0.12f;
         background[1] = 0.14f;
         background[2] = 0.18f;
+    }
+};
+
+// 태양 조명 (SetSun). direction 은 월드 좌표에서 표면 -> 태양 방향. CEnv/Sun.h 의 SunState::direction 을 그대로 넣으면 된다.
+struct SunLight {
+    bool enabled;
+    float direction[3];   // 월드, 단위 벡터
+    float intensity;      // 태양 빛 세기 0..1 (해가 졌으면 0)
+    float ambient;        // 주변광(하늘) 밝기 0..1
+    float color[3];       // 태양 빛 색 R, G, B
+    float sky[3];         // 하늘색 R, G, B: 아무것도 안 맞은 픽셀의 배경으로 쓴다 (설정의 background 대신)
+    bool shadows;         // 그림자 광선 (끄면 빠르지만 그림자가 없다)
+    SunLight() : enabled(false), intensity(1.0f), ambient(1.0f), shadows(true) {
+        direction[0] = 0.0f; direction[1] = 0.0f; direction[2] = 1.0f;
+        color[0] = color[1] = color[2] = 1.0f;
+        sky[0] = 0.12f; sky[1] = 0.14f; sky[2] = 0.18f;
     }
 };
 
@@ -70,6 +86,8 @@ public:
     explicit Camera(const CameraSettings& settings = CameraSettings());
     const CameraSettings& Settings() const { return settings_; }
     void SetSettings(const CameraSettings& s);  // 난수도 새 시드로 다시 시작한다
+    void SetSun(const SunLight& sun) { sun_ = sun; }   // 태양 조명 (enabled = false 면 카메라 방향 조명)
+    const SunLight& Sun() const { return sun_; }
     bool Valid() const;                         // 크기, 시야각, near/far 가 올바른가
     CameraIntrinsics Intrinsics() const;
     float VerticalFov() const;                  // 세로 시야각 (rad)
@@ -84,6 +102,7 @@ private:
     unsigned nextRandom();
     float gaussian();
     CameraSettings settings_;
+    SunLight sun_;
     unsigned rng_;
 };
 

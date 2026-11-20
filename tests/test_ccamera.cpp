@@ -195,6 +195,73 @@ void testPoseNoiseBvh() {
     check(near(sum / n, 0.0, 0.004) && near(sqrt(sum2 / n), 0.01, 0.004), "noise has about the requested standard deviation");
 }
 
+
+// 태양: 면이 태양을 향할수록 밝고, 가려진 곳은 그림자(주변광만), 해가 지면 어둡고, 배경은 하늘색이다
+void testSun() {
+    const BoxMesh ground(-10.0f, -10.0f, -0.1f, 10.0f, 10.0f, 0.0f);
+    const BoxMesh blocker(-1.0f, -1.0f, 2.0f, 1.0f, 1.0f, 2.2f);
+    CameraTarget t[2] = {ground.target(1, 0.8f, 0.8f, 0.8f), blocker.target(2, 0.5f, 0.2f, 0.2f)};
+    const dhMat pose = dhMat::Trans(0.0f, 0.0f, 5.0f) * dhMat::RotY(static_cast<float>(dhPI / 2.0));   // 아래를 본다. 영상 위쪽 = 월드 +x, 왼쪽 = 월드 +y
+    CameraSettings s = small(64, 48);
+    s.horizontalFov = static_cast<float>(90.0 * dhPI / 180.0);
+    Camera cam(s);
+    const CameraIntrinsics k = cam.Intrinsics();
+    auto pixelOf = [&](float wx, float wy, int* u, int* v) {
+        *u = static_cast<int>(k.cx - k.fx * wy / 5.0f);
+        *v = static_cast<int>(k.cy - k.fy * wx / 5.0f);
+    };
+    auto green = [&](const CameraImage& im, float wx, float wy) {
+        int u, v;
+        pixelOf(wx, wy, &u, &v);
+        return static_cast<int>(im.bgr[(static_cast<size_t>(v) * static_cast<size_t>(im.width) + static_cast<size_t>(u)) * 3 + 1]);
+    };
+    SunLight sun;
+    sun.enabled = true;
+    sun.direction[0] = 0.70710678f;   // 태양은 +x 쪽, 45도 높이: 그림자는 -x 쪽으로 드리운다 (가림막 윗면 z = 2.2 -> 바닥에서 x = -3.2 ~ -1)
+    sun.direction[1] = 0.0f;
+    sun.direction[2] = 0.70710678f;
+    sun.intensity = 1.0f;
+    sun.ambient = 0.5f;
+    sun.sky[0] = 0.2f; sun.sky[1] = 0.4f; sun.sky[2] = 0.9f;
+    cam.SetSun(sun);
+    CameraImage im;
+    cam.Render(pose, t, 2, &im);
+    const int litG = green(im, 3.0f, 0.0f), shadowG = green(im, -2.0f, 0.0f);
+    check(litG > 150, "ground in the sun is bright");
+    check(shadowG < litG / 2 && shadowG > 20, "ground behind the blocker is in shadow (ambient only, not black)");
+    check(im.IsHit(0, 0) && im.targetIds[(24) * 64 + 32] == 2, "the blocker is seen from above");
+
+    SunLight noShadow = sun;
+    noShadow.shadows = false;
+    cam.SetSun(noShadow);
+    cam.Render(pose, t, 2, &im);
+    check(green(im, -2.0f, 0.0f) == litG, "shadows off: the same spot is lit");
+
+    SunLight night = sun;
+    night.intensity = 0.0f;
+    night.ambient = 0.1f;
+    cam.SetSun(night);
+    cam.Render(pose, t, 2, &im);
+    check(green(im, 3.0f, 0.0f) < litG / 4, "at night everything is dark");
+
+    // 태양이 수평선 쪽이면 윗면은 약하게 비춘다 (cos 법칙)
+    SunLight low = sun;
+    low.direction[0] = 0.98f; low.direction[1] = 0.0f; low.direction[2] = 0.2f;
+    cam.SetSun(low);
+    cam.Render(pose, t, 2, &im);
+    check(green(im, 3.0f, 0.0f) < litG, "a low sun lights the ground less");
+
+    // 아무것도 안 보이는 쪽을 보면 배경이 하늘색 (BGR 로 저장)
+    cam.SetSun(sun);
+    const dhMat up = dhMat::Trans(0.0f, 0.0f, 5.0f) * dhMat::RotY(static_cast<float>(-dhPI / 2.0));   // 위를 본다
+    cam.Render(up, t, 2, &im);
+    check(!im.IsHit(32, 24) && im.bgr[(24 * 64 + 32) * 3] == 230 && im.bgr[(24 * 64 + 32) * 3 + 1] == 102 && im.bgr[(24 * 64 + 32) * 3 + 2] == 51, "with the sun on, the background is the sky color (B=230, G=102, R=51)");
+    // 태양을 끄면 원래 카메라 방향 조명으로 돌아간다
+    cam.SetSun(SunLight());
+    cam.Render(pose, t, 2, &im);
+    check(im.IsHit(10, 10), "sun off: back to the headlight");
+}
+
 void testEdgeCases() {
     CameraSettings s = small(0, 10);
     Camera bad(s);
@@ -222,6 +289,7 @@ int main() {
     testOrientation();
     testOcclusionRangeAndBackground();
     testPoseNoiseBvh();
+    testSun();
     testEdgeCases();
     if (g_fail) {
         printf("test_ccamera: %d failure(s)\n", g_fail);

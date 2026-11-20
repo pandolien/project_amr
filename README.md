@@ -40,6 +40,7 @@ project_simul/
 | CMesh | 3D 모델 읽기: GLB/glTF, STL, OBJ(+MTL), COLLADA(DAE), 기본 도형 | 3d, cgltf, tinyxml2 |
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
+| CEnv | 환경: 태양 위치 (날짜/시각/위치 -> 방위각, 고도, 일출/일몰) | 3d |
 | CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상) | CCollision, 3d |
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
@@ -241,6 +242,17 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 - **URDF 에서 읽기**: Gazebo 형식 `<gazebo reference="링크"><sensor type="camera">` (`depth_camera`, `rgbd_camera` 도 같은 카메라로 읽음) 의 `<pose>`, `<camera><horizontal_fov>`, `<image><width/><height>`, `<clip><near/><far>` 를 읽는다 (`Robot::cameras`, `CameraDef`). 없는 값은 기본값(320x240, 60도, 0.05~10 m). 여럿이면 첫 번째만 쓴다. 앱은 URDF 의 카메라를 자동으로 달아 두고 영상 창은 메뉴 센서 > 카메라 영상 으로 켠다. 예제: `Data/Object/samples/camera_scene.urdf` (탁자 위 색 물체 4개를 보는 팬/틸트 카메라, 슬라이더 `pan`, `tilt` 로 돌려 본다).
 - **앱**: `simul_main 모델.urdf --camera 링크,x,y,z --camera-size 640x480 --camera-fov 70 --camera-range 0.05,10 --camera-save out/c` (명령행이 URDF 보다 우선하고 영상 창이 같이 뜬다. `--camera-save` 는 `c.png` 컬러, `c_depth.png` 회색 깊이, `c_depth16.png` 16비트 mm 를 저장한다). 메뉴 센서 > 카메라 영상 으로 창을 켜고 끈다.
 - **검증**: `test_ccamera` (깊이 해석해, BGR 순서, 영상 방향, 가림, near/far, 잡음 재현성, BVH 일치, 내부 변수, 예외), `test_simulview` (링크에 달아 찍기, 시그널).
+
+## 태양 (CEnv: Sun.h)
+
+태양 위치를 고정하지 않고 **날짜/시각과 위치로 계산**한다 (NOAA 태양 위치 계산식, 오차 약 0.01~0.05도, 대기 굴절은 없음).
+
+- **계산**: `simul::env::ComputeSun(SunTime, SunSite, &SunState)`. `SunTime` 은 현지 날짜/시각과 UTC 오프셋(한국 +9), `SunSite` 는 위도/경도(기본 서울 37.5665, 126.978)와 월드 +y 가 가리키는 방위. 결과는 방위각(북에서 시계 방향)/고도/적위/균시차와 월드 좌표의 태양 방향 `direction` (표면 -> 태양). `SunriseSunset` 은 일출/일몰(현지 분), 백야/극야는 false, `AddMinutes` 는 시간을 더하고(날짜 넘김, 윤년 처리) `SunTimeNow` 는 컴퓨터 시각.
+- **월드 방위**: 기본은 월드 +x 가 동, +y 가 북, +z 가 위 (ROS ENU). 월드 +x 가 정북이면 `northBearingDeg = 270`.
+- **뷰어**: `ModelViewer::SetSun({enabled, time, site})`, `SetSunTime` (시간 흐름용), `SetSunEnabled`, `sunChanged` 시그널. 켜면 주광이 카메라에 고정된 빛 대신 태양이 되어 화면을 돌려도 태양은 월드에 고정이다. 해 고도에 따라 세기, 색(낮을수록 붉음), 하늘색, 주변광이 바뀌고 해가 지면 어두운 밤이 된다 (3 가지 조명 방식 모두). 3D 화면에는 그림자가 없다 (그림자 맵은 아직).
+- **센서 카메라**: 태양이 켜져 있으면 카메라 영상도 같은 태양으로 비추고 **그림자**를 그린다 (태양 쪽으로 광선을 하나 더 쏴서 가려지면 태양 빛을 뺀다). `Camera::SetSun(SunLight)` 로 코어에서 직접 줄 수도 있다. 하늘색이 배경이 된다.
+- **앱**: 보기 > 태양 (S) 도크에서 켜기, 날짜/시각, 시간대, 위도/경도, 월드 +y 의 방위, "지금 시각으로", 시간 흐르게 하기(초당 N분)를 바꾸고 방위각/고도/일출/일몰을 본다. 명령행: `--sun 2026-06-21T14:30` (현지 시각, 생략하면 지금), `--sun-now`, `--sun-site 위도,경도[,UTC오프셋[,월드+y방위]]` (위치만 주고 오프셋을 안 주면 경도/15 반올림). 예: `simul_main Data/Object/samples/camera_scene.urdf --sun 2026-06-21T19:15 --camera-save out/c --shot out/s.png`.
+- **검증**: `test_cenv` (서울 하지/동지/춘분 정오 고도와 방위, 아침/오후 방위, 밤, 적도/남반구, 월드 방위 회전, 일출/일몰, 백야/극야, 날짜 넘김과 잘못된 입력), `test_ccamera` (그림자, 밤, 낮은 태양, 하늘색 배경), `test_simulview` (뷰어/패널 연동).
 
 ## 충돌 감지 (CCollision)
 

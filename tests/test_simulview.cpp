@@ -6,6 +6,8 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QMenu>
+#include <QCheckBox>
+#include <QDateTimeEdit>
 #include <QSlider>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -21,6 +23,7 @@
 #include "CoreQt/PropertiesPanel.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/SimulView.h"
+#include "CoreQt/SunPanel.h"
 #include "CoreQt/UrdfView.h"
 #include "CURDF/UrdfWriter.h"
 #include "TestUtil.h"
@@ -553,6 +556,33 @@ int main(int argc, char** argv) {
     v->CloseAll();
     CHECK(view.tree()->topLevelItemCount() == 0 && !view.treePanel()->isVisibleTo(view.viewer()), "tree hides when empty");
     CHECK(v->ModelCount() == 0, "closed all");
+
+    // 태양: 시각/위치로 방향이 정해지고 잘못된 값은 거부되며, 패널과 뷰어가 서로 따라간다
+    {
+        ModelViewer sv;
+        int changed = 0;
+        QObject::connect(&sv, &ModelViewer::sunChanged, [&](const simul::env::SunState&) { changed++; });
+        CHECK(!sv.SunEnabled(), "sun is off by default");
+        ModelViewer::SunSettings ss;
+        ss.enabled = true;
+        ss.time.year = 2024; ss.time.month = 6; ss.time.day = 21; ss.time.hour = 12; ss.time.minute = 34; ss.time.utcOffsetHours = 9.0;
+        QString serr;
+        CHECK(sv.SetSun(ss, &serr) && sv.SunEnabled() && changed == 1, "sun set");
+        CHECK(sv.SunStateNow().elevationDeg > 75.0 && sv.SunStateNow().elevationDeg < 77.0 && sv.SunStateNow().direction.z > 0.9f, "Seoul solstice noon: the sun is high");
+        ModelViewer::SunSettings bad = ss;
+        bad.time.month = 13;
+        CHECK(!sv.SetSun(bad, &serr) && !serr.isEmpty() && sv.Sun().time.month == 6 && changed == 1, "an invalid time is rejected and nothing changes");
+        CHECK(sv.SetSunTime(simul::env::AddMinutes(ss.time, 6 * 60), &serr) && sv.SunStateNow().azimuthDeg > 240.0, "6 hours later the sun is in the west");
+        SunPanel panel(&sv);
+        CHECK(panel.findChildren<QCheckBox*>().size() >= 2, "panel has its check boxes");
+        QDateTimeEdit* te = panel.findChild<QDateTimeEdit*>();
+        CHECK(te && te->dateTime().date() == QDate(2024, 6, 21) && te->dateTime().time().hour() == 18, "the panel shows the viewer's time");
+        te->setDateTime(QDateTime(QDate(2024, 12, 21), QTime(12, 0)));
+        CHECK(sv.Sun().time.month == 12 && sv.Sun().time.day == 21 && sv.SunStateNow().elevationDeg < 40.0, "editing the panel changes the viewer");
+        sv.SetSunEnabled(false);
+        QCheckBox* on = panel.findChildren<QCheckBox*>().first();
+        CHECK(!on->isChecked(), "turning the sun off in the viewer updates the panel");
+    }
 
     // 센서 카메라: 링크에 달고 찍으면 BGR/깊이 영상이 나오고 cameraRendered 가 나간다 (그리기는 GL 이 필요해 여기서는 확인하지 않는다)
     {
