@@ -134,7 +134,8 @@ void testErrors() {
     s.latitudeDeg = 0.0;
     s.longitudeDeg = 181.0;
     check(!ComputeSun(At(2024, 1, 1, 12, 0, 0), s, &st, &err), "longitude 181");
-    s.longitudeDeg = 0.0 / 0.0;
+    volatile double zero = 0.0;   // 컴파일 시점 0 나누기는 MSVC 가 오류(C2124)로 막으므로 실행 시점에 NaN 을 만든다
+    s.longitudeDeg = zero / zero;
     check(!ComputeSun(At(2024, 1, 1, 12, 0, 0), s, &st, &err), "NaN longitude");
     const SunTime now = SunTimeNow();
     check(IsValidSunTime(now), "the system clock gives a valid time");
