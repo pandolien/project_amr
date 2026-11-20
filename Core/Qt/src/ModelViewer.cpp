@@ -57,6 +57,11 @@ const char* kFragmentShader =
     "uniform float uFillK;\n"     // 보조광 세기 배율 (기본 1, 태양 모드는 0)
     "uniform float uAmb;\n"       // 주변광/하늘 밝기 배율 (기본 1, 밤에는 작다)
     "uniform sampler2D uTex;\n"
+    "uniform sampler2D uShadowMap;\n"   // 태양 쪽에서 본 깊이 (RGBA8 에 나눠 담은 값)
+    "uniform float uShadowOn;\n"        // 1 이면 그림자를 쓴다
+    "uniform mat4 uLightFromView;\n"    // 카메라 좌표 -> 태양 쪽 클립 좌표
+    "uniform float uShadowTexel;\n"     // 그림자 맵 한 칸의 월드 크기 (m)
+    "uniform float uShadowInv;\n"       // 1 / 그림자 맵 크기
     "uniform float uUseTex;\n"   // 1 이면 기본 색 텍스처를 곱한다
     "uniform float uUseVC;\n"    // 1 이면 정점 색을 곱한다
     "uniform int uAlphaMode;\n"  // 0 불투명 (텍스처/정점 색의 알파는 무시), 1 마스크, 2 블렌드
@@ -66,6 +71,28 @@ const char* kFragmentShader =
     "varying vec2 vUV;\n"
     "varying vec4 vVC;\n"
     "const float PI = 3.14159265;\n"
+    "\n"
+    "float unpackDepth(vec4 c) {\n"
+    "    return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));\n"
+    "}\n"
+    // 그림자: 1 = 태양빛을 다 받음, 0 = 완전히 가려짐. 표면을 법선 쪽으로 조금 밀고(비스듬할수록 더), 3x3 칸을 평균해 가장자리를 부드럽게 한다.
+    "float shadowFactor(vec3 N, vec3 L) {\n"
+    "    if (uShadowOn < 0.5) return 1.0;\n"
+    "    float ndl = clamp(dot(N, L), 0.0, 1.0);\n"
+    "    vec3 p = vP + N * (uShadowTexel * (0.7 + 2.0 * (1.0 - ndl)));\n"
+    "    vec4 q = uLightFromView * vec4(p, 1.0);\n"
+    "    vec3 c = q.xyz / q.w * 0.5 + 0.5;\n"
+    "    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;\n"
+    "    float bias = 0.0004 + 0.0015 * (1.0 - ndl);\n"
+    "    float lit = 0.0;\n"
+    "    for (int i = -1; i <= 1; i++) {\n"
+    "        for (int j = -1; j <= 1; j++) {\n"
+    "            float d = unpackDepth(texture2D(uShadowMap, c.xy + vec2(float(i), float(j)) * uShadowInv));\n"
+    "            lit += (c.z - bias <= d) ? 1.0 : 0.0;\n"
+    "        }\n"
+    "    }\n"
+    "    return lit / 9.0;\n"
+    "}\n"
     "\n"
     // ---- PBR 의 세 항 ----
     // D: 표면의 미세한 면들이 H 쪽을 향한 비율 (GGX). 거칠수록 넓게 퍼지고, 매끈할수록 좁고 밝은 점이 된다.
@@ -115,11 +142,12 @@ const char* kFragmentShader =
     "    vec3 N = normalize(vN);\n"
     "    if (!gl_FrontFacing) N = -N;\n"                     // 양면 렌더링: 뒷면은 법선을 뒤집는다
     "    vec3 V = normalize(-vP);\n"
+    "    float sh = uSunOn > 0.5 ? shadowFactor(N, uSunDir) : 1.0;\n"
     "    vec3 col;\n"
     "    if (uShading == 0) {\n"
     // Lambert: 주변광 + cos(N, 빛) 두 개 (카메라 방향 빛, 보조광)
     "        vec3 A = uSunOn > 0.5 ? uSunDir : vec3(0.0, 0.0, 1.0);\n"
-    "        float l = 0.30 * uAmb + 0.55 * max(dot(N, A), 0.0) * uSunK\n"
+    "        float l = 0.30 * uAmb + 0.55 * max(dot(N, A), 0.0) * uSunK * sh\n"
     "                       + 0.30 * max(dot(N, normalize(vec3(-0.5, 0.7, 0.5))), 0.0) * uFillK;\n"
     "        col = base.rgb * min(l, 1.2) * (uSunOn > 0.5 ? mix(vec3(1.0), uSunColor, 0.6) : vec3(1.0));\n"
     "    } else if (uShading == 1) {\n"
@@ -127,8 +155,8 @@ const char* kFragmentShader =
     "        vec3 L1 = uSunOn > 0.5 ? uSunDir : normalize(vec3(-0.3, 0.6, 0.75));\n"
     "        vec3 L2 = normalize(vec3(0.6, -0.2, 0.5));\n"
     "        float shin = clamp(2.0 / (uRough * uRough + 0.001) - 1.0, 4.0, 400.0);\n"
-    "        float d = 0.25 * uAmb + 0.65 * max(dot(N, L1), 0.0) * uSunK + 0.25 * max(dot(N, L2), 0.0) * uFillK;\n"
-    "        float s = pow(max(dot(N, normalize(L1 + V)), 0.0), shin) * 0.45 * step(0.0, dot(N, L1)) * uSunK;\n"
+    "        float d = 0.25 * uAmb + 0.65 * max(dot(N, L1), 0.0) * uSunK * sh + 0.25 * max(dot(N, L2), 0.0) * uFillK;\n"
+    "        float s = pow(max(dot(N, normalize(L1 + V)), 0.0), shin) * 0.45 * step(0.0, dot(N, L1)) * uSunK * sh;\n"
     "        col = base.rgb * min(d, 1.2) * (uSunOn > 0.5 ? mix(vec3(1.0), uSunColor, 0.6) : vec3(1.0)) + vec3(s) * uSunColor;\n"
     "    } else {\n"
     // PBR. 재질 색은 sRGB 이므로 먼저 선형으로 바꾸고, 계산한 뒤 톤매핑과 감마로 화면 값으로 돌려놓는다.
@@ -138,7 +166,7 @@ const char* kFragmentShader =
     "        vec3 F0 = mix(vec3(0.04), albedo, metal);\n"      // 비금속 반사율은 4%, 금속은 자기 색이 곧 반사색
     "        float NdV = max(dot(N, V), 1e-3);\n"
     "        vec3 L1 = uSunOn > 0.5 ? uSunDir : normalize(vec3(-0.3, 0.6, 0.75));\n"
-    "        vec3 c = pbrLight(L1, vec3(2.4) * uSunColor * uSunK, N, V, albedo, F0, rough, metal);\n"   // 주광 (태양 모드에서는 태양)
+    "        vec3 c = pbrLight(L1, vec3(2.4) * uSunColor * uSunK * sh, N, V, albedo, F0, rough, metal);\n"   // 주광 (태양 모드에서는 태양)
     "        c += pbrLight(normalize(vec3(0.6, -0.2, 0.5)), vec3(0.9, 0.95, 1.1) * uFillK, N, V, albedo, F0, rough, metal);\n"  // 보조광
     // 주변광: 난반사는 법선 쪽 환경색, 정반사는 반사 방향의 환경색 (거칠수록 흐려져 법선 쪽 색과 섞는다)
     "        vec3 R = reflect(-V, N);\n"
@@ -150,6 +178,26 @@ const char* kFragmentShader =
     "    }\n"
     "    gl_FragColor = vec4(col, base.a);\n"
     "}\n";
+
+// 그림자 맵: 태양 쪽에서 본 깊이를 RGBA8 에 나눠 담는다 (깊이 텍스처 확장 없이 어디서나 된다)
+const char* kShadowVertexShader =
+    "#version 120\n"
+    "attribute vec3 aPos;\n"
+    "uniform mat4 uLightMVP;\n"
+    "void main() {\n"
+    "    gl_Position = uLightMVP * vec4(aPos, 1.0);\n"
+    "}\n";
+
+const char* kShadowFragmentShader =
+    "#version 120\n"
+    "void main() {\n"
+    "    float d = clamp(gl_FragCoord.z, 0.0, 0.999999);\n"
+    "    vec4 e = fract(d * vec4(1.0, 255.0, 65025.0, 16581375.0));\n"
+    "    e -= e.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);\n"
+    "    gl_FragColor = e;\n"
+    "}\n";
+
+const int kShadowMapSize = 2048;
 
 QMatrix4x4 ToQt(const dhMat& m) {
     return QMatrix4x4(m.v).transposed();  // QMatrix4x4(float*) 는 행 우선, dhMat 은 열 우선
@@ -168,7 +216,7 @@ const float kDefaultRough = 0.45f;
 }  // namespace
 
 ModelViewer::ModelViewer(QWidget* parent)
-    : QOpenGLWidget(parent), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
+    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
@@ -225,6 +273,8 @@ ModelViewer::~ModelViewer() {
     releaseBuffers();
     releaseItems(gizmo_);
     prog_.reset();
+    shadowProg_.reset();
+    shadowFbo_.reset();
     doneCurrent();
 }
 
@@ -1189,6 +1239,15 @@ void ModelViewer::initializeGL() {
         fprintf(stderr, "%s\n", shaderLog_.toUtf8().constData());
         emit shaderFailed(shaderLog_);
     }
+    shadowProg_.reset(new QOpenGLShaderProgram);
+    shadowProg_->addShaderFromSourceCode(QOpenGLShader::Vertex, kShadowVertexShader);
+    shadowProg_->addShaderFromSourceCode(QOpenGLShader::Fragment, kShadowFragmentShader);
+    shadowProg_->bindAttributeLocation("aPos", 0);
+    if (!shadowProg_->link()) {   // 그림자만 안 나오고 나머지는 그대로 그린다
+        shaderLog_ += QString::fromUtf8("\n그림자 셰이더를 만들 수 없습니다 (그림자 없이 그립니다)\n") + shadowProg_->log();
+        fprintf(stderr, "%s\n", shadowProg_->log().toUtf8().constData());
+        shadowProg_.reset();
+    }
     buffersDirty_ = !items_.empty();
 }
 
@@ -1339,6 +1398,117 @@ void ModelViewer::SetSunEnabled(bool on) {
     s.enabled = on;
     QString err;
     if (!SetSun(s, &err)) return;   // 시각/위치가 올바르지 않으면 켜지 않는다 (기본값은 항상 올바르다)
+}
+
+void ModelViewer::SetShadowsEnabled(bool on) {
+    if (shadows_ == on) return;
+    shadows_ = on;
+    update();
+}
+
+void ModelViewer::shadowBounds(QVector3D* center, float* radius) const {
+    float mn[3] = {simul::kFloatMax, simul::kFloatMax, simul::kFloatMax};
+    float mx[3] = {-mn[0], -mn[1], -mn[2]};
+    bool any = false;
+    for (size_t i = 0; i < items_.size(); i++) {
+        const Item& it = *items_[i];
+        if (it.color[3] < 0.99f || !it.vbo.isCreated() || !it.ibo.isCreated() || it.data.size() < 6) continue;
+        if (!it.boxOk) {
+            for (int k = 0; k < 3; k++) { it.boxLo[k] = simul::kFloatMax; it.boxHi[k] = -simul::kFloatMax; }
+            for (size_t v = 0; v + 5 < it.data.size(); v += 6)
+                for (int k = 0; k < 3; k++) { it.boxLo[k] = simul::Min(it.boxLo[k], it.data[v + static_cast<size_t>(k)]); it.boxHi[k] = simul::Max(it.boxHi[k], it.data[v + static_cast<size_t>(k)]); }
+            it.boxOk = true;
+        }
+        const dhMat m = itemWorld(it);
+        for (int c = 0; c < 8; c++) {
+            const float p[3] = {(c & 1) ? it.boxHi[0] : it.boxLo[0], (c & 2) ? it.boxHi[1] : it.boxLo[1], (c & 4) ? it.boxHi[2] : it.boxLo[2]};
+            float o[3];
+            Transform(m, p, o);
+            for (int k = 0; k < 3; k++) { mn[k] = simul::Min(mn[k], o[k]); mx[k] = simul::Max(mx[k], o[k]); }
+            any = true;
+        }
+    }
+    if (!any) {
+        *center = QVector3D(0, 0, 0);
+        *radius = 0.0f;
+        return;
+    }
+    *center = QVector3D((mn[0] + mx[0]) * 0.5f, (mn[1] + mx[1]) * 0.5f, (mn[2] + mx[2]) * 0.5f);
+    const float dx = mx[0] - mn[0], dy = mx[1] - mn[1], dz = mx[2] - mn[2];
+    *radius = simul::Sqrt(dx * dx + dy * dy + dz * dz) * 0.5f;
+}
+
+// 태양 쪽에서 본 깊이를 그려 둔다. 그린 뒤에는 그림자 맵을 텍스처 1번에 걸고 메인 셰이더의 uniform 을 채운다.
+bool ModelViewer::renderShadowMap(const QMatrix4x4& view, const SunLighting& sun) {
+    if (!shadows_ || !sun.on || sun.sunK <= 0.001f || !shadowProg_ || !shadowProg_->isLinked()) return false;
+    QVector3D c;
+    float R = 0.0f;
+    shadowBounds(&c, &R);
+    if (!(R > 1e-5f)) return false;
+    R *= 1.02f;
+    QVector3D dir(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z);
+    if (dir.length() < 1e-6f) return false;
+    dir.normalize();
+    if (dir.z() <= 0.0f) return false;   // 태양이 수평선 아래
+    if (!shadowFbo_ || shadowFbo_->width() != kShadowMapSize) {
+        shadowFbo_.reset(new QOpenGLFramebufferObject(kShadowMapSize, kShadowMapSize, QOpenGLFramebufferObject::Depth));
+        if (!shadowFbo_->isValid()) {
+            shadowFbo_.reset();
+            return false;
+        }
+        glBindTexture(GL_TEXTURE_2D, shadowFbo_->texture());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);   // 깊이를 나눠 담았으니 섞이면 안 된다
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    QMatrix4x4 lv;
+    lv.lookAt(c + dir * R, c, (dir.z() > 0.99f || dir.z() < -0.99f) ? QVector3D(0.0f, 1.0f, 0.0f) : QVector3D(0.0f, 0.0f, 1.0f));
+    QMatrix4x4 lp;
+    lp.ortho(-R, R, -R, R, 0.0f, 2.0f * R);
+    const QMatrix4x4 lightVP = lp * lv;
+
+    GLint vp[4];
+    glGetIntegerv(GL_VIEWPORT, vp);
+    shadowFbo_->bind();
+    glViewport(0, 0, kShadowMapSize, kShadowMapSize);
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);   // 깊이 1 (아주 멀다)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_BLEND);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(2.0f, 4.0f);
+    shadowProg_->bind();
+    shadowProg_->enableAttributeArray(0);
+    for (size_t i = 0; i < items_.size(); i++) {
+        Item& it = *items_[i];
+        if (it.color[3] < 0.99f || !it.vbo.isCreated() || !it.ibo.isCreated()) continue;
+        if (it.alphaMode == 2 && (it.tex || it.hasVertexColor)) continue;   // 반투명은 그림자를 드리우지 않는다
+        shadowProg_->setUniformValue("uLightMVP", lightVP * ToQt(itemWorld(it)));
+        it.vbo.bind();
+        it.ibo.bind();
+        shadowProg_->setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * static_cast<int>(sizeof(float)));
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(it.indices.size()), GL_UNSIGNED_INT, nullptr);
+        it.vbo.release();
+        it.ibo.release();
+    }
+    shadowProg_->disableAttributeArray(0);
+    shadowProg_->release();
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glEnable(GL_BLEND);
+    glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+
+    // 메인 셰이더: 그림자 맵은 텍스처 1번 (0번은 재질 텍스처)
+    prog_->bind();   // shadowProg_->release() 가 프로그램을 0 으로 돌려놓았다
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, shadowFbo_->texture());
+    glActiveTexture(GL_TEXTURE0);
+    prog_->setUniformValue("uShadowMap", 1);
+    prog_->setUniformValue("uShadowOn", 1.0f);
+    prog_->setUniformValue("uLightFromView", lightVP * view.inverted());
+    prog_->setUniformValue("uShadowTexel", 2.0f * R / static_cast<float>(kShadowMapSize));
+    prog_->setUniformValue("uShadowInv", 1.0f / static_cast<float>(kShadowMapSize));
+    return true;
 }
 
 void ModelViewer::SetSensorCamera(int link, const simul::sensor::CameraSettings& settings, const dhMat& mount) {
@@ -1576,6 +1746,10 @@ void ModelViewer::paintScene() {
         prog_->setUniformValue("uFillK", sun.on ? 0.0f : 1.0f);
         prog_->setUniformValue("uAmb", sun.on ? sun.ambient : 1.0f);
     }
+
+    prog_->setUniformValue("uShadowOn", 0.0f);
+    prog_->setUniformValue("uShadowMap", 1);
+    shadowActive_ = renderShadowMap(view, sun);
 
     // 격자와 축 (조명 없음)
     {

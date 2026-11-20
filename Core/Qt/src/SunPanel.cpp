@@ -30,6 +30,10 @@ SunPanel::SunPanel(ModelViewer* viewer, QWidget* parent) : QWidget(parent), view
     QVBoxLayout* top = new QVBoxLayout(this);
     enabled_ = new QCheckBox(QString::fromUtf8("태양 조명 사용 (끄면 카메라에 고정된 기본 조명)"));
     top->addWidget(enabled_);
+    shadows_ = new QCheckBox(QString::fromUtf8("그림자 (3D 화면, 태양 조명일 때)"));
+    shadows_->setChecked(viewer_->ShadowsEnabled());
+    top->addWidget(shadows_);
+    connect(shadows_, &QCheckBox::toggled, viewer_, &ModelViewer::SetShadowsEnabled);
     QFormLayout* form = new QFormLayout;
     time_ = new QDateTimeEdit;
     time_->setDisplayFormat("yyyy-MM-dd HH:mm");
@@ -126,6 +130,7 @@ void SunPanel::refreshFromViewer() {
     const bool was = updating_;
     updating_ = true;
     enabled_->setChecked(s.enabled);
+    shadows_->setChecked(viewer_->ShadowsEnabled());
     time_->setDateTime(QDateTime(QDate(s.time.year, s.time.month, s.time.day), QTime(s.time.hour, s.time.minute, static_cast<int>(s.time.second))));
     utc_->setValue(s.time.utcOffsetHours);
     lat_->setValue(s.site.latitudeDeg);
