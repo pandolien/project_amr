@@ -8,6 +8,7 @@
 #include "3d/dhEuler.h"
 
 #include <QFileInfo>
+#include <QPainter>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include "CBase/Util.h"
@@ -1349,7 +1350,15 @@ void ModelViewer::initializeGL() {
     prog_->bindAttributeLocation("aNormal", 1);
     prog_->bindAttributeLocation("aUV", 2);
     prog_->bindAttributeLocation("aVColor", 3);
-    prog_->link();
+    const bool linked = prog_->link();
+    shaderLog_ = prog_->log();   // 컴파일/링크 경고와 오류 (드라이버마다 문법을 다르게 받아들여서 화면이 비는 원인을 찾는 데 쓴다)
+    if (!linked) {
+        const QString glInfo = QString::fromUtf8("OpenGL: %1 / %2 / %3").arg(QString::fromLatin1(reinterpret_cast<const char*>(glGetString(GL_VENDOR))))
+                                   .arg(QString::fromLatin1(reinterpret_cast<const char*>(glGetString(GL_RENDERER)))).arg(QString::fromLatin1(reinterpret_cast<const char*>(glGetString(GL_VERSION))));
+        shaderLog_ = QString::fromUtf8("셰이더를 만들 수 없습니다 (화면이 그려지지 않습니다)\n%1\n%2").arg(glInfo).arg(shaderLog_);
+        fprintf(stderr, "%s\n", shaderLog_.toUtf8().constData());
+        emit shaderFailed(shaderLog_);
+    }
     buffersDirty_ = !items_.empty();
 }
 
@@ -1697,7 +1706,12 @@ void ModelViewer::paintScene() {
     if (sun.on) glClearColor(sun.sky[0], sun.sky[1], sun.sky[2], 1.0f);
     else glClearColor(0.16f, 0.17f, 0.20f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (!prog_ || !prog_->isLinked()) return;
+    if (!prog_ || !prog_->isLinked()) {   // 셰이더가 없으면 그릴 수 없다: 빈 화면 대신 이유를 화면에 쓴다
+        QPainter p(this);
+        p.setPen(QColor(255, 200, 120));
+        p.drawText(rect().adjusted(12, 12, -12, -12), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, shaderLog_.isEmpty() ? QString::fromUtf8("OpenGL 셰이더가 준비되지 않았습니다") : shaderLog_);
+        return;
+    }
     if (buffersDirty_) uploadBuffers();
     if (gizmoDirty_) {
         uploadItems(gizmo_);
