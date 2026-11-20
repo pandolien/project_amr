@@ -28,8 +28,9 @@ struct CameraSettings {
     float horizontalFov; // 가로 시야각 (rad). 픽셀은 정사각형이라 세로 시야각은 width/height 비율로 정해진다
     float nearClip;      // 이보다 가까운 것은 안 보인다 (m, 깊이 기준)
     float farClip;       // 이보다 먼 것은 안 보인다 (m, 깊이 기준)
-    float noiseStdDev;   // 깊이에 더할 가우시안 잡음의 표준편차 (m). 0 이면 없음. 색에는 더하지 않는다
-    unsigned seed;       // 잡음의 난수 시드
+    float noiseStdDev;   // 깊이에 더할 가우시안 잡음의 표준편차 (m). 0 이면 없음. 기본 0.005 (5 mm). 물체에 맞은 픽셀에만 더한다
+    float colorNoiseStdDev;  // 색에 더할 가우시안 잡음의 표준편차 (0..1, 만점 대비 비율). 0 이면 없음. 기본 0.02 (8비트로 약 5). 모든 픽셀의 B, G, R 에 따로따로 더한다
+    unsigned seed;       // 잡음의 난수 시드. 같은 Camera 로 계속 찍으면 프레임마다 다른 잡음이 나온다 (실제 센서처럼)
     float background[3]; // 아무것도 안 맞은 픽셀의 색 (R, G, B 0..1)
     int antialias;       // 안티앨리어싱: 픽셀을 가로세로 antialias 배로 나눠 찍어 평균한다 (1 = 끔, 2 = 4개, 3 = 9개, 4 = 16개, 최대 4). 시간은 antialias^2 배 걸린다.
                          //   색만 평균하고, 깊이와 targetIds 는 픽셀 가운데에 가장 가까운 하위 픽셀의 값을 쓴다 (경계에서 깊이가 섞여 허공에 뜬 점이 생기지 않게).
@@ -38,12 +39,13 @@ struct CameraSettings {
                          //   r2 = x^2 + y^2, x_d = x (1 + k1 r2 + k2 r2^2 + k3 r2^3) + 2 p1 x y + p2 (r2 + 2 x^2), y_d = y (1 + ...) + p1 (r2 + 2 y^2) + 2 p2 x y 로 이어진다.
                          //   k1 < 0 은 통 모양(barrel), k1 > 0 은 실패 모양(pincushion). 카메라 행렬 K 는 왜곡된 영상 기준이라 ROS CameraInfo 의 K, D 에 그대로 쓰면 된다.
     CameraSettings()
-        : width(320), height(240), horizontalFov(static_cast<float>(60.0 * dhPI / 180.0)), nearClip(0.05f), farClip(10.0f), noiseStdDev(0.0f), seed(1u), antialias(1) {
+        : width(320), height(240), horizontalFov(static_cast<float>(60.0 * dhPI / 180.0)), nearClip(0.05f), farClip(10.0f), noiseStdDev(0.005f), colorNoiseStdDev(0.02f), seed(1u), antialias(1) {
         background[0] = 0.12f;
         background[1] = 0.14f;
         background[2] = 0.18f;
         for (int i = 0; i < 5; i++) distortion[i] = 0.0f;
     }
+    bool HasNoise() const { return noiseStdDev > 0.0f || colorNoiseStdDev > 0.0f; }
     bool HasDistortion() const { return distortion[0] != 0.0f || distortion[1] != 0.0f || distortion[2] != 0.0f || distortion[3] != 0.0f || distortion[4] != 0.0f; }
 };
 
@@ -118,6 +120,7 @@ public:
 private:
     unsigned nextRandom();
     float gaussian();
+    void addColorNoise(CameraImage* out);
     CameraSettings settings_;
     SunLight sun_;
     unsigned rng_;

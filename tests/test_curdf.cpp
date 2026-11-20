@@ -389,6 +389,12 @@ void testCameraSensor() {
               r.cameras.size() == 1 && nearly(r.cameras[0].distortion[0], -0.3) && nearly(r.cameras[0].distortion[1], 0.1) && nearly(r.cameras[0].distortion[2], 0.001) &&
               nearly(r.cameras[0].distortion[3], -0.002) && nearly(r.cameras[0].distortion[4], 0.02), "camera distortion (k1 k2 p1 p2 k3 order in memory)");
     check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera/></sensor></gazebo></robot>", &r, &err) && r.cameras[0].distortion[0] == 0.0f, "no <distortion> means none");
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera/></sensor></gazebo></robot>", &r, &err) && nearly(r.cameras[0].colorNoise, 0.02) && nearly(r.cameras[0].depthNoise, 0.005), "camera noise defaults");
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><noise><type>gaussian</type><stddev>0.007</stddev><depth_stddev>0.01</depth_stddev></noise></camera></sensor></gazebo></robot>", &r, &err) &&
+              nearly(r.cameras[0].colorNoise, 0.007) && nearly(r.cameras[0].depthNoise, 0.01), "camera <noise> read");
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><noise><stddev>0</stddev><depth_stddev>0</depth_stddev></noise></camera></sensor></gazebo></robot>", &r, &err) &&
+              r.cameras[0].colorNoise == 0.0f && r.cameras[0].depthNoise == 0.0f, "camera noise can be turned off");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><noise><stddev>-1</stddev></noise></camera></sensor></gazebo></robot>", &r, &err), "negative noise rejected");
     check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><distortion><k1>abc</k1></distortion></camera></sensor></gazebo></robot>", &r, &err), "bad distortion number rejected");
     Robot s;
     check(LoadUrdf(simul::String(SIMUL_TEST_DATA_DIR) + "/Object/samples/camera_scene.urdf", &s, &err), ("camera sample loads: " + err).c_str());

@@ -130,8 +130,9 @@ struct CameraDef {
     int width, height;    // <image><width>, <height>
     float horizontalFov;  // <horizontal_fov> (rad)
     float nearClip, farClip;  // <clip><near>, <far>
+    float colorNoise, depthNoise;  // <noise><stddev> (색, 0..1 비율), <noise><depth_stddev> (깊이, m). 기본값은 CameraSettings 와 같다 (0.02, 0.005). 0 이면 없음
     float distortion[5];  // <distortion><k1><k2><p1><p2><k3> (OpenCV plumb_bob 과 같은 뜻. 없으면 0 = 왜곡 없음)
-    CameraDef() : width(320), height(240), horizontalFov(1.0471976f), nearClip(0.05f), farClip(10.0f) { for (int i = 0; i < 5; i++) distortion[i] = 0.0f; }
+    CameraDef() : width(320), height(240), horizontalFov(1.0471976f), nearClip(0.05f), farClip(10.0f), colorNoise(0.02f), depthNoise(0.005f) { for (int i = 0; i < 5; i++) distortion[i] = 0.0f; }
 };
 
 struct Robot {
