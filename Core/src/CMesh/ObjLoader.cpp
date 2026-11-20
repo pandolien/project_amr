@@ -54,7 +54,7 @@ bool ParseFaceVertex(const simul::String& tok, size_t nv, size_t nt, size_t nn, 
     return true;
 }
 
-void ParseMtl(const simul::String& text, Scene* scene, simul::Map<simul::String, int>* matIndex) {
+void ParseMtl(const simul::String& text, const simul::String& mtlDir, Scene* scene, simul::Map<simul::String, int>* matIndex) {
     Lines in(text);
     simul::String line;
     Material* cur = NULL;
@@ -77,18 +77,28 @@ void ParseMtl(const simul::String& text, Scene* scene, simul::Map<simul::String,
             }
         } else if (key == "d") {
             float d;
-            if (ls.NextFloat(&d)) cur->baseColor.a = d;
+            if (ls.NextFloat(&d)) {
+                cur->baseColor.a = d;
+                if (d < 1.0f) cur->alphaMode = 2;   // 반투명
+            }
         } else if (key == "Tr") {
             float t;
-            if (ls.NextFloat(&t)) cur->baseColor.a = 1.0f - t;
+            if (ls.NextFloat(&t)) {
+                cur->baseColor.a = 1.0f - t;
+                if (t > 0.0f) cur->alphaMode = 2;
+            }
         } else if (key == "map_Kd") {
-            cur->baseColorTexture = ls.Rest();
+            // 이미지 경로는 mtl 파일이 있는 폴더 기준이다 (절대 경로는 그대로)
+            const simul::String tex = ls.Rest();
+            const bool abs = !tex.empty() && (tex[0] == '/' || tex[0] == '\\' || (tex.size() > 2 && tex[1] == ':'));
+            cur->baseColorTexture = abs || mtlDir.empty() ? tex : detail::JoinPath(mtlDir, tex);
         }
     }
 }
 
 bool ParseObj(const simul::String& text, const simul::String& baseDir, bool loadMtl, Scene* out, simul::String* error) {
-    simul::Array<float> pos, uv, nor;
+    simul::Array<float> pos, uv, nor, vcol;   // vcol: 정점 색 rgb ("v x y z r g b" 확장). 모든 v 줄에 있을 때만 쓴다
+    bool vcolAll = true;
     simul::Array<Group> groups;
     simul::Array<simul::String> groupMat;           // groups 와 같은 순서의 재질 이름 ("" = 없음)
     simul::Map<simul::String, size_t> groupByMat;
@@ -117,10 +127,16 @@ bool ParseObj(const simul::String& text, const simul::String& baseDir, bool load
                 return false;
             }
             pos.push_back(x); pos.push_back(y); pos.push_back(z);
+            float cr, cg, cb;
+            if (ls.NextFloat(&cr) && ls.NextFloat(&cg) && ls.NextFloat(&cb)) {
+                vcol.push_back(cr); vcol.push_back(cg); vcol.push_back(cb);
+            } else {
+                vcolAll = false;
+            }
         } else if (key == "vt") {
             float u = 0, v = 0;
             ls.NextFloat(&u) && ls.NextFloat(&v);
-            uv.push_back(u); uv.push_back(v);
+            uv.push_back(u); uv.push_back(1.0f - v);   // OBJ 의 v 는 아래에서 위로, 내부(glTF 규약)는 위에서 아래로
         } else if (key == "vn") {
             float x = 0, y = 0, z = 0;
             ls.NextFloat(&x) && ls.NextFloat(&y) && ls.NextFloat(&z);
@@ -178,6 +194,10 @@ bool ParseObj(const simul::String& text, const simul::String& baseDir, bool load
                 // 법선/uv 는 모든 정점이 가진 경우에만 유지한다 (아래에서 길이로 검증)
                 if (k[2] >= 0) for (int c = 0; c < 3; c++) g.prim.normals.push_back(nor[static_cast<size_t>(k[2]) * 3 + static_cast<size_t>(c)]);
                 if (k[1] >= 0) for (int c = 0; c < 2; c++) g.prim.uvs.push_back(uv[static_cast<size_t>(k[1]) * 2 + static_cast<size_t>(c)]);
+                if (vcolAll && vcol.size() == pos.size()) {
+                    for (int c = 0; c < 3; c++) g.prim.colors.push_back(vcol[static_cast<size_t>(k[0]) * 3 + static_cast<size_t>(c)]);
+                    g.prim.colors.push_back(1.0f);
+                }
             }
             for (size_t i = 1; i + 1 < ids.size(); i++) {
                 g.prim.indices.push_back(ids[0]);
@@ -205,6 +225,7 @@ bool ParseObj(const simul::String& text, const simul::String& baseDir, bool load
             p.ComputeNormals();
         }
         if (p.uvs.size() != p.VertexCount() * 2) p.uvs.clear();
+        if (!vcolAll || vcol.size() != pos.size() || p.colors.size() != p.VertexCount() * 4) p.colors.clear();
         if (!groupMat[gi].empty()) {
             simul::Map<simul::String, int>::iterator it = matIndex.find(groupMat[gi]);
             if (it == matIndex.end()) {
@@ -236,7 +257,7 @@ bool ParseObj(const simul::String& text, const simul::String& baseDir, bool load
                     out->warnings.push_back("MTL 파일을 읽을 수 없습니다: " + mtllibs[i]);
                     continue;
                 }
-                ParseMtl(simul::String(bytes.begin(), bytes.end()), out, &matIndex);
+                ParseMtl(simul::String(bytes.begin(), bytes.end()), detail::DirName(detail::JoinPath(baseDir, mtllibs[i])), out, &matIndex);
             }
         }
     }
