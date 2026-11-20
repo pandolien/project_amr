@@ -60,7 +60,7 @@ class Backend {
 public:
     virtual ~Backend() {}
     virtual int ObjectCount() const = 0;
-    virtual bool GetObject(int index, ObjectInfo* out) const = 0;
+    virtual bool ReadObject(int index, ObjectInfo* out) const = 0;
     virtual bool SetPose(int index, const dhPose& pose, String* error) = 0;
     virtual bool SetJoint(int index, const String& joint, double value, String* error) = 0;
 };

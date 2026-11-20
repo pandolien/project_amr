@@ -15,7 +15,7 @@ struct FakeBackend : simul::sim::Backend {
     int poseCalls;
     FakeBackend() : poseCalls(0) {}
     int ObjectCount() const override { return static_cast<int>(objs.size()); }
-    bool GetObject(int i, ObjectInfo* out) const override {
+    bool ReadObject(int i, ObjectInfo* out) const override {
         if (i < 0 || static_cast<size_t>(i) >= objs.size()) return false;
         *out = objs[static_cast<size_t>(i)];
         return true;
