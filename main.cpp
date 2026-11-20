@@ -23,6 +23,10 @@
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
 #include "CMarker/Marker.h"
+#include "CProject/Project.h"
+#ifdef SIMUL_HAS_QT
+#include "ProjectPack.h"
+#endif
 #ifdef SIMUL_HAS_PYTHON
 #include "CorePy/PyRuntime.h"
 #endif
@@ -63,6 +67,10 @@ struct Options {
     int pySteps;               // --python-steps N: 시작하자마자 N 틱을 돌린 뒤 멈춘다 (확인용)
     bool pyEditor;             // --python-editor: 오른쪽 Python 편집기를 연 채로 시작
     bool pyRun;                // --python-run: 시작하자마자 실시간으로 돌린다
+    simul::String projectFile; // --project 파일: project.simul 을 열어 장면, 스크립트 등록, 자동 시작까지 한다
+    simul::String packProject; // --pack 프로젝트: 그 프로젝트를 이 프로그램의 실행 파일 뒤에 붙여 하나의 실행 파일로 만든다
+    simul::String packOut;     // -o / --output: --pack 의 출력 파일
+    simul::String embeddedDir; // (내부) 실행 파일에 붙은 프로젝트를 푼 폴더
     simul::String makeMarker;  // --make-marker 명세: ArUco/ChArUco 마커 메시와 URDF 를 만들고 끝낸다
     simul::String makeMarkerDir;  // --marker-dir: 마커 파일을 쓸 폴더 (기본 현재 폴더)
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
@@ -155,6 +163,8 @@ void PrintUsage(const char* exe) {
         "  --python-main 파일  Main.py 대신 쓸 파일    --python-hz N  초당 틱 수 (기본 60)\n"
         "  --python-editor    오른쪽 Python 편집기를 연 채로 시작 (메뉴 Python > Python 편집기, Ctrl+E)\n"
         "  --python-run       시작하자마자 시뮬레이션을 실시간으로 돌린다    --python-steps N  N 틱을 바로 돌리고 멈춘다 (확인용)\n"
+        "  --project 파일     project.simul 을 연다 (모델 배치, python 등록과 권한, 자동 시작까지)\n"
+        "  --pack 프로젝트 [-o 출력]  프로젝트 폴더를 이 프로그램 뒤에 붙여 하나의 실행 파일로 만든다 (실행하면 그 프로젝트가 자동으로 열려 돌아간다)\n"
         "  --make-marker 명세 ArUco/ChArUco 마커를 만들어 STL 2개 + URDF 로 쓰고 끝낸다 (--marker-dir 폴더 기본 .)\n"
         "                     aruco,사전,id,한변(m)  예: aruco,4x4,0,0.15\n"
         "                     charuco,사전,가로칸,세로칸,칸길이(m),마커한변(m)[,첫id]  예: charuco,4x4,5,7,0.04,0.03\n"
@@ -232,6 +242,9 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         const bool hasNext = i + 1 < argc;
+        if (a == "--project" && hasNext) { o->projectFile = argv[++i]; continue; }
+        if (a == "--pack" && hasNext) { o->packProject = argv[++i]; continue; }
+        if ((a == "-o" || a == "--output") && hasNext) { o->packOut = argv[++i]; continue; }
         if (a == "--python") { o->pyEnabled = true; continue; }
         if (a == "--python-editor") { o->pyEditor = true; continue; }
         if (a == "--python-run") { o->pyEnabled = true; o->pyRun = true; continue; }
@@ -672,6 +685,7 @@ int PrintInfo(const Options& o) {
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QDir>
+#include <QStandardPaths>
 #include <QFileInfo>
 
 #include "3d/Units.h"
@@ -1205,7 +1219,10 @@ public:
         QAction* info = m->addAction(QString::fromUtf8("오브젝트와 등록 현황 보기"));
         // 오른쪽 Python 편집기: 파일을 쓰고, 저장하면서 등록(다시 읽기)하고, 한 줄씩 실행한다
         pyPanel_ = new PythonPanel;
-        const QString userDir = QString::fromUtf8(SIMUL_DATA_DIR) + QStringLiteral("/Python/user");
+        // 새 파일 기본 저장 위치. 개발용 Data 폴더가 없는 PC(패키지로 받은 실행 파일)에서는 문서 폴더를 쓴다 (없는 경로를 만들어 내지 않는다)
+        QString userDir = QString::fromUtf8(SIMUL_DATA_DIR) + QStringLiteral("/Python");
+        if (QFileInfo(userDir).isDir()) userDir += QStringLiteral("/user");
+        else userDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Simul/python");
         QDir().mkpath(userDir);
         pyPanel_->SetDefaultDir(userDir);
         pyDock_ = new QDockWidget(QString::fromUtf8("Python 편집기"), this);
@@ -1269,6 +1286,39 @@ public:
     void setupPython(const Options&) {}
     bool pythonQuitRequested() const { return false; }
 #endif
+
+    // project.simul 을 열어 모델을 올리고 배치하고, python 등록/설정을 Options 에 채운다 (setupPython 이 이어서 처리한다)
+    bool loadProject(Options* o) {
+        simul::project::Project p;
+        simul::String err;
+        if (!simul::project::LoadProject(o->projectFile, &p, &err)) {
+            logError(simulqt::ToQ(err));
+            QMessageBox::warning(this, QString::fromUtf8("프로젝트를 열 수 없음"), simulqt::ToQ(err));
+            return false;
+        }
+        const QDir base = QFileInfo(simulqt::ToQ(o->projectFile)).absoluteDir();
+        setWindowTitle((p.name.empty() ? QString::fromUtf8("프로젝트") : simulqt::ToQ(p.name)) + QStringLiteral(" - Project Simul"));
+        log_->Info(QString::fromUtf8("프로젝트: %1 (%2)").arg(simulqt::ToQ(p.name)).arg(simulqt::ToQ(o->projectFile)));
+        for (size_t i = 0; i < p.models.size(); i++) {
+            const simul::project::ModelEntry& m = p.models[i];
+            if (!openFile(base.filePath(simulqt::ToQ(m.file)))) continue;
+            if (m.Placed()) {
+                const float v[6] = {static_cast<float>(m.position[0]), static_cast<float>(m.position[1]), static_cast<float>(m.position[2]),
+                                    static_cast<float>(dhDeg(m.rpy[0])), static_cast<float>(dhDeg(m.rpy[1])), static_cast<float>(dhDeg(m.rpy[2]))};
+                viewer_->SetModelPlacement6(viewer_->ModelCount() - 1, v);
+            }
+        }
+        for (size_t i = 0; i < p.scripts.size(); i++)
+            o->pyScripts.push_back(simul::MakePair(simulqt::FromQ(base.filePath(simulqt::ToQ(p.scripts[i].file))), p.scripts[i].objects));
+        o->pyEnabled = true;
+        o->pyHz = p.hz;
+        o->pyRun = p.autostart;
+        o->pyEditor = p.showEditor;
+        if (!p.mainPy.empty()) o->pyMain = simulqt::FromQ(base.filePath(simulqt::ToQ(p.mainPy)));
+        else if (!o->embeddedDir.empty()) o->pyMain = o->embeddedDir + "/__simul/Main.py";
+        viewer_->FitView();
+        return true;
+    }
 
     bool openFile(const QString& pathIn) {
         QString path = pathIn;
@@ -1849,6 +1899,7 @@ private:
 #ifdef SIMUL_DATA_DIR
         dirs << QString::fromUtf8(SIMUL_DATA_DIR);
 #endif
+        if (!cli_.embeddedDir.empty()) dirs << simulqt::ToQ(cli_.embeddedDir) + QStringLiteral("/__simul/Data");   // --pack 으로 묶은 실행 파일
         dirs << QCoreApplication::applicationDirPath() + "/Data" << QCoreApplication::applicationDirPath() + "/../Data";
         for (int i = 0; i < dirs.size(); i++) {
             const QString path = QDir(dirs[i]).filePath("Object/gizmo/axes.obj");
@@ -2090,6 +2141,27 @@ int main(int argc, char** argv) {
     if (pr == 2) return 2;
     if (!o.makeMarker.empty()) return MakeMarkerFiles(o);
     if (o.info) return PrintInfo(o);
+    if (!o.packProject.empty()) {   // --pack: 창 없이 하나의 실행 파일로 만든다
+        QCoreApplication core(argc, argv);
+        QString out = simulqt::ToQ(o.packOut), err;
+        const QFileInfo pf(simulqt::ToQ(o.packProject));
+        if (out.isEmpty()) out = pf.absoluteDir().absoluteFilePath(pf.absoluteDir().dirName()
+#ifdef _WIN32
+                                                                   + QStringLiteral(".exe")
+#endif
+                                                                   );
+        QString dataDir = QCoreApplication::applicationDirPath() + QStringLiteral("/Data");
+#ifdef SIMUL_DATA_DIR
+        if (!QFileInfo(dataDir + QStringLiteral("/Python/Main.py")).isFile()) dataDir = QString::fromUtf8(SIMUL_DATA_DIR);
+#endif
+        int n = 0;
+        if (!projectpack::PackProject(simulqt::ToQ(o.packProject), dataDir, QCoreApplication::applicationFilePath(), out, &err, &n)) {
+            fprintf(stderr, "묶기 실패: %s\n", err.toUtf8().constData());
+            return 2;
+        }
+        printf("프로젝트를 하나의 실행 파일로 묶었습니다 (파일 %d개): %s\n", n, out.toUtf8().constData());
+        return 0;
+    }
 
     QSurfaceFormat fmt;
     fmt.setDepthBufferSize(24);
@@ -2097,9 +2169,23 @@ int main(int argc, char** argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
+    {   // 이 실행 파일에 프로젝트가 붙어 있으면(--pack 으로 만든 것) 그것을 풀어서 연다
+        QString dir, perr;
+        const projectpack::Found found = projectpack::ExtractEmbedded(QCoreApplication::applicationFilePath(), &dir, &perr);
+        if (found == projectpack::kFailed) {
+            QMessageBox::critical(nullptr, QString::fromUtf8("프로젝트를 열 수 없음"), perr);
+            return 1;
+        }
+        if (found == projectpack::kExtracted) {
+            o.embeddedDir = simulqt::FromQ(dir);
+            o.projectFile = simulqt::FromQ(dir + QStringLiteral("/project.simul"));
+        }
+    }
     MainWindow w(o);
     w.show();
-    if (!o.file.empty()) {
+    if (!o.projectFile.empty()) {
+        w.loadProject(&o);
+    } else if (!o.file.empty()) {
         if (!w.openFile(QString::fromLocal8Bit(o.file.c_str()))) {
             if (!o.shot.empty() || !o.shotWindow.empty()) return 1;
         } else {

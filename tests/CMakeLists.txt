@@ -157,3 +157,8 @@ if(SIMUL_HAS_PYTHON)
     target_compile_definitions(test_cpy PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
     add_test(NAME test_cpy COMMAND test_cpy)
 endif()
+
+add_executable(test_cproject test_cproject.cpp)
+target_link_libraries(test_cproject PRIVATE Core)
+simul_set_warnings(test_cproject)
+add_test(NAME test_cproject COMMAND test_cproject)
