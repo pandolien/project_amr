@@ -23,7 +23,7 @@ int KindOf(simul::urdf::JointType t) {
 
 int ViewerBackend::ObjectCount() const { return viewer_->ModelCount(); }
 
-bool ViewerBackend::GetObject(int index, ObjectInfo* out) const {
+bool ViewerBackend::ReadObject(int index, ObjectInfo* out) const {
     if (index < 0 || index >= viewer_->ModelCount()) return false;
     out->name = simulqt::FromQ(viewer_->ModelName(index));
     out->pose = dhPose::FromMat(viewer_->ModelPose(index));
@@ -61,7 +61,7 @@ bool ViewerBackend::SetPose(int index, const dhPose& pose, String* error) {
 
 bool ViewerBackend::SetJoint(int index, const String& joint, double value, String* error) {
     ObjectInfo info;
-    if (!GetObject(index, &info)) {
+    if (!ReadObject(index, &info)) {
         if (error) *error = "모델이 없습니다";
         return false;
     }

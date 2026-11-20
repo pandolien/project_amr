@@ -89,7 +89,7 @@ int Engine::Refresh() {
     Array<String> names;
     for (int i = 0; i < n; i++) {
         ObjectInfo info;
-        backend_->GetObject(i, &info);
+        backend_->ReadObject(i, &info);
         names.push_back(info.name);
     }
     Array<char> seen(slots_.size(), 0);
@@ -174,10 +174,10 @@ String Engine::Name(Handle h) const {
 bool Engine::Info(Handle h, ObjectInfo* out) {
     Slot* s = slotOf(h);
     if (!s || !backend_) return false;
-    if (s->index < 0 || s->index >= backend_->ObjectCount() || !backend_->GetObject(s->index, out) || !(out->name == s->name)) {
+    if (s->index < 0 || s->index >= backend_->ObjectCount() || !backend_->ReadObject(s->index, out) || !(out->name == s->name)) {
         Refresh();
         s = slotOf(h);
-        if (!s || !backend_->GetObject(s->index, out)) return false;
+        if (!s || !backend_->ReadObject(s->index, out)) return false;
     }
     return true;
 }
@@ -324,7 +324,7 @@ void Engine::applyCommand(const Command& c) {
             if (!(speed > 0.0)) {
                 ObjectInfo info;
                 speed = 1.0;
-                if (backend_ && backend_->GetObject(s->index, &info))
+                if (backend_ && backend_->ReadObject(s->index, &info))
                     for (size_t k = 0; k < info.joints.size(); k++)
                         if (info.joints[k].name == c.joint && info.joints[k].velocity > 0.0) speed = info.joints[k].velocity;
             }
@@ -363,7 +363,7 @@ void Engine::advance(double dt) {
         Slot& s = slots_[si];
         if (!s.alive || (!s.moveActive && s.joints.empty())) continue;
         ObjectInfo info;
-        if (s.index < 0 || !backend_->GetObject(s.index, &info)) continue;
+        if (s.index < 0 || !backend_->ReadObject(s.index, &info)) continue;
         const Handle h(static_cast<int>(si), s.gen);
         if (s.moveActive) {
             const double dx = s.moveTarget.x - info.pose.position.x, dy = s.moveTarget.y - info.pose.position.y, dz = s.moveTarget.z - info.pose.position.z;
