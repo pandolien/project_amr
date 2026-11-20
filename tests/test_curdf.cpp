@@ -385,6 +385,11 @@ void testCameraSensor() {
     check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><image><width>0</width></image></camera></sensor></gazebo></robot>", &r, &err), "zero width rejected");
     check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><horizontal_fov>4</horizontal_fov></camera></sensor></gazebo></robot>", &r, &err), "fov over pi rejected");
     check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><clip><near>5</near><far>1</far></clip></camera></sensor></gazebo></robot>", &r, &err), "bad clip rejected");
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><distortion><k1>-0.3</k1><k2>0.1</k2><k3>0.02</k3><p1>0.001</p1><p2>-0.002</p2></distortion></camera></sensor></gazebo></robot>", &r, &err) &&
+              r.cameras.size() == 1 && nearly(r.cameras[0].distortion[0], -0.3) && nearly(r.cameras[0].distortion[1], 0.1) && nearly(r.cameras[0].distortion[2], 0.001) &&
+              nearly(r.cameras[0].distortion[3], -0.002) && nearly(r.cameras[0].distortion[4], 0.02), "camera distortion (k1 k2 p1 p2 k3 order in memory)");
+    check(LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera/></sensor></gazebo></robot>", &r, &err) && r.cameras[0].distortion[0] == 0.0f, "no <distortion> means none");
+    check(!LoadUrdfFromString(simul::String(base) + "<gazebo reference='a'><sensor type='camera'><camera><distortion><k1>abc</k1></distortion></camera></sensor></gazebo></robot>", &r, &err), "bad distortion number rejected");
     Robot s;
     check(LoadUrdf(simul::String(SIMUL_TEST_DATA_DIR) + "/Object/samples/camera_scene.urdf", &s, &err), ("camera sample loads: " + err).c_str());
     check(s.cameras.size() == 1 && s.cameras[0].link == "cam_link" && s.cameras[0].width == 640 && s.cameras[0].farClip == 6.0f, "camera sample has its camera");

@@ -74,6 +74,8 @@ struct Options {
     int cameraW, cameraH;      // --camera-size 가로x세로
     float cameraFov;           // --camera-fov 가로 시야각 (도)
     float cameraRange[2];      // --camera-range 최소,최대 (m)
+    float cameraDistort[5];    // --camera-distort k1,k2,p1,p2,k3: 렌즈 왜곡 (OpenCV 와 같은 뜻, 0 = 없음)
+    bool cameraDistortSet;
     int cameraAa;              // --camera-aa 1~4: 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균, 1 = 끔)
     simul::String cameraSave;  // --camera-save: 찍은 영상을 저장할 PNG 파일 (깊이는 이름_depth.png, 16비트 mm 는 이름_depth16.png)
     bool hasMove;
@@ -97,6 +99,8 @@ struct Options {
         cameraRange[0] = 0.05f;
         cameraRange[1] = 10.0f;
         cameraAa = 1;
+        for (int i = 0; i < 5; i++) cameraDistort[i] = 0.0f;
+        cameraDistortSet = false;
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -simul::dynamics::kStandardGravity;
@@ -135,6 +139,7 @@ void PrintUsage(const char* exe) {
         "  --lidar-channels 개수,최소고각,최대고각  (도) 수직 채널을 늘려 3D 라이다로 (예: 16,-15,15). 큰 메시에서는 느리다\n"
         "  --camera 링크[,x,y,z]  그 링크에 카메라를 달고 시야 절두체(노랑)와 영상 창을 표시. 센서 +x 가 보는 방향, +y 왼쪽, +z 위\n"
         "  --camera-size 가로x세로  --camera-fov 도(가로 시야각)  --camera-range 최소,최대  (기본 320x240, 60도, 0.05~10 m)\n"
+        "  --camera-distort k1,k2,p1,p2,k3  카메라 렌즈 왜곡 (OpenCV 와 같음. 예: -0.3,0.1,0,0,0 = 통 모양. URDF 의 <distortion> 보다 우선)\n"
         "  --camera-aa 1~4  카메라 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균. 1 = 끔, 시간은 n^2 배)\n"
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 지금). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
@@ -228,6 +233,24 @@ int ParseArgs(int argc, char** argv, Options* o) {
                 fprintf(stderr, "--camera-range 는 최소,최대 형식입니다 (최대가 더 커야 함, 예: 0.05,10)\n");
                 return false;
             }
+            continue;
+        }
+        if (a == "--camera-distort" && hasNext) {
+            const simul::String v = argv[++i];
+            float f[5] = {0, 0, 0, 0, 0};
+            int n = 0;
+            const char* c = v.c_str();
+            while (*c && n < 5) {
+                char* end = nullptr;
+                f[n++] = static_cast<float>(strtod(c, &end));
+                if (end == c) { n = 99; break; }
+                c = end;
+                if (*c == ',') c++;
+                else break;
+            }
+            if (n < 1 || n > 5 || *c) { fprintf(stderr, "--camera-distort 는 k1,k2,p1,p2,k3 형식입니다 (숫자 1~5개, 모자라면 0. 예: -0.3,0.1)\n"); return false; }
+            for (int j = 0; j < 5; j++) o->cameraDistort[j] = f[j];
+            o->cameraDistortSet = true;
             continue;
         }
         if (a == "--camera-aa" && hasNext) {
@@ -959,6 +982,7 @@ public:
             sp.settings.horizontalFov = static_cast<float>(dhRad(o.cameraFov));
             sp.settings.nearClip = o.cameraRange[0];
             sp.settings.farClip = o.cameraRange[1];
+            for (int i = 0; i < 5; i++) sp.settings.distortion[i] = o.cameraDistort[i];
         } else if (!robot.cameras.empty()) {  // URDF 의 <gazebo><sensor type="camera">
             const simul::urdf::CameraDef& d = robot.cameras[0];
             if (robot.cameras.size() > 1) fprintf(stderr, "알림: 카메라가 %d 개 있어 첫 번째('%s')만 씁니다\n", static_cast<int>(robot.cameras.size()), d.name.c_str());
@@ -970,6 +994,7 @@ public:
             sp.settings.horizontalFov = d.horizontalFov;
             sp.settings.nearClip = d.nearClip;
             sp.settings.farClip = d.farClip;
+            for (int i = 0; i < 5; i++) sp.settings.distortion[i] = o.cameraDistortSet ? o.cameraDistort[i] : d.distortion[i];
             fromUrdf = true;
         } else {
             return;
@@ -1013,6 +1038,36 @@ public:
             });
             aaRow->addWidget(aa);
             lay->addLayout(aaRow);
+            QHBoxLayout* distRow = new QHBoxLayout;
+            distRow->addWidget(new QLabel(QString::fromUtf8("렌즈 왜곡 k1,k2,p1,p2,k3")));
+            QLineEdit* dist = new QLineEdit;
+            {
+                const float* dv = cameraSpec_.settings.distortion;
+                dist->setText(QString("%1, %2, %3, %4, %5").arg(dv[0]).arg(dv[1]).arg(dv[2]).arg(dv[3]).arg(dv[4]));
+            }
+            dist->setToolTip(QString::fromUtf8("OpenCV 와 같은 왜곡 계수. 예: -0.3, 0.1, 0, 0, 0 (통 모양), 0.3 (실패 모양). 숫자가 모자라면 0. 엔터로 적용"));
+            QObject::connect(dist, &QLineEdit::returnPressed, this, [this, dist]() {
+                if (cameraSpec_.link < 0) return;
+                QString flat = dist->text();
+                flat.replace(',', ' ');
+                const QStringList p = flat.simplified().split(' ', QString::SkipEmptyParts);
+                float f[5] = {0, 0, 0, 0, 0};
+                bool good = p.size() >= 1 && p.size() <= 5;
+                for (int i = 0; good && i < p.size(); i++) {
+                    bool ok = false;
+                    f[i] = p[i].toFloat(&ok);
+                    good = ok;
+                }
+                if (!good) {
+                    log_->Info(QString::fromUtf8("왜곡 계수는 숫자 1~5개입니다 (k1, k2, p1, p2, k3)"));
+                    return;
+                }
+                for (int i = 0; i < 5; i++) cameraSpec_.settings.distortion[i] = f[i];
+                viewer_->SetSensorCamera(cameraSpec_.link, cameraSpec_.settings, cameraSpec_.mount);
+                log_->Info(QString::fromUtf8("카메라 렌즈 왜곡: k1=%1 k2=%2 p1=%3 p2=%4 k3=%5").arg(f[0]).arg(f[1]).arg(f[2]).arg(f[3]).arg(f[4]));
+            });
+            distRow->addWidget(dist);
+            lay->addLayout(distRow);
             lay->addWidget(cameraView_, 1);
             cameraDock_ = new QDockWidget(QString::fromUtf8("카메라"), this);
             cameraDock_->setWidget(box);

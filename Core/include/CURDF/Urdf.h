@@ -130,7 +130,8 @@ struct CameraDef {
     int width, height;    // <image><width>, <height>
     float horizontalFov;  // <horizontal_fov> (rad)
     float nearClip, farClip;  // <clip><near>, <far>
-    CameraDef() : width(320), height(240), horizontalFov(1.0471976f), nearClip(0.05f), farClip(10.0f) {}
+    float distortion[5];  // <distortion><k1><k2><p1><p2><k3> (OpenCV plumb_bob 과 같은 뜻. 없으면 0 = 왜곡 없음)
+    CameraDef() : width(320), height(240), horizontalFov(1.0471976f), nearClip(0.05f), farClip(10.0f) { for (int i = 0; i < 5; i++) distortion[i] = 0.0f; }
 };
 
 struct Robot {

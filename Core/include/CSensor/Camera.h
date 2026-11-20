@@ -33,13 +33,24 @@ struct CameraSettings {
     float background[3]; // 아무것도 안 맞은 픽셀의 색 (R, G, B 0..1)
     int antialias;       // 안티앨리어싱: 픽셀을 가로세로 antialias 배로 나눠 찍어 평균한다 (1 = 끔, 2 = 4개, 3 = 9개, 4 = 16개, 최대 4). 시간은 antialias^2 배 걸린다.
                          //   색만 평균하고, 깊이와 targetIds 는 픽셀 가운데에 가장 가까운 하위 픽셀의 값을 쓴다 (경계에서 깊이가 섞여 허공에 뜬 점이 생기지 않게).
+    float distortion[5]; // 렌즈 왜곡 계수 k1, k2, p1, p2, k3 (OpenCV/ROS plumb_bob 과 같은 순서와 뜻). 모두 0 이면 왜곡 없음.
+                         //   영상(왜곡된 영상)의 픽셀 -> 정규화 좌표 (x_d, y_d) = ((u-cx)/fx, (v-cy)/fy) 이고, 왜곡 없는 정규화 좌표 (x, y) 와는
+                         //   r2 = x^2 + y^2, x_d = x (1 + k1 r2 + k2 r2^2 + k3 r2^3) + 2 p1 x y + p2 (r2 + 2 x^2), y_d = y (1 + ...) + p1 (r2 + 2 y^2) + 2 p2 x y 로 이어진다.
+                         //   k1 < 0 은 통 모양(barrel), k1 > 0 은 실패 모양(pincushion). 카메라 행렬 K 는 왜곡된 영상 기준이라 ROS CameraInfo 의 K, D 에 그대로 쓰면 된다.
     CameraSettings()
         : width(320), height(240), horizontalFov(static_cast<float>(60.0 * dhPI / 180.0)), nearClip(0.05f), farClip(10.0f), noiseStdDev(0.0f), seed(1u), antialias(1) {
         background[0] = 0.12f;
         background[1] = 0.14f;
         background[2] = 0.18f;
+        for (int i = 0; i < 5; i++) distortion[i] = 0.0f;
     }
+    bool HasDistortion() const { return distortion[0] != 0.0f || distortion[1] != 0.0f || distortion[2] != 0.0f || distortion[3] != 0.0f || distortion[4] != 0.0f; }
 };
+
+// 렌즈 왜곡 (k1, k2, p1, p2, k3): 왜곡 없는 정규화 좌표 -> 왜곡된 정규화 좌표.
+void DistortNormalized(const float dist[5], float x, float y, float* xd, float* yd);
+// 왜곡된 정규화 좌표 -> 왜곡 없는 정규화 좌표 (반복법, cv::undistortPoints 와 같은 방식). 수렴 못 하면(왜곡이 너무 커서 한 점에 여러 곳이 겹치는 영역 등) false.
+bool UndistortNormalized(const float dist[5], float xd, float yd, float* x, float* y);
 
 // 태양 조명 (SetSun). direction 은 월드 좌표에서 표면 -> 태양 방향. CEnv/Sun.h 의 SunState::direction 을 그대로 넣으면 된다.
 struct SunLight {
@@ -76,7 +87,8 @@ struct CameraImage {
     Array<float> depth;     // width * height, m (못 본 곳은 0)
     Array<int> targetIds;   // width * height, 맞은 메시의 id (mesh.id), 못 맞으면 -1
     CameraIntrinsics intrinsics;
-    CameraImage() : width(0), height(0) {}
+    float distortion[5];    // 이 영상을 찍을 때의 왜곡 계수 (k1, k2, p1, p2, k3)
+    CameraImage() : width(0), height(0) { for (int i = 0; i < 5; i++) distortion[i] = 0.0f; }
     bool IsHit(int u, int v) const { return targetIds[static_cast<size_t>(v) * static_cast<size_t>(width) + static_cast<size_t>(u)] >= 0; }
     float Depth(int u, int v) const { return depth[static_cast<size_t>(v) * static_cast<size_t>(width) + static_cast<size_t>(u)]; }
     // 픽셀 (u, v) 가 본 점을 센서 좌표로 (깊이가 0 이면 false)
@@ -95,7 +107,10 @@ public:
     float VerticalFov() const;                  // 세로 시야각 (rad)
 
     // 픽셀 (u, v) (소수 가능, 픽셀 중심은 +0.5) 를 지나는 센서 좌표의 광선 방향. x 성분이 1 이 되게 두어 t 가 곧 깊이다 (길이는 1 이 아님).
+    // 렌즈 왜곡을 반영한다. 왜곡을 되돌릴 수 없는 픽셀이면(PixelRay 참고) 왜곡을 뺀 방향을 돌려준다.
     dhVector PixelDirection(float u, float v) const;
+    // 같은 값을 주되 왜곡을 되돌리지 못하면 false (그 픽셀에서는 광선을 쏘지 않는다)
+    bool PixelRay(float u, float v, dhVector* dir) const;
 
     // sensorPose: 센서 좌표 -> 월드. targets: 볼 메시들 (센서가 붙은 링크 자신은 빼야 자기 몸이 안 보인다).
     void Render(const dhMat& sensorPose, const CameraTarget* targets, size_t targetCount, CameraImage* out);
