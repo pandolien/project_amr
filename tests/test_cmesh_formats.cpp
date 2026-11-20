@@ -98,6 +98,16 @@ void testObj() {
     check(LoadObjFromString(quad, &s, &err), "obj quad");
     check(s.TriangleCount() == 2 && s.meshes[0].primitives[0].VertexCount() == 4, "quad -> 2 triangles, 4 shared vertices");
     check(s.meshes[0].primitives[0].uvs.size() == 8, "uv kept");
+    {   // OBJ 의 v 는 아래에서 위로: 내부(glTF 규약, 위에서 아래로)로 읽으면 1 - v
+        const simul::Array<float>& uv = s.meshes[0].primitives[0].uvs;
+        check(nearly(uv[0], 0) && nearly(uv[1], 1) && nearly(uv[4], 1) && nearly(uv[5], 0), "obj v is flipped to the glTF convention");
+    }
+
+    // 정점 색 확장 (v x y z r g b): 모든 v 줄에 있을 때만 읽는다
+    check(LoadObjFromString("v 0 0 0 1 0 0\nv 1 0 0 0 1 0\nv 0 1 0 0 0 1\nf 1 2 3\n", &s, &err) && s.meshes[0].primitives[0].colors.size() == 12 &&
+              nearly(s.meshes[0].primitives[0].colors[0], 1) && nearly(s.meshes[0].primitives[0].colors[5], 1) && nearly(s.meshes[0].primitives[0].colors[11], 1),
+          "obj vertex colors");
+    check(LoadObjFromString("v 0 0 0 1 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", &s, &err) && s.meshes[0].primitives[0].colors.empty(), "partial vertex colors are dropped");
 
     const simul::String neg = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf -3 -2 -1\n";
     check(LoadObjFromString(neg, &s, &err) && s.TriangleCount() == 1, "negative indices");
@@ -138,7 +148,8 @@ void testObj() {
     check(LoadObj(tu::Tmp("simul_t.obj"), &s, &err) && s.materials.size() == 1, "obj file with mtl");
     check(nearly(s.materials[0].baseColor.r, 1) && nearly(s.materials[0].baseColor.g, 0) && nearly(s.materials[0].baseColor.a, 0.5),
           "mtl Kd/d applied");
-    check(s.materials[0].baseColorTexture == "tex.png", "mtl map_Kd");
+    check(s.materials[0].baseColorTexture == tu::Tmp("tex.png"), "mtl map_Kd is relative to the mtl folder");
+    check(s.materials[0].alphaMode == 2, "mtl d < 1 -> blend");
     remove(tu::Tmp("simul_t.mtl").c_str());
     check(LoadObj(tu::Tmp("simul_t.obj"), &s, &err) && !s.warnings.empty(), "missing mtl -> warning, still loads");
     check(LoadMesh(tu::Tmp("simul_t.obj"), &s, &err) && s.TriangleCount() == 1, "LoadMesh dispatches .obj");
