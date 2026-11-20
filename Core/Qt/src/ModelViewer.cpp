@@ -276,7 +276,7 @@ const float kDefaultRough = 0.45f;
 }  // namespace
 
 ModelViewer::ModelViewer(QWidget* parent)
-    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), sunGuide_(true), dragSun_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
+    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), sunGuide_(true), sunHover_(false), dragSun_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
@@ -1744,8 +1744,8 @@ void ModelViewer::drawSunGuide() {
             glDrawArrays(GL_LINES, 0, 2);
         }
     }
-    // 그날의 태양 경로: 뜬 구간을 곡선으로, 정시마다 작은 점(십자)
-    {
+    // 그날의 태양 경로: 뜬 구간을 곡선으로, 정시마다 작은 점(십자). 평소에는 숨기고 태양 표시에 마우스를 올리거나 끄는 동안에만 보인다.
+    if (dragSun_ || sunHover_) {
         simul::Array<QVector3D> pts;
         simul::Array<int> mins;
         simul::Array<bool> up;
@@ -1845,7 +1845,7 @@ void ModelViewer::paintSunOverlay(const QMatrix4x4& proj, const QMatrix4x4& view
     if (toScreen(o + QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z) * L * 1.12f, &sp)) {
         label(QRectF(sp.x() - 30, sp.y() - 26, 60, 22), QString::fromUtf8("태양"), sunState_.aboveHorizon ? QColor(255, 225, 90) : QColor(170, 170, 160));
     }
-    {   // 정시 글자 (경로 위)
+    if (dragSun_ || sunHover_) {   // 정시 글자 (경로 위)
         simul::Array<QVector3D> pts;
         simul::Array<int> mins;
         simul::Array<bool> up;
@@ -2572,7 +2572,8 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
 void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
     if (dragSun_) {
         dragSun_ = false;
-        setCursor(sunHit(e->pos()) ? Qt::OpenHandCursor : Qt::ArrowCursor);
+        sunHover_ = sunHit(e->pos());
+        setCursor(sunHover_ ? Qt::OpenHandCursor : Qt::ArrowCursor);
         update();
         return;
     }
@@ -2780,7 +2781,9 @@ void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
         return;
     }
     if (e->buttons() == Qt::NoButton) {
-        setCursor(sunHit(e->pos()) ? Qt::OpenHandCursor : Qt::ArrowCursor);
+        const bool sunOver = sunHit(e->pos());
+        setCursor(sunOver ? Qt::OpenHandCursor : Qt::ArrowCursor);
+        if (sunOver != sunHover_) { sunHover_ = sunOver; update(); }
         const int hr = mouseEdit_ ? hitRing(e->pos(), nullptr) : -1;
         if (hr != hoverRing_) { hoverRing_ = hr; update(); }
         return;
