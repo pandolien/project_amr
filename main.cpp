@@ -63,6 +63,7 @@ struct Options {
     simul::String lidarCsv;      // --lidar-csv: 스캔 결과를 CSV 로 저장할 파일
     int lidarChannels;         // --lidar-channels: 수직 채널 수 (1 이면 2D)
     float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
+    bool noSun;                 // --no-sun: 태양 조명을 끈다 (기본은 켜짐: 오늘 10:00, 그림자 포함)
     bool sunOn;                 // --sun / --sun-now / --sun-site: 태양 조명을 켠다
     simul::env::SunTime sunTime;   // --sun 날짜시각 (현지). 지정하지 않으면 지금 시각
     bool sunNow;                // --sun-now: 지금 시각 (아니면 오늘 날짜의 10:00)
@@ -96,6 +97,7 @@ struct Options {
         lidarElev[0] = lidarElev[1] = 0;
         cameraMount[0] = cameraMount[1] = cameraMount[2] = 0;
         sunOn = false;
+        noSun = false;
         sunTimeSet = false;
         sunNow = false;
         sunOffsetSet = false;
@@ -156,7 +158,7 @@ void PrintUsage(const char* exe) {
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 오늘 날짜의 10:00). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
         "  --sun-now (지금 시각)  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
-        "  --no-shadow  3D 화면의 그림자를 끈다 (태양 조명일 때 기본은 켜짐)  --no-sky  하늘과 구름을 끄고 단색 배경  --sun-guide  태양 위치 표시(태양 선, 동서남북, 방위각/고도 글자, 끌어서 시각 선택)를 켠다\n"
+        "  --no-sun  태양 조명을 끈다 (기본은 켜짐: 오늘 날짜 10:00 의 태양과 그림자)  --no-shadow  3D 화면의 그림자를 끈다  --no-sky  하늘과 구름을 끄고 단색 배경  --sun-guide  태양 위치 표시(태양 선, 동서남북, 방위각/고도 글자, 끌어서 시각 선택)를 켠다\n"
         "  --view-angle 방위각,고도각  시작 시점(도, 고도각 -89~89, 음수면 올려다봄)\n"
         "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
@@ -322,6 +324,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             }
             continue;
         }
+        if (a == "--no-sun") { o->noSun = true; continue; }
         if (a == "--no-shadow") { o->noShadow = true; continue; }
         if (a == "--view-angle" && hasNext) {   // 시작 시점: 방위각,고도각 (도). 고도각이 음수면 아래에서 올려다본다 (하늘 확인용)
             double y = 0, pt = 0;
@@ -890,6 +893,7 @@ public:
         viewer_->SetShadowsEnabled(!o.noShadow);
         viewer_->SetSkyEnabled(!o.noSky);
         viewer_->SetSunGuideVisible(o.sunGuide);
+        if (o.noSun) viewer_->SetSunEnabled(false);
         if (!o.sunOn) return;
         ModelViewer::SunSettings s;
         s.enabled = true;
