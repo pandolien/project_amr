@@ -170,6 +170,46 @@ void testPrimitives() {
 }
 
 
+// STL 모드: 색이 둘인 GLB 는 색마다 STL 로 나뉘어 visual 이 둘이 되고, 각자 URDF 색을 가진다
+void testStlSplitColors() {
+    const String src = tu::Tmp("simul_split_src");
+    tu::MkDir(src);
+    {
+        Array<char> b;
+        const float p[18] = {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1};
+        for (int i = 0; i < 18; i++) testglb::putf(&b, p[i]);
+        const String js =
+            "{\"asset\":{\"version\":\"2.0\"},\"scenes\":[{\"nodes\":[0]}],\"scene\":0,\"nodes\":[{\"mesh\":0}],"
+            "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,0,0,1]}},{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0,0,1,1]}}],"
+            "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0},{\"attributes\":{\"POSITION\":1},\"material\":1}]}],"
+            "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},"
+            "{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,1],\"max\":[1,1,1]}],"
+            "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":36}],\"buffers\":[{\"byteLength\":72}]}";
+        const Array<char> glb = testglb::MakeGlb(js, b);
+        WriteFileBytes(src + "/two.glb", &glb[0], glb.size());
+    }
+    WriteFileText(src + "/two.urdf", "<robot name=\"two\"><link name=\"a\"><visual><geometry><mesh filename=\"two.glb\"/></geometry></visual></link></robot>");
+    Robot r;
+    String err;
+    check(LoadUrdf(src + "/two.urdf", &r, &err), "load two-color urdf");
+    const String out = tu::Tmp("simul_split_out");
+    FolderSaveResult res;
+    FolderOptions fo;
+    fo.glbToStl = true;
+    check(SaveUrdfFolder(r, out + "/twox", LoadOptions(), &err, &res, WriteOptions(), fo), ("save split: " + err).c_str());
+    Robot again;
+    check(LoadUrdf(res.urdfPath, &again, &err), ("reload split: " + err).c_str());
+    check(again.links[0].visuals.size() == 2, "two colors -> two visuals");
+    if (again.links[0].visuals.size() == 2) {
+        const Visual& a = again.links[0].visuals[0];
+        const Visual& c = again.links[0].visuals[1];
+        check(a.material.hasColor && near(a.material.color.r, 1) && near(a.material.color.b, 0), "first visual is red");
+        check(c.material.hasColor && near(c.material.color.b, 1) && near(c.material.color.r, 0), "second visual is blue");
+        RobotMeshes m;
+        check(LoadRobotMeshes(again, LoadOptions(), &m) && m.visuals.size() == 2 && m.visuals[0].scene.TriangleCount() == 1 && m.visuals[1].scene.TriangleCount() == 1, "each STL has one triangle");
+    }
+}
+
 // 폴더로 저장: GLB 는 바이너리 STL 로 바뀌어 obj/ 에 들어가고(색은 URDF 로), STL/OBJ 는 복사되며, 다시 열면 같은 모양이 나온다
 void testFolder() {
     const String src = tu::Tmp("simul_fold_src");
@@ -379,6 +419,7 @@ int main() {
     testRpy();
     testScene();
     testFolder();
+    testStlSplitColors();
     testConnectedScene();
     if (g_fail == 0) printf("test_curdf_write: all passed\n");
     return g_fail == 0 ? 0 : 1;

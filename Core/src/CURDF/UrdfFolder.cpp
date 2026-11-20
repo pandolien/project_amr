@@ -274,6 +274,60 @@ struct Exporter {
         return true;
     }
 
+    // STL 모드에서 색이 여러 개인 GLB 는 색마다 STL 하나로 나눠 각각을 URDF visual (+<material><color>) 로 만든다.
+    // 반환: 나눴으면 true (parts 에 색별 visual, 모양/색은 URDF 가 가진다). 색이 하나 이하이면 false.
+    bool SplitGlb(const Visual& vis, const simul::String& where, simul::Array<Visual>* parts) {
+        const Geometry& g0 = vis.geometry;
+        simul::String src;
+        if (g0.type != kGeomMesh || g0.filename.empty() || !ResolveMeshPath(g0.filename, robot.baseDir, load, &src)) return false;
+        src = Slashes(src);
+        const simul::String ext = detail::LowerExtension(src);
+        if (ext != "glb" && ext != "gltf") return false;
+        Scene sc;
+        simul::String err;
+        if (!LoadGeometryScene(g0, robot.baseDir, load, &sc, &err)) return false;
+        simul::Array<Color> groups;
+        for (size_t m = 0; m < sc.meshes.size(); m++)
+            for (size_t p = 0; p < sc.meshes[m].primitives.size(); p++) {
+                const int mi = sc.meshes[m].primitives[p].material;
+                if (mi < 0 || static_cast<size_t>(mi) >= sc.materials.size()) continue;
+                const Color& c = sc.materials[static_cast<size_t>(mi)].baseColor;
+                bool found = false;
+                for (size_t k = 0; k < groups.size(); k++)
+                    if (memcmp(&groups[k], &c, sizeof(Color)) == 0) found = true;
+                if (!found) groups.push_back(c);
+            }
+        if (groups.size() < 2) return false;
+        if (!EnsureObjDir()) return false;
+        for (size_t k = 0; k < groups.size(); k++) {
+            Scene part = sc;
+            for (size_t m = 0; m < part.meshes.size(); m++) {
+                simul::Array<Primitive> keep;
+                for (size_t p = 0; p < part.meshes[m].primitives.size(); p++) {
+                    const int mi = part.meshes[m].primitives[p].material;
+                    const bool same = mi >= 0 && static_cast<size_t>(mi) < part.materials.size() && memcmp(&part.materials[static_cast<size_t>(mi)].baseColor, &groups[k], sizeof(Color)) == 0;
+                    if (same) keep.push_back(part.meshes[m].primitives[p]);
+                }
+                part.meshes[m].primitives = keep;
+            }
+            const simul::String rel = Unique(Stem(src) + "_" + simul::ToString(k + 1), ".stl");
+            if (!SaveStl(part, detail::JoinPath(objDir, rel), &err)) {
+                Warn(where + ": " + err);
+                return false;
+            }
+            Visual v = vis;
+            v.geometry.filename = "obj/" + rel;
+            v.geometry.scale[0] = v.geometry.scale[1] = v.geometry.scale[2] = 1.0f;
+            v.hasMaterial = true;
+            v.material.hasColor = true;
+            v.material.color = groups[k];
+            parts->push_back(v);
+        }
+        res->converted++;
+        Warn(where + ": 색이 " + simul::ToString(groups.size()) + "개라 STL 을 색마다 나눠 visual " + simul::ToString(groups.size()) + "개로 저장했습니다 (" + BaseName(src) + ")");
+        return true;
+    }
+
     bool CopyMesh(Geometry* g, const simul::String& src, const simul::String& ext, const simul::String& where) {
         const simul::String key = "copy|" + src;
         simul::Map<simul::String, simul::String>::iterator it = nameOfKey.find(key);
@@ -364,12 +418,19 @@ bool SaveUrdfFolder(const Robot& robot, const simul::String& dirIn, const LoadOp
     ex.objDir = dir + "/obj";
     for (size_t i = 0; i < r.links.size(); i++) {
         Link& l = r.links[i];
-        for (size_t v = 0; v < l.visuals.size(); v++) {
-            Visual& vis = l.visuals[v];
+        const simul::Array<Visual> oldVisuals = l.visuals;
+        l.visuals.clear();
+        for (size_t v = 0; v < oldVisuals.size(); v++) {
+            Visual vis = oldVisuals[v];
             const simul::String where = "link '" + l.name + "' visual " + simul::ToString(v);
+            const bool wantColor = !(vis.hasMaterial && vis.material.hasColor);
+            simul::Array<Visual> parts;
+            if (folder.glbToStl && wantColor && ex.SplitGlb(vis, where, &parts)) {
+                for (size_t k = 0; k < parts.size(); k++) l.visuals.push_back(parts[k]);
+                continue;
+            }
             bool got = false;
             Color c;
-            const bool wantColor = !(vis.hasMaterial && vis.material.hasColor);
             if (!ex.Process(&vis.geometry, wantColor, &got, &c, where)) {
                 if (error) *error = ex.error;
                 return false;
@@ -380,6 +441,7 @@ bool SaveUrdfFolder(const Robot& robot, const simul::String& dirIn, const LoadOp
                 vis.material.color = c;
             }
             if (vis.hasMaterial) ex.Texture(&vis.material, where);
+            l.visuals.push_back(vis);
         }
         for (size_t k = 0; k < l.collisions.size(); k++) {
             bool got = false;
