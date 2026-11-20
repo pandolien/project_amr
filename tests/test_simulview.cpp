@@ -572,6 +572,10 @@ int main(int argc, char** argv) {
         ModelViewer::SunSettings bad = ss;
         bad.time.month = 13;
         CHECK(!sv.SetSun(bad, &serr) && !serr.isEmpty() && sv.Sun().time.month == 6 && changed == 1, "an invalid time is rejected and nothing changes");
+        CHECK(sv.SunGuideVisible() && sv.SkyEnabled() && sv.ShadowsEnabled(), "guide, sky and shadows are on by default");
+        sv.SetSunGuideVisible(false);
+        CHECK(!sv.SunGuideVisible(), "the sun guide can be turned off");
+        sv.SetSunGuideVisible(true);
         CHECK(sv.SetSunTime(simul::env::AddMinutes(ss.time, 6 * 60), &serr) && sv.SunStateNow().azimuthDeg > 240.0, "6 hours later the sun is in the west");
         SunPanel panel(&sv);
         CHECK(panel.findChildren<QCheckBox*>().size() >= 2, "panel has its check boxes");
