@@ -67,6 +67,19 @@ public:
     QString ModelName(int index) const;
     int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)
     int ModelOfRoot(int link) const { return world_.EntryOfRoot(robot_, link); }  // 링크가 어떤 모델의 루트이면 그 모델 번호, 아니면 -1
+    // ---- 관절로 연결하기: 모델을 다른 모델의 링크에 관절(fixed, revolute, continuous, prismatic)로 붙인다.
+    // child 모델이 parentLink(합친 Robot 의 링크 번호, 다른 모델의 링크) 를 따라 움직이고, 관절 값(attach 관절)만큼 돈다/이동한다.
+    // spec 의 parentModel/parentLink 는 여기서 채우므로 종류, 축, 한계, 이름만 정하면 된다.
+    // origin 이 null 이면 연결해도 모델이 그 자리에 그대로 있게 관절 origin 을 계산한다 (관절 값은 0). 주면 그 값(부모 링크 -> 모델 루트 링크)을 그대로 쓴다.
+    // 연결된 모델은 혼자 낙하하지 않고 부모를 따라가며, 낙하 판정은 맨 위 모델과 그 자손을 한 덩어리로 본다.
+    // 연결된 모델의 ModelPose/ModelPlacement6/SetModelPose 는 월드 자세가 아니라 "부모 링크 기준 관절 origin" 이다 (월드 자세는 ModelWorldPose).
+    bool ConnectModel(int child, int parentLink, const simul::urdf::AttachSpec& spec, const dhMat* origin = nullptr, QString* error = nullptr);
+    bool DisconnectModel(int child);              // world 에 고정으로 되돌린다 (월드 자세는 유지)
+    bool ModelConnected(int model) const { return world_.IsConnected(static_cast<size_t>(model)); }
+    int ModelParent(int model) const { return world_.ParentOf(static_cast<size_t>(model)); }   // 부모 모델 번호, 없으면 -1
+    const simul::urdf::AttachSpec& ModelAttach(int model) const { return world_.entry(static_cast<size_t>(model)).attach; }
+    dhMat ModelWorldPose(int model) const;        // 모델 루트 링크의 월드 자세 (연결 여부와 관계 없이)
+
     // 모델의 월드 위치(m)와 z축 회전(도). 모델이 하나면 오브젝트 위치로 움직인다 (회전은 둘 이상일 때만).
     void SetModelPlacement(int index, float x, float y, float z, float yawDeg);
     void ModelPlacement(int index, float* x, float* y, float* z, float* yawDeg) const;
@@ -355,6 +368,7 @@ private:
     mutable simul::Array<bool> minZOk_, clearOk_;  // 모델마다 위 값이 지금 자세에서 구한 것인가
     mutable simul::Array<simul::Array<float> > modelSig_;   // 모델마다 마지막으로 계산했을 때의 링크 변환들
     mutable bool modelSigDirty_;                   // 자세나 관절이 바뀌었을 수 있다 (모델별로 다시 확인해야 한다)
+    int groupOfLink(int link) const;   // 링크가 속한 모델의 맨 위 모델 (연결된 모델 묶음의 대표). world 링크는 -1
     void modelSignature(size_t model, simul::Array<float>* sig) const;
     void syncModelCaches() const;
     bool stepFallModels(double dt);           // 모델 하나하나를 바닥(z=0)까지 떨어뜨린다

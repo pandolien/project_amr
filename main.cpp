@@ -37,6 +37,7 @@ struct Options {
     simul::Array<simul::String> moreFiles;  // 둘째 파일부터 (모두 한 장면에 올린다)
     struct Place { simul::String model; double v[4]; };   // --place 모델=x,y,z[,회전도]
     simul::Array<Place> places;
+    simul::Array<simul::String> connects;   // --connect 자식=부모링크[:종류[:축 x,y,z[:최소,최대]]]
     struct Scale { simul::String model; double factor; };   // --scale 모델=배율
     simul::Array<Scale> scales;
     struct Shape { char kind; simul::String name; double a[3]; double pos[3]; };   // --add-box/--add-cylinder/--add-sphere 이름=크기[@x,y,z]
@@ -105,6 +106,8 @@ void PrintUsage(const char* exe) {
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --export-urdf 파일 열린 모델들(--place 반영)을 URDF 하나로 합쳐 저장하고 끝낸다 (창 없이 쓰려면 QT_QPA_PLATFORM=offscreen)\n"
+        "  --connect 자식=부모링크[:종류[:x,y,z[:최소,최대]]]  모델을 다른 모델의 링크에 관절로 연결 (종류 fixed/revolute/continuous/prismatic, 기본 fixed, 축 기본 0,0,1, 회전 한계는 도)\n"
+        "                  예: --connect gripper=tool:revolute:0,0,1:-90,90   (지금 자리 그대로 붙는다. 여러 번 쓸 수 있다)\n"
         "  --export-dir 폴더 같은 장면을 폴더로 저장하고 끝낸다: 폴더/폴더이름.urdf + 폴더/obj/ (GLB 는 바이너리 STL 로 바꿔 넣는다)\n"
         "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
@@ -178,6 +181,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         if (a == "--only-view") { o->onlyView = true; continue; }
+        if (a == "--connect" && hasNext) { o->connects.push_back(argv[++i]); continue; }
         if (a == "--export-urdf" && hasNext) { o->exportUrdf = argv[++i]; continue; }
         if (a == "--export-dir" && hasNext) { o->exportDir = argv[++i]; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
@@ -439,6 +443,7 @@ int PrintInfo(const Options& o) {
 #include "CDynamics/Dynamics.h"
 #include "3d/dhPose.h"
 #include "CoreQt/FolderView.h"
+#include "CoreQt/JointDialog.h"
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/LidarPlot.h"
 #include "CoreQt/ModelViewer.h"
@@ -884,6 +889,46 @@ public:
     }
 
     // --place: 모델 이름으로 월드 위치를 정한다
+    void applyConnects(const Options& o) {
+        for (size_t i = 0; i < o.connects.size(); i++) {
+            const QStringList top = simulqt::ToQ(o.connects[i]).split('=');
+            const QStringList rest = top.size() == 2 ? top[1].split(':') : QStringList();
+            int child = -1;
+            if (top.size() == 2) for (int m = 0; m < viewer_->ModelCount(); m++) if (viewer_->ModelName(m) == top[0]) child = m;
+            const int link = rest.isEmpty() ? -1 : viewer_->Robot().FindLink(simulqt::FromQ(rest[0]));
+            if (child < 0 || link < 0) {
+                const QString m = QString::fromUtf8("--connect: 자식 모델 또는 부모 링크를 찾지 못했습니다 (%1)").arg(simulqt::ToQ(o.connects[i]));
+                fprintf(stderr, "경고: %s\n", m.toUtf8().constData());
+                log_->Warning(m);
+                continue;
+            }
+            simul::urdf::AttachSpec spec;
+            const QString kind = rest.size() > 1 ? rest[1] : QString("fixed");
+            spec.type = kind == "revolute" ? simul::urdf::kJointRevolute : kind == "continuous" ? simul::urdf::kJointContinuous : kind == "prismatic" ? simul::urdf::kJointPrismatic : simul::urdf::kJointFixed;
+            if (rest.size() > 2) {
+                const QStringList ax = rest[2].split(',');
+                if (ax.size() == 3) spec.axis = dhVector(ax[0].toFloat(), ax[1].toFloat(), ax[2].toFloat());
+            }
+            if (spec.type == simul::urdf::kJointRevolute || spec.type == simul::urdf::kJointPrismatic) {
+                spec.hasLimit = true;
+                spec.lower = spec.type == simul::urdf::kJointRevolute ? static_cast<float>(dhRad(-90.0)) : 0.0f;
+                spec.upper = spec.type == simul::urdf::kJointRevolute ? static_cast<float>(dhRad(90.0)) : 0.5f;
+                if (rest.size() > 3) {
+                    const QStringList lim = rest[3].split(',');
+                    if (lim.size() == 2) {
+                        const double k = spec.type == simul::urdf::kJointRevolute ? dhRad(1.0) : 1.0;
+                        spec.lower = static_cast<float>(lim[0].toDouble() * k);
+                        spec.upper = static_cast<float>(lim[1].toDouble() * k);
+                    }
+                }
+            }
+            QString err;
+            if (viewer_->ConnectModel(child, link, spec, nullptr, &err)) log_->Info(QString::fromUtf8("관절로 연결: %1 -> %2 (%3)").arg(top[0]).arg(rest[0]).arg(kind));
+            else logError(QString::fromUtf8("--connect 실패: %1").arg(err));
+        }
+        if (!o.connects.empty()) afterLoad(QString::fromUtf8("관절 연결"));
+    }
+
     void applyPlaces(const Options& o) {
         for (size_t i = 0; i < o.places.size(); i++) {
             int found = -1;
@@ -1054,7 +1099,7 @@ public:
         const bool lidar = link >= 0 && link == lidarSpec_.link;
         if (model < 0 && !lidar) return;
         QMenu menu;
-        QAction *beams = nullptr, *graph = nullptr, *place = nullptr, *remove = nullptr, *floor = nullptr;
+        QAction *beams = nullptr, *graph = nullptr, *place = nullptr, *remove = nullptr, *floor = nullptr, *connect = nullptr, *disconnect = nullptr;
         if (lidar) {
             beams = menu.addAction(QString::fromUtf8("레이저 표시 (3D 화면)"));
             beams->setCheckable(true);
@@ -1066,6 +1111,8 @@ public:
         if (model >= 0) {
             if (lidar) menu.addSeparator();
             place = menu.addAction(QString::fromUtf8("위치 지정... (%1)").arg(viewer_->ModelName(model)));
+            if (viewer_->ModelCount() >= 2) connect = menu.addAction(QString::fromUtf8("관절로 연결... (%1)").arg(viewer_->ModelName(model)));   // 다른 모델의 링크에 관절로 붙인다
+            if (viewer_->ModelConnected(model)) disconnect = menu.addAction(QString::fromUtf8("연결 끊기 (%1)").arg(viewer_->ModelName(model)));
             floor = menu.addAction(QString::fromUtf8("바닥으로 지정 (%1)").arg(viewer_->ModelName(model)));   // 다른 모델이 이 모델의 윗면 위로 떨어져 멈춘다
             floor->setCheckable(true);
             floor->setChecked(viewer_->FloorModel() == model);
@@ -1076,11 +1123,44 @@ public:
         if (chosen == beams) showLidarBeams(beams->isChecked());
         else if (chosen == graph) showLidarGraph(graph->isChecked());
         else if (chosen == place) askPlacement(model);
+        else if (chosen == connect) askConnect(model);
+        else if (chosen == disconnect) {
+            if (viewer_->DisconnectModel(model)) log_->Info(QString::fromUtf8("연결 끊기: %1 (월드에 고정, 자리는 그대로)").arg(viewer_->ModelName(model)));
+        }
         else if (chosen == floor) {
             viewer_->SetFloorModel(floor->isChecked() ? model : -1);
             log_->Info(floor->isChecked() ? QString::fromUtf8("바닥으로 지정: %1").arg(viewer_->ModelName(model)) : QString::fromUtf8("바닥 지정 해제"));
         }
         else if (chosen == remove) removeModel(model);
+    }
+
+    // 모델을 다른 모델의 링크에 관절로 연결한다 (대화상자)
+    void askConnect(int model) {
+        JointDialog dlg(viewer_, model, viewer_->SelectedLink(), this);
+        if (dlg.ParentLinkCount() == 0) {
+            QMessageBox::information(this, QString::fromUtf8("관절로 연결"), QString::fromUtf8("연결할 수 있는 부모 링크가 없습니다. 다른 모델을 먼저 올려 주세요."));
+            return;
+        }
+        if (dlg.exec() != QDialog::Accepted) return;
+        QString err;
+        const int parentLink = dlg.ParentLink();
+        if (!dlg.Apply(&err)) {
+            logError(QString::fromUtf8("관절로 연결 실패: %1").arg(err));
+            QMessageBox::warning(this, QString::fromUtf8("관절로 연결"), err);
+            return;
+        }
+        static const char* kinds[4] = {"fixed", "revolute", "continuous", "prismatic"};
+        const simul::urdf::AttachSpec& a = viewer_->ModelAttach(model);
+        const int k = a.type == simul::urdf::kJointRevolute ? 1 : a.type == simul::urdf::kJointContinuous ? 2 : a.type == simul::urdf::kJointPrismatic ? 3 : 0;
+        QString jointName;
+        const simul::urdf::Robot& rb = viewer_->Robot();
+        for (size_t i = 0; i < rb.links.size(); i++)
+            if (viewer_->ModelOfRoot(static_cast<int>(i)) == model)
+                for (size_t j = 0; j < rb.joints.size(); j++)
+                    if (rb.joints[j].child == rb.links[i].name) jointName = simulqt::ToQ(rb.joints[j].name);
+        log_->Info(QString::fromUtf8("관절로 연결: %1 -> %2 (%3, 관절 %4)")
+                       .arg(viewer_->ModelName(model)).arg(simulqt::ToQ(rb.links[static_cast<size_t>(parentLink)].name)).arg(kinds[k]).arg(jointName));
+        updateSelectionLabel();
     }
 
     // 모델의 월드 위치와 자세를 입력받는다
@@ -1089,7 +1169,7 @@ public:
         viewer_->ModelPlacement6(model, v);
         bool ok = false;
         const QString text = QInputDialog::getText(this, QString::fromUtf8("위치 지정"),
-                                                   QString::fromUtf8("%1\nx, y, z (m), roll, pitch, yaw (도). 자세는 생략하면 0\n(Rz(yaw)·Ry(pitch)·Rx(roll))").arg(viewer_->ModelName(model)),
+                                                   QString::fromUtf8("%1\nx, y, z (m), roll, pitch, yaw (도). 자세는 생략하면 0\n(Rz(yaw)·Ry(pitch)·Rx(roll))%2").arg(viewer_->ModelName(model)).arg(viewer_->ModelConnected(model) ? QString::fromUtf8("\n관절로 연결된 모델이라 부모 링크 기준의 관절 위치입니다") : QString()),
                                                    QLineEdit::Normal, QString("%1, %2, %3, %4, %5, %6").arg(v[0]).arg(v[1]).arg(v[2]).arg(v[3]).arg(v[4]).arg(v[5]), &ok);
         if (!ok) return;
         QString flat = text;
@@ -1442,6 +1522,7 @@ int main(int argc, char** argv) {
         }
     }
     if (!o.shapes.empty()) w.applyShapes(o);
+    w.applyConnects(o);   // 도형까지 올라간 뒤에 연결한다
     if (!o.exportDir.empty()) {   // 확인용/배치용: 합친 장면을 폴더로 저장하고 끝낸다
         if (!w.exportFolder(QString::fromLocal8Bit(o.exportDir.c_str()))) return 1;
         printf("폴더로 저장: %s\n", o.exportDir.c_str());

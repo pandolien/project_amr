@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "CBase/File.h"
+#include "CURDF/Primitives.h"
 #include "CURDF/World.h"
 #include "TestUtil.h"
 
@@ -144,6 +145,100 @@ void testBuildEmpty() {
 }
 }  // namespace
 
+
+// 모델을 다른 모델의 링크에 관절로 연결한다
+void testAttachToLink() {
+    World w;
+    String err;
+    check(w.Add(kData + "arm.urdf", &err), "add arm");
+    PrimitiveSpec box;
+    box.type = kGeomBox;
+    box.size[0] = box.size[1] = box.size[2] = 0.1f;
+    box.mass = 1.0f;
+    Robot b;
+    check(MakePrimitiveRobot("crate", box, &b, &err), "make crate");
+    check(w.AddRobot("crate", b, &err), "add crate");
+    const String armName = w.entry(0).name;
+
+    AttachSpec a;
+    a.parentModel = armName;
+    a.parentLink = "tool";
+    a.type = kJointRevolute;
+    a.axis = dhVector(0, 0, 2);   // 정규화된다
+    a.hasLimit = true; a.lower = -1.0f; a.upper = 1.0f; a.effort = 5.0f; a.velocity = 2.0f;
+    check(w.SetAttach(1, a, &err), ("connect crate to tool: " + err).c_str());
+    check(w.IsConnected(1) && w.ParentOf(1) == 0 && w.RootOf(1) == 0 && w.RootOf(0) == 0 && w.IsAncestor(0, 1) && !w.IsAncestor(1, 0), "parent/root queries");
+    w.SetPlacement(1, dhMat::Trans(0.0f, 0.0f, 0.25f));
+    Robot built;
+    check(w.Build(LoadOptions(), &built, &err), ("build connected scene: " + err).c_str());
+    const int jc = built.FindJoint("crate_attach");
+    check(jc >= 0, "attach joint exists");
+    if (jc >= 0) {
+        const Joint& j = built.joints[static_cast<size_t>(jc)];
+        check(j.parent == "tool" && j.child == w.entry(1).rootName && j.type == kJointRevolute, "joint hangs from the tool link");
+        check(near(j.axis.z, 1.0) && near(j.axis.x, 0.0) && j.hasLimit && near(j.upper, 1.0) && near(j.effort, 5.0), "axis normalized, limits kept");
+        check(near(j.origin.v[14], 0.25), "origin = placement relative to the parent link");
+    }
+    check(built.links[static_cast<size_t>(built.root)].name == "world", "root is world");
+    // 기구학: 연결한 모델은 tool 링크를 따라가고, attach 관절 값만큼 돈다
+    JointValues q;
+    Array<dhMat> t0 = built.LinkTransforms(q);
+    const int tool = built.FindLink("tool"), crate = built.FindLink(w.entry(1).rootName);
+    check(tool >= 0 && crate >= 0, "links found");
+    if (tool >= 0 && crate >= 0) {
+        const dhMat rel = t0[static_cast<size_t>(tool)].Inv() * t0[static_cast<size_t>(crate)];
+        check(near(rel.v[14], 0.25) && near(rel.v[12], 0.0) && near(rel.v[0], 1.0), "crate rides on the tool at the joint origin");
+        q["crate_attach"] = 0.5;
+        t0 = built.LinkTransforms(q);
+        const dhMat rel2 = t0[static_cast<size_t>(tool)].Inv() * t0[static_cast<size_t>(crate)];
+        check(near(rel2.v[0], cos(0.5)) && near(rel2.v[1], sin(0.5)) && near(rel2.v[14], 0.25), "attach joint value rotates the crate about its axis");
+        q["shoulder_pitch"] = 0.4;   // 팔이 움직이면 같이 간다
+        const Array<dhMat> t1 = built.LinkTransforms(q);
+        check(fabs(t1[static_cast<size_t>(crate)].v[14] - t0[static_cast<size_t>(crate)].v[14]) > 1e-3, "crate follows the arm");
+    }
+    check(w.EntryOfLink(built, crate) == 1 && w.EntryOfRoot(built, crate) == 1, "crate root still belongs to the crate model");
+
+    // 거부되는 연결
+    AttachSpec bad = a;
+    bad.parentModel = "crate";
+    check(!w.SetAttach(1, bad, &err) && !err.empty(), "cannot attach to itself");
+    bad = a; bad.parentModel = "nobody";
+    check(!w.SetAttach(1, bad, &err), "unknown parent model");
+    bad = a; bad.parentLink = "nolink";
+    check(!w.SetAttach(1, bad, &err), "unknown parent link");
+    bad = a; bad.parentModel = "crate"; bad.parentLink = w.entry(1).robot.links[0].name;
+    check(!w.SetAttach(0, bad, &err) && err.find("순환") != String::npos, "cycle is rejected (arm onto its own child)");
+    bad = a; bad.hasLimit = false;
+    check(!w.SetAttach(1, bad, &err), "revolute needs limits");
+    bad = a; bad.axis = dhVector(0, 0, 0);
+    check(!w.SetAttach(1, bad, &err), "zero axis is rejected");
+    bad = a; bad.type = kJointFloating;
+    check(!w.SetAttach(1, bad, &err), "unsupported type is rejected");
+    check(w.IsConnected(1) && w.entry(1).attach.type == kJointRevolute, "a rejected connect leaves the old one in place");
+
+    // 고정으로 바꾸기, 연결 풀기
+    AttachSpec fixed = a;
+    fixed.type = kJointFixed;
+    check(w.SetAttach(1, fixed, &err), "re-connect as fixed");
+    check(w.Build(LoadOptions(), &built, &err) && built.joints[static_cast<size_t>(built.FindJoint("crate_attach"))].type == kJointFixed, "fixed attach joint");
+    w.ClearAttach(1);
+    check(!w.IsConnected(1) && w.Build(LoadOptions(), &built, &err), "disconnect, rebuild");
+    check(built.joints[static_cast<size_t>(built.FindJoint("crate_attach"))].parent == "world", "after disconnect it hangs from world again");
+
+    // 부모를 지우면 자식의 연결이 풀린다
+    check(w.SetAttach(1, a, &err), "connect again");
+    w.Remove(0);
+    check(w.size() == 1 && !w.IsConnected(0), "removing the parent disconnects the child");
+
+    // 부모가 뒤에 있어도 된다 (두 단계 합치기)
+    World w2;
+    check(w2.AddRobot("crate", b, &err) && w2.Add(kData + "arm.urdf", &err), "add crate then arm");
+    AttachSpec c = a;
+    c.parentModel = w2.entry(1).name;
+    check(w2.SetAttach(0, c, &err), "child before parent");
+    check(w2.Build(LoadOptions(), &built, &err), ("build with the parent after the child: " + err).c_str());
+}
+
 int main() {
     testSingleModelIsUnchanged();
     testSingleModelForcedComposite();
@@ -151,6 +246,7 @@ int main() {
     testSameFileTwice();
     testMeshFileAsModel();
     testBuildEmpty();
+    testAttachToLink();
     if (g_fail) {
         printf("%d failed\n", g_fail);
         return 1;

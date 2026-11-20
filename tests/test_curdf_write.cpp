@@ -266,6 +266,37 @@ void testFolder() {
     check(res.warnings.empty() || true, "warnings are only advice");
 }
 
+
+// 관절로 연결한 장면(부모 링크에 매달린 모델)도 URDF 로 저장했다 다시 읽으면 같다
+void testConnectedScene() {
+    World w;
+    String err;
+    check(w.Add(kData + "arm.urdf", &err), "add arm");
+    PrimitiveSpec box;
+    box.type = kGeomBox;
+    box.size[0] = box.size[1] = box.size[2] = 0.1f;
+    box.mass = 1.0f;
+    Robot b;
+    check(MakePrimitiveRobot("crate", box, &b, &err) && w.AddRobot("crate", b, &err), "add crate");
+    AttachSpec a;
+    a.parentModel = w.entry(0).name;
+    a.parentLink = "tool";
+    a.type = kJointPrismatic;
+    a.axis = dhVector(1, 0, 0);
+    a.hasLimit = true; a.lower = 0.0f; a.upper = 0.3f;
+    check(w.SetAttach(1, a, &err), "connect");
+    w.SetPlacement(1, dhMat::Trans(0.1f, 0.0f, 0.2f));
+    Robot scene, again;
+    check(w.Build(LoadOptions(), &scene, &err), "build connected scene");
+    const String out = tu::Tmp("simul_write_connected.urdf");
+    check(SaveUrdf(scene, out, &err) && LoadUrdf(out, &again, &err), ("save and reload connected scene: " + err).c_str());
+    sameRobot(scene, again, "connected");
+    const int j = again.FindJoint("crate_attach");
+    check(j >= 0 && again.joints[static_cast<size_t>(j)].parent == "tool" && again.joints[static_cast<size_t>(j)].type == kJointPrismatic &&
+              near(again.joints[static_cast<size_t>(j)].axis.x, 1.0) && near(again.joints[static_cast<size_t>(j)].upper, 0.3) && near(again.joints[static_cast<size_t>(j)].origin.v[14], 0.2),
+          "attach joint round-trips (parent link, type, axis, limit, origin)");
+}
+
 }  // namespace
 
 // 모델 크기 배율: 길이는 s 배, 질량 s^3, 관성 s^5, 순기구학의 끝점도 s 배. 원래 크기 기준의 절대 배율이다.
@@ -323,6 +354,7 @@ int main() {
     testRpy();
     testScene();
     testFolder();
+    testConnectedScene();
     if (g_fail == 0) printf("test_curdf_write: all passed\n");
     return g_fail == 0 ? 0 : 1;
 }

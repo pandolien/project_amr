@@ -1,4 +1,6 @@
 #include "CURDF/World.h"
+
+#include <math.h>
 #include "CURDF/Scale.h"
 
 #include "CBase/Map.h"
@@ -104,9 +106,72 @@ bool World::AddRobot(const String& name, const Robot& robot, String* error) {
 
 void World::Remove(size_t index) {
     if (index >= entries_.size()) return;
+    const String removed = entries_[index].name;
+    for (size_t i = 0; i < entries_.size(); i++)
+        if (i != index && entries_[i].attach.connected && entries_[i].attach.parentModel == removed) entries_[i].attach = AttachSpec();
     Array<WorldEntry> keep;
     for (size_t i = 0; i < entries_.size(); i++) if (i != index) keep.push_back(entries_[i]);
     entries_ = keep;
+}
+
+int World::ParentOf(size_t i) const {
+    if (i >= entries_.size() || !entries_[i].attach.connected) return -1;
+    for (size_t k = 0; k < entries_.size(); k++)
+        if (k != i && entries_[k].name == entries_[i].attach.parentModel) return static_cast<int>(k);
+    return -1;
+}
+
+int World::RootOf(size_t i) const {
+    int cur = static_cast<int>(i);
+    for (size_t guard = 0; guard <= entries_.size(); guard++) {
+        const int p = ParentOf(static_cast<size_t>(cur));
+        if (p < 0) return cur;
+        cur = p;
+    }
+    return cur;   // 순환이 있으면 (SetAttach 가 막으므로 일어나지 않는다) 어딘가에서 멈춘다
+}
+
+bool World::IsAncestor(size_t anc, size_t i) const {
+    int cur = ParentOf(i);
+    for (size_t guard = 0; cur >= 0 && guard <= entries_.size(); guard++) {
+        if (static_cast<size_t>(cur) == anc) return true;
+        cur = ParentOf(static_cast<size_t>(cur));
+    }
+    return false;
+}
+
+bool World::SetAttach(size_t i, const AttachSpec& in, String* error) {
+    auto fail = [&](const String& m) {
+        if (error) *error = m;
+        return false;
+    };
+    if (i >= entries_.size()) return fail("모델 번호가 올바르지 않습니다");
+    int p = -1;
+    for (size_t k = 0; k < entries_.size(); k++)
+        if (entries_[k].name == in.parentModel) p = static_cast<int>(k);
+    if (p < 0) return fail("부모 모델을 찾을 수 없습니다: " + in.parentModel);
+    if (static_cast<size_t>(p) == i) return fail("모델을 자기 자신에 연결할 수 없습니다");
+    if (IsAncestor(i, static_cast<size_t>(p))) return fail("순환 연결입니다: 부모가 이 모델에 매달려 있습니다");
+    if (entries_[static_cast<size_t>(p)].robot.FindLink(in.parentLink) < 0) return fail("부모 모델에 링크가 없습니다: " + in.parentLink);
+    if (in.type != kJointFixed && in.type != kJointRevolute && in.type != kJointContinuous && in.type != kJointPrismatic)
+        return fail("연결에 쓸 수 있는 관절 종류는 fixed, revolute, continuous, prismatic 입니다");
+    AttachSpec a = in;
+    if (a.type != kJointFixed) {
+        const float len = sqrtf(a.axis.x * a.axis.x + a.axis.y * a.axis.y + a.axis.z * a.axis.z);
+        if (!(len > 1e-9f)) return fail("관절 축이 0 입니다");
+        a.axis = dhVector(a.axis.x / len, a.axis.y / len, a.axis.z / len);
+        if ((a.type == kJointRevolute || a.type == kJointPrismatic) && (!a.hasLimit || a.lower > a.upper))
+            return fail("revolute/prismatic 관절에는 lower <= upper 인 한계가 필요합니다");
+    } else {
+        a.hasLimit = false;
+    }
+    a.connected = true;
+    entries_[i].attach = a;
+    return true;
+}
+
+void World::ClearAttach(size_t i) {
+    if (i < entries_.size()) entries_[i].attach = AttachSpec();
 }
 
 void World::applyScales(WorldEntry* e) const {
@@ -162,20 +227,30 @@ bool World::Build(const LoadOptions& opt, Robot* out, String* error) {
     w.name = "world";
     linkUsed.insert(w.name);
     out->links.push_back(w);
-    for (size_t k = 0; k < entries_.size(); k++) {
+    // 1단계: 모든 모델의 링크/관절 이름을 정한다 (부모 모델이 뒤에 있어도 연결할 수 있게). 이름을 정하는 순서는 모델마다 링크, 관절, attach 관절이다.
+    const size_t n = entries_.size();
+    Array<Array<String> > newLink(n), newJoint(n);
+    Array<String> attachName(n);
+    for (size_t k = 0; k < n; k++) {
         WorldEntry& e = entries_[k];
         const Robot& r = e.robot;
         const String prefix = e.name + "/";
-        Array<String> newLink(r.links.size());
         e.linkNames.clear();
         for (size_t i = 0; i < r.links.size(); i++) {
-            newLink[i] = UniqueName(r.links[i].name, prefix, &linkUsed);
-            e.linkNames.push_back(newLink[i]);
+            newLink[k].push_back(UniqueName(r.links[i].name, prefix, &linkUsed));
+            e.linkNames.push_back(newLink[k][i]);
         }
-        e.rootName = newLink[static_cast<size_t>(r.root)];
+        e.rootName = newLink[k][static_cast<size_t>(r.root)];
+        for (size_t i = 0; i < r.joints.size(); i++) newJoint[k].push_back(UniqueName(r.joints[i].name, prefix, &jointUsed));
+        attachName[k] = UniqueName(AttachJointName(k), prefix, &jointUsed);
+    }
+    // 2단계: 링크, 관절, 센서를 내보내고 모델마다 attach 관절을 만든다
+    for (size_t k = 0; k < n; k++) {
+        WorldEntry& e = entries_[k];
+        const Robot& r = e.robot;
         for (size_t i = 0; i < r.links.size(); i++) {
             Link l = r.links[i];
-            l.name = newLink[i];
+            l.name = newLink[k][i];
             for (size_t v = 0; v < l.visuals.size(); v++) {
                 ResolveGeometry(&l.visuals[v].geometry, r.baseDir, opt);
                 const String& tex = l.visuals[v].material.texture;
@@ -187,34 +262,48 @@ bool World::Build(const LoadOptions& opt, Robot* out, String* error) {
             for (size_t c = 0; c < l.collisions.size(); c++) ResolveGeometry(&l.collisions[c].geometry, r.baseDir, opt);
             out->links.push_back(l);
         }
-        // 관절 이름도 겹치면 prefix 를 붙인다. mimic 이 가리키는 관절 이름은 새 이름으로 맞춘다.
-        Array<String> newJoint(r.joints.size());
-        for (size_t i = 0; i < r.joints.size(); i++) newJoint[i] = UniqueName(r.joints[i].name, prefix, &jointUsed);
+        // mimic 이 가리키는 관절 이름은 새 이름으로 맞춘다.
         for (size_t i = 0; i < r.joints.size(); i++) {
             Joint j = r.joints[i];
-            j.name = newJoint[i];
-            j.parent = newLink[static_cast<size_t>(r.FindLink(r.joints[i].parent))];
-            j.child = newLink[static_cast<size_t>(r.FindLink(r.joints[i].child))];
+            j.name = newJoint[k][i];
+            j.parent = newLink[k][static_cast<size_t>(r.FindLink(r.joints[i].parent))];
+            j.child = newLink[k][static_cast<size_t>(r.FindLink(r.joints[i].child))];
             if (j.hasMimic) {
                 const int m = r.FindJoint(j.mimicJoint);
-                if (m >= 0) j.mimicJoint = newJoint[static_cast<size_t>(m)];
+                if (m >= 0) j.mimicJoint = newJoint[k][static_cast<size_t>(m)];
             }
             out->joints.push_back(j);
         }
         for (size_t i = 0; i < r.lidars.size(); i++) {
             LidarDef d = r.lidars[i];
             const int li = r.FindLink(d.link);
-            if (li >= 0) d.link = newLink[static_cast<size_t>(li)];
+            if (li >= 0) d.link = newLink[k][static_cast<size_t>(li)];
             out->lidars.push_back(d);
         }
         for (size_t i = 0; i < r.warnings.size(); i++) out->warnings.push_back(e.name + ": " + r.warnings[i]);
-        // 월드에 매다는 고정 관절
+        // 월드(또는 부모 모델의 링크)에 매다는 관절
         Joint a;
-        a.name = UniqueName(AttachJointName(k), prefix, &jointUsed);
+        a.name = attachName[k];
         a.type = kJointFixed;
         a.parent = "world";
         a.child = e.rootName;
         a.origin = e.placement;
+        if (e.attach.connected) {
+            const int p = ParentOf(k);
+            const int pl = p < 0 ? -1 : entries_[static_cast<size_t>(p)].robot.FindLink(e.attach.parentLink);
+            if (p < 0 || pl < 0) {
+                if (error) *error = "모델 " + e.name + " 의 부모 링크를 찾을 수 없습니다: " + e.attach.parentModel + "/" + e.attach.parentLink;
+                return false;
+            }
+            a.parent = newLink[static_cast<size_t>(p)][static_cast<size_t>(pl)];
+            a.type = e.attach.type;
+            a.axis = e.attach.axis;
+            a.hasLimit = e.attach.hasLimit;
+            a.lower = e.attach.lower;
+            a.upper = e.attach.upper;
+            a.effort = e.attach.effort;
+            a.velocity = e.attach.velocity;
+        }
         out->joints.push_back(a);
     }
     // 구조 검증과 순서 계산은 URDF 읽기와 같은 코드를 쓴다

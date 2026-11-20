@@ -17,6 +17,7 @@
 #include "CBase/Math.h"
 #include "CoreQt/QtString.h"
 #include "CoreQt/FolderView.h"
+#include "CoreQt/JointDialog.h"
 #include "CoreQt/PropertiesPanel.h"
 #include "CoreQt/SimulView.h"
 #include "CoreQt/UrdfView.h"
@@ -444,6 +445,107 @@ int main(int argc, char** argv) {
         CHECK(!view.MenuVisible() && !view.SelectionPanelVisible(), "menu/panel off by function");
         view.SetMenuVisible(true);
         view.SetSelectionPanelVisible(true);
+    }
+
+
+    // 관절로 연결하기: 모델을 다른 모델의 링크에 관절로 붙인다
+    {
+        ModelViewer mv;
+        QString cerr;
+        CHECK(mv.AddFile(arm, &cerr), "connect test: add arm");
+        const float cp[6] = {1.0f, 0.5f, 0.3f, 0.0f, 0.0f, 20.0f};
+        const int crate = mv.AddBox("crate", 0.2, 0.2, 0.2, cp, QColor(200, 100, 50), 1.0, &cerr);
+        CHECK(crate >= 0, "connect test: add box");
+        const int toolLink = mv.Robot().FindLink(simul::String("tool"));
+        const dhMat before = mv.ModelWorldPose(crate);
+        simul::urdf::AttachSpec spec;
+        spec.type = simul::urdf::kJointRevolute;
+        spec.axis = dhVector(0, 0, 1);
+        spec.hasLimit = true; spec.lower = -1.5f; spec.upper = 1.5f;
+        CHECK(mv.ConnectModel(crate, toolLink, spec, nullptr, &cerr), ("connect crate to tool: " + cerr.toStdString()).c_str());
+        CHECK(mv.ModelConnected(crate) && mv.ModelParent(crate) == 0, "crate is connected to the arm");
+        const dhMat after = mv.ModelWorldPose(crate);
+        bool same = true;
+        for (int i = 0; i < 16; i++) if (simul::Abs(before.v[i] - after.v[i]) > 1e-4f) same = false;
+        CHECK(same, "connecting keeps the model where it was");
+        CHECK(mv.Robot().FindJoint(simul::String("crate_attach")) >= 0 && !mv.CanMoveSelection(), "attach joint exists; connected model has no move handle");
+        mv.SetSelectedLink(mv.Robot().FindLink(mv.ModelName(crate).toStdString().c_str()));
+        CHECK(!mv.CanMoveSelection() && !mv.CanRotateSelection(), "connected root link is not draggable");
+
+        // 부모 팔이 움직이면 같이 간다. attach 관절 값은 연결한 모델을 돌린다.
+        const dhMat w0 = mv.ModelWorldPose(crate);
+        simul::urdf::JointValues q = mv.CurrentJointValues();
+        q["shoulder_pitch"] = 0.5f;
+        mv.SetJointValues(q);
+        const dhMat w1 = mv.ModelWorldPose(crate);
+        CHECK(simul::Abs(w1.v[14] - w0.v[14]) > 1e-3f || simul::Abs(w1.v[12] - w0.v[12]) > 1e-3f, "crate follows the arm");
+        q["crate_attach"] = 0.7f;
+        mv.SetJointValues(q);
+        const dhMat w2 = mv.ModelWorldPose(crate);
+        CHECK(simul::Abs(w2.v[0] - w1.v[0]) > 1e-3f || simul::Abs(w2.v[1] - w1.v[1]) > 1e-3f, "attach joint turns the crate");
+
+        // 낙하: 연결된 모델은 혼자 떨어지지 않는다 (origin 이 그대로)
+        const dhMat origin0 = mv.ModelPose(crate);
+        mv.SetFallEnabled(true);
+        for (int i = 0; i < 30; i++) mv.StepFall(0.02);
+        const dhMat origin1 = mv.ModelPose(crate);
+        CHECK(simul::Abs(origin0.v[14] - origin1.v[14]) < 1e-6f, "a connected model does not fall by itself");
+        mv.SetFallEnabled(false);
+
+        // 거부: 같은 모델의 링크, 순환
+        CHECK(!mv.ConnectModel(crate, mv.Robot().FindLink(mv.ModelName(crate).toStdString().c_str()), spec, nullptr, &cerr) && !cerr.isEmpty(), "cannot connect to its own link");
+        CHECK(!mv.ConnectModel(0, mv.Robot().FindLink(mv.ModelName(crate).toStdString().c_str()), spec, nullptr, &cerr) && cerr.contains("순환"), "cycle is rejected");
+
+        // 연결 풀기: 월드 자세 유지
+        mv.SetJointValues(simul::urdf::JointValues());
+        const dhMat atRest = mv.ModelWorldPose(crate);
+        CHECK(mv.DisconnectModel(crate) && !mv.ModelConnected(crate), "disconnect");
+        const dhMat freed = mv.ModelWorldPose(crate);
+        same = true;
+        for (int i = 0; i < 16; i++) if (simul::Abs(atRest.v[i] - freed.v[i]) > 1e-4f) same = false;
+        CHECK(same, "disconnecting keeps the world pose");
+
+        // 부모를 지우면 자식은 제자리에서 풀린다
+        CHECK(mv.ConnectModel(crate, mv.Robot().FindLink(simul::String("tool")), spec, nullptr, &cerr), "connect again");
+        const dhMat held = mv.ModelWorldPose(crate);
+        mv.RemoveModel(0);
+        CHECK(mv.ModelCount() == 1 && !mv.ModelConnected(0), "removing the parent frees the child");
+        const dhMat stay = mv.ModelWorldPose(0);
+        same = true;
+        for (int i = 0; i < 16; i++) if (simul::Abs(held.v[i] - stay.v[i]) > 1e-4f) same = false;
+        CHECK(same, "the freed child keeps its world pose");
+    }
+
+
+    // 관절 연결 대화상자: 입력한 값이 그대로 관절이 된다
+    {
+        ModelViewer mv;
+        QString derr;
+        CHECK(mv.AddFile(arm, &derr), "dialog test: add arm");
+        const int bx = mv.AddBox("slider", 0.1, 0.1, 0.1, nullptr, QColor(), 1.0, &derr);
+        const int base = mv.Robot().FindLink(simul::String("base_link"));
+        JointDialog dlg(&mv, bx, base);
+        CHECK(dlg.ParentLinkCount() == 5 && dlg.ParentLink() == base, "dialog lists the other model's links, preselects the given one");
+        CHECK(!dlg.SetParentLink(mv.Robot().FindLink(simul::String("slider"))), "its own link is not a candidate");
+        dlg.SetJointKind(3);   // prismatic
+        dlg.SetAxis(1, 0, 0);
+        dlg.SetLimits(0.0, 0.3);
+        dlg.SetJointName("rail");
+        const double org[6] = {0.0, 0.0, 0.4, 0, 0, 90};
+        dlg.SetKeepPose(false);
+        dlg.SetOrigin(org);
+        CHECK(dlg.Apply(&derr), ("dialog apply: " + derr.toStdString()).c_str());
+        const int j = mv.Robot().FindJoint(simul::String("rail"));
+        CHECK(j >= 0, "the named joint exists");
+        if (j >= 0) {
+            const simul::urdf::Joint& jj = mv.Robot().joints[static_cast<size_t>(j)];
+            CHECK(jj.type == simul::urdf::kJointPrismatic && jj.parent == "base_link" && simul::Abs(jj.axis.x - 1.0f) < 1e-5f && jj.hasLimit && simul::Abs(jj.upper - 0.3f) < 1e-5f, "prismatic joint, axis and limits from the dialog");
+            CHECK(simul::Abs(jj.origin.v[14] - 0.4f) < 1e-5f && simul::Abs(jj.origin.v[1] - 1.0f) < 1e-4f, "manual origin (z 0.4, yaw 90) applied");
+        }
+        CHECK(mv.UrdfText().contains("<joint name=\"rail\" type=\"prismatic\">"), "the urdf text shows the new joint");
+        // 이미 붙어 있는 모델은 자기에게 붙은 모델의 링크를 후보로 보지 않는다 (순환 방지)
+        JointDialog back(&mv, 0, -1);
+        CHECK(back.ParentLinkCount() == 0, "the arm has no candidates: the only other model hangs from it");
     }
 
     // 모두 닫기

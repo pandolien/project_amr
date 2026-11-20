@@ -481,7 +481,7 @@ bool ModelViewer::SelectedFrame(dhMat* out) const {
 }
 
 bool ModelViewer::CanMoveSelection() const {
-    if (world_.Composite()) return selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;  // 둘 이상이면 각 모델의 루트 링크가 이동 손잡이
+    if (world_.Composite()) return selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0 && !world_.IsConnected(static_cast<size_t>(ModelOfRoot(selectedLink_)));  // 둘 이상이면 각 모델의 루트 링크가 이동 손잡이 (관절로 연결된 모델은 부모를 따라가므로 제외)
     if (selectedModel_) return true;
     return hasRobot_ && selectedLink_ >= 0 && selectedLink_ == robot_.root;
 }
@@ -570,7 +570,7 @@ void ModelViewer::modelSignature(size_t model, simul::Array<float>* sig) const {
     sig->clear();
     for (size_t i = 0; i < items_.size(); i++) {
         const Item& it = *items_[i];
-        if (world_.EntryOfLink(robot_, it.link) != static_cast<int>(model)) continue;
+        if (groupOfLink(it.link) != static_cast<int>(model)) continue;
         dhMat m = it.base;
         if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
         for (int k = 0; k < 16; k++) sig->push_back(m.v[k]);
@@ -618,7 +618,7 @@ float ModelViewer::modelBottom(int model) const {
         float lo = simul::kFloatMax;
         for (size_t i = 0; i < items_.size(); i++) {
             const Item& it = *items_[i];
-            if (world_.EntryOfLink(robot_, it.link) != model) continue;
+            if (groupOfLink(it.link) != model) continue;
             dhMat m = it.base;
             if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
             for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
@@ -642,7 +642,7 @@ bool ModelViewer::stepFallModels(double dt) {
     }
     bool any = false;
     for (size_t k = 0; k < n; k++) {
-        if (dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0)) {  // 끄는 동안에는 손이 붙잡고 있다
+        if (world_.IsConnected(k) || (dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0))) {  // 연결된 모델은 부모를 따라간다. 끄는 동안에는 손이 붙잡고 있다
             modelFallVel_[k] = 0.0;
             continue;
         }
@@ -671,6 +671,7 @@ bool ModelViewer::stepFallModels(double dt) {
 
 void ModelViewer::SetFloorModel(int model) {
     if (model < 0 || static_cast<size_t>(model) >= world_.size()) model = -1;
+    if (model >= 0) model = world_.RootOf(static_cast<size_t>(model));   // 연결된 모델이면 한 덩어리의 맨 위 모델이 바닥이다
     if (model == floorModel_) return;
     floorModel_ = model;
     floorValid_ = false;
@@ -700,7 +701,7 @@ void ModelViewer::buildFloor() const {
     float lo[2] = {simul::kFloatMax, simul::kFloatMax}, hi[2] = {-simul::kFloatMax, -simul::kFloatMax};
     for (size_t i = 0; i < items_.size(); i++) {
         const Item& it = *items_[i];
-        if (world_.EntryOfLink(robot_, it.link) != floorModel_) continue;
+        if (groupOfLink(it.link) != floorModel_) continue;
         dhMat m = it.base;
         if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
         for (size_t t = 0; t + 2 < it.indices.size(); t += 3) {
@@ -782,7 +783,7 @@ float ModelViewer::modelClearance(int model) const {
         float lo = simul::kFloatMax;
         for (size_t i = 0; i < items_.size(); i++) {
             const Item& it = *items_[i];
-            if (world_.EntryOfLink(robot_, it.link) != model) continue;
+            if (groupOfLink(it.link) != model) continue;
             dhMat m = it.base;
             if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
             const size_t verts = it.data.size() / 6;
@@ -949,6 +950,12 @@ void ModelViewer::CloseAll() {
 void ModelViewer::RemoveModel(int index) {
     if (index < 0 || static_cast<size_t>(index) >= world_.size()) return;
     const bool wasComposite = world_.Composite();
+    for (size_t k = 0; k < world_.size(); k++) {   // 지우는 모델에 붙어 있던 모델은 제자리에서 world 로 풀어 준다
+        if (world_.ParentOf(k) != index) continue;
+        const dhMat keep = ModelWorldPose(static_cast<int>(k));
+        world_.ClearAttach(k);
+        world_.SetPlacement(k, keep);
+    }
     // 둘 중 하나를 지워 하나만 남으면 그 모델의 자세를 가져간다 (회전이 있으면 world 아래에 그대로 둔다)
     const dhMat last = world_.size() == 2 ? world_.entry(static_cast<size_t>(1 - index)).placement : dhMat();
     world_.Remove(static_cast<size_t>(index));
@@ -1003,7 +1010,7 @@ bool ModelViewer::SelectionScreenPos(QPoint* out) const {
 }
 
 bool ModelViewer::CanRotateSelection() const {
-    return showFrame_ && hasRobot_ && selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0;
+    return showFrame_ && hasRobot_ && selectedLink_ >= 0 && ModelOfRoot(selectedLink_) >= 0 && !world_.IsConnected(static_cast<size_t>(ModelOfRoot(selectedLink_)));
 }
 
 void ModelViewer::SetModelPose(int index, const dhMat& pose) {
@@ -1012,7 +1019,7 @@ void ModelViewer::SetModelPose(int index, const dhMat& pose) {
     world_.SetPlacement(static_cast<size_t>(index), pose);
     const simul::String& root = world_.entry(static_cast<size_t>(index)).rootName;
     for (size_t j = 0; j < robot_.joints.size(); j++) {
-        if (robot_.joints[j].child == root && robot_.joints[j].parent == "world") robot_.joints[j].origin = pose;
+        if (robot_.joints[j].child == root) robot_.joints[j].origin = pose;   // world 에 매달린 모델은 월드 자세, 연결된 모델은 부모 링크 기준 origin
     }
     linkT_ = robot_.LinkTransforms(q_);
     minZValid_ = false; modelSigDirty_ = true;   // 모델마다 자세가 바뀌었는지는 syncModelCaches 가 따로 본다
@@ -1021,6 +1028,80 @@ void ModelViewer::SetModelPose(int index, const dhMat& pose) {
     update();
     emit modelChanged();
     emit objectMoved();
+}
+
+int ModelViewer::groupOfLink(int link) const {
+    const int m = world_.EntryOfLink(robot_, link);
+    return m < 0 ? -1 : world_.RootOf(static_cast<size_t>(m));
+}
+
+dhMat ModelViewer::ModelWorldPose(int model) const {
+    if (model < 0 || static_cast<size_t>(model) >= world_.size()) return dhMat();
+    if (!world_.Composite()) return dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z);
+    const int root = robot_.FindLink(world_.entry(static_cast<size_t>(model)).rootName);
+    if (root < 0 || static_cast<size_t>(root) >= linkT_.size()) return world_.entry(static_cast<size_t>(model)).placement;
+    return linkT_[static_cast<size_t>(root)];
+}
+
+bool ModelViewer::ConnectModel(int child, int parentLink, const simul::urdf::AttachSpec& spec, const dhMat* origin, QString* error) {
+    auto fail = [&](const QString& m) {
+        if (error) *error = m;
+        return false;
+    };
+    if (child < 0 || static_cast<size_t>(child) >= world_.size()) return fail(QStringLiteral("연결할 모델이 올바르지 않습니다"));
+    if (parentLink < 0 || static_cast<size_t>(parentLink) >= robot_.links.size()) return fail(QStringLiteral("부모 링크가 올바르지 않습니다"));
+    const int pm = ModelOfLink(parentLink);
+    if (pm < 0) return fail(QStringLiteral("가상 링크(world)에는 연결할 수 없습니다. 연결을 풀면 world 에 고정됩니다"));
+    if (pm == child) return fail(QStringLiteral("같은 모델 안의 링크에는 연결할 수 없습니다"));
+    const simul::urdf::WorldEntry& pe = world_.entry(static_cast<size_t>(pm));
+    int local = -1;
+    for (size_t i = 0; i < pe.linkNames.size(); i++)
+        if (pe.linkNames[i] == robot_.links[static_cast<size_t>(parentLink)].name) local = static_cast<int>(i);
+    if (local < 0) return fail(QStringLiteral("부모 링크를 모델에서 찾지 못했습니다"));
+    simul::urdf::AttachSpec a = spec;
+    a.parentModel = pe.name;
+    a.parentLink = pe.robot.links[static_cast<size_t>(local)].name;
+
+    // 연결해도 제자리에 있게: 부모 링크 기준으로 본 지금의 루트 링크 자세가 관절 origin 이다
+    dhMat org;
+    if (origin) {
+        org = *origin;
+    } else {
+        const int root = robot_.FindLink(world_.entry(static_cast<size_t>(child)).rootName);
+        if (root < 0 || static_cast<size_t>(root) >= linkT_.size() || static_cast<size_t>(parentLink) >= linkT_.size()) return fail(QStringLiteral("모델의 현재 자세를 알 수 없습니다"));
+        org = linkT_[static_cast<size_t>(parentLink)].Inv() * linkT_[static_cast<size_t>(root)];
+    }
+    simul::String err;
+    const simul::urdf::AttachSpec before = world_.entry(static_cast<size_t>(child)).attach;
+    const dhMat beforePlacement = world_.entry(static_cast<size_t>(child)).placement;
+    if (!world_.SetAttach(static_cast<size_t>(child), a, &err)) return fail(simulqt::ToQ(err));
+    world_.SetPlacement(static_cast<size_t>(child), org);
+    q_.erase(world_.AttachJointName(static_cast<size_t>(child)));   // 새 관절은 0 에서 시작한다 (같은 이름의 옛 값이 남아 자세가 틀어지지 않게)
+    q_.erase(world_.entry(static_cast<size_t>(child)).name + "/" + world_.AttachJointName(static_cast<size_t>(child)));
+    QString rerr;
+    if (!rebuildWorld(&rerr, true)) {   // 합치지 못하면 되돌린다
+        world_.SetAttach(static_cast<size_t>(child), before, nullptr);
+        if (!before.connected) world_.ClearAttach(static_cast<size_t>(child));
+        world_.SetPlacement(static_cast<size_t>(child), beforePlacement);
+        rebuildWorld(nullptr, true);
+        return fail(rerr);
+    }
+    emit structureChanged();
+    update();
+    return true;
+}
+
+bool ModelViewer::DisconnectModel(int child) {
+    if (child < 0 || static_cast<size_t>(child) >= world_.size() || !world_.IsConnected(static_cast<size_t>(child))) return false;
+    const dhMat keep = ModelWorldPose(child);
+    q_.erase(world_.AttachJointName(static_cast<size_t>(child)));
+    q_.erase(world_.entry(static_cast<size_t>(child)).name + "/" + world_.AttachJointName(static_cast<size_t>(child)));
+    world_.ClearAttach(static_cast<size_t>(child));
+    world_.SetPlacement(static_cast<size_t>(child), keep);
+    rebuildWorld(nullptr, true);
+    emit structureChanged();
+    update();
+    return true;
 }
 
 dhMat ModelViewer::ModelPose(int index) const {

@@ -385,6 +385,20 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result)`, 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings)`. STL 쓰기는 `CMesh/MeshWriter.h` 의 `SaveStl` / `StlBytes`.
 - 검증: `test_curdf_write` 의 폴더 테스트가 STL 크기(84 + 50×삼각형), 색 이전, 상대 경로, 다시 읽었을 때 모양(경계 상자) 일치를 확인한다.
 
+## 관절로 연결하기 (모델 조립)
+
+여러 모델(GLB/STL/OBJ/DAE 메시, 기본 도형, URDF 로봇)을 올린 뒤, 한 모델을 다른 모델의 링크에 **관절로 붙여** 하나의 로봇으로 조립한다. 부품 메시를 엮어 URDF 를 만드는 흐름이다.
+
+- 앱: 구조 트리(또는 3D 화면)에서 모델의 **루트 링크**를 오른쪽 클릭 → **관절로 연결...** 대화상자에서 부모 링크(다른 모델의 링크), 관절 종류(fixed / revolute / continuous / prismatic), 축, 관절 위치, 한계(회전은 도, 이동은 m), 이름을 정한다. 연결한 모델은 오른쪽 클릭 → **연결 끊기** 로 world 에 되돌린다 (제자리 유지).
+- 관절 위치 기본값은 **지금 자리 그대로**: 연결해도 모델이 움직이지 않도록 관절 origin 을 자동 계산한다 (관절 값 0). 직접 입력하면 "부모 링크 -> 모델 루트 링크" origin 으로 쓴다.
+- 명령행: `--connect 자식=부모링크[:종류[:x,y,z[:최소,최대]]]` (예: `simul_main arm.urdf --add-box crate=0.2,0.2,0.2@1,0.5,0.3 --connect crate=tool:revolute:0,0,1:-90,90`). 여러 번 쓸 수 있고, 도형 추가 뒤에 적용된다.
+- 연결된 모델은 부모 링크를 따라 움직이고, 선택하면 관절 슬라이더에 연결 관절이 나와 움직일 수 있다 (revolute/prismatic/continuous). 3D 화면에서 직접 끌어 옮기지 못한다 (이동은 부모, 위치 지정은 부모 링크 기준 관절 origin).
+- 낙하/바닥: 연결된 모델은 혼자 떨어지지 않고, 맨 위 모델과 그 자손을 한 덩어리로 바닥까지 거리를 계산한다. 부모를 제거하면 자식은 제자리에서 world 로 풀린다.
+- 거부: 자기 모델의 링크, world 링크, 순환(부모가 이 모델에 매달려 있음), 축 0, 한계 없는 revolute/prismatic, 지원하지 않는 종류.
+- URDF: `<joint>` 가 부모 링크에 매달린 형태로 저장되고(저장/폴더 저장/URDF 내용 탭 모두), 다시 열면 같은 구조다.
+- 라이브러리: `World::SetAttach/ClearAttach` (`AttachSpec`, 두 단계 Build), `ModelViewer::ConnectModel/DisconnectModel/ModelConnected/ModelParent/ModelWorldPose`, 대화상자는 `CoreQt/JointDialog.h`.
+- 검증: `test_cworld`(연결, 기구학, 거부, 부모 제거, 부모가 뒤에 있는 순서), `test_simulview`(제자리 유지, 부모 따라감, 낙하 제외, 대화상자), `test_curdf_write`(저장/재로드).
+
 ## 화면 구성, 폴더 탐색기, URDF 내용 보기
 
 ```
