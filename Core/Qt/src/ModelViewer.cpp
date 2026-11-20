@@ -1652,15 +1652,26 @@ void ModelViewer::SetSkyEnabled(bool on) {
 }
 
 void ModelViewer::drawSky(const QMatrix4x4& proj, const QMatrix4x4& view, const SunLighting& sun) {
-    if (!skyOn_ || !sun.on || !skyProg_ || !skyProg_->isLinked()) return;
+    if (!skyOn_ || !skyProg_ || !skyProg_->isLinked()) return;
     bool ok = false;
     const QMatrix4x4 inv = (proj * view).inverted(&ok);
     if (!ok) return;
     const QVector3D eye = view.inverted().column(3).toVector3D();
-    const float day = sun.ambient > 0.1f ? (sun.ambient - 0.1f) / 0.9f : 0.0f;
-    // 천정은 지평 쪽(sun.sky)보다 짙고, 낮에는 수평선이 하얗게 흐리다
-    const QVector3D horizon(sun.sky[0] + (1.0f - sun.sky[0]) * 0.40f * day, sun.sky[1] + (1.0f - sun.sky[1]) * 0.40f * day, sun.sky[2] + (1.0f - sun.sky[2]) * 0.30f * day);
-    const QVector3D top(sun.sky[0] * 0.55f, sun.sky[1] * 0.72f, simul::Min(sun.sky[2] * 1.05f, 1.0f));
+    // 태양 조명이 꺼져 있어도 하늘은 낮 하늘(구름 포함)로 그린다. 태양 원반은 없다 (세기 0).
+    SunLighting L = sun;
+    QVector3D sunDir(0.3f, 0.4f, 0.85f);
+    if (sun.on) {
+        sunDir = QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z);
+    } else {
+        L.sunK = 0.0f;
+        L.ambient = 1.0f;
+        L.sky[0] = 0.42f; L.sky[1] = 0.60f; L.sky[2] = 0.84f;
+        L.color[0] = L.color[1] = L.color[2] = 1.0f;
+    }
+    const float day = L.ambient > 0.1f ? (L.ambient - 0.1f) / 0.9f : 0.0f;
+    // 천정은 지평 쪽(L.sky)보다 짙고, 낮에는 수평선이 하얗게 흐리다
+    const QVector3D horizon(L.sky[0] + (1.0f - L.sky[0]) * 0.40f * day, L.sky[1] + (1.0f - L.sky[1]) * 0.40f * day, L.sky[2] + (1.0f - L.sky[2]) * 0.30f * day);
+    const QVector3D top(L.sky[0] * 0.55f, L.sky[1] * 0.72f, simul::Min(L.sky[2] * 1.05f, 1.0f));
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     skyProg_->bind();
@@ -1668,9 +1679,9 @@ void ModelViewer::drawSky(const QMatrix4x4& proj, const QMatrix4x4& view, const 
     skyProg_->setUniformValue("uEye", eye);
     skyProg_->setUniformValue("uSkyTop", top);
     skyProg_->setUniformValue("uSkyHorizon", horizon);
-    skyProg_->setUniformValue("uSunDirW", QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z).normalized());
-    skyProg_->setUniformValue("uSunCol", QVector3D(sun.color[0], sun.color[1], sun.color[2]));
-    skyProg_->setUniformValue("uSunStrength", sun.sunK);
+    skyProg_->setUniformValue("uSunDirW", sunDir.normalized());
+    skyProg_->setUniformValue("uSunCol", QVector3D(L.color[0], L.color[1], L.color[2]));
+    skyProg_->setUniformValue("uSunStrength", L.sunK);
     skyProg_->setUniformValue("uDay", day);
     static const float tri[6] = {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f};
     skyProg_->enableAttributeArray(0);

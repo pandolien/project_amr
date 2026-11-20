@@ -34,7 +34,7 @@ SunPanel::SunPanel(ModelViewer* viewer, QWidget* parent) : QWidget(parent), view
     shadows_->setChecked(viewer_->ShadowsEnabled());
     top->addWidget(shadows_);
     connect(shadows_, &QCheckBox::toggled, viewer_, &ModelViewer::SetShadowsEnabled);
-    sky_ = new QCheckBox(QString::fromUtf8("하늘과 구름 (3D 화면 배경, 태양 조명일 때)"));
+    sky_ = new QCheckBox(QString::fromUtf8("하늘과 구름 (3D 화면 배경)"));
     sky_->setChecked(viewer_->SkyEnabled());
     top->addWidget(sky_);
     connect(sky_, &QCheckBox::toggled, viewer_, &ModelViewer::SetSkyEnabled);
