@@ -429,7 +429,21 @@ void testScale() {
     check(!w.SetModelScale(5, 2.0) && !w.SetModelScale(0, 0.0), "bad index or scale rejected by world");
 }
 
+void testCameraDistortionRoundTrip() {
+    Robot a, b;
+    String err;
+    const String base = "<robot name='s'><link name='a'/><gazebo reference='a'><sensor type='camera' name='eye'><camera><distortion><k1>-0.3</k1><k2>0.1</k2><k3>0.02</k3><p1>0.001</p1><p2>-0.002</p2></distortion></camera></sensor></gazebo></robot>";
+    check(LoadUrdfFromString(base, &a, &err), ("distortion loads: " + err).c_str());
+    const String out = tu::Tmp("simul_write_distort.urdf");
+    check(SaveUrdf(a, out, &err), "save distortion");
+    check(LoadUrdf(out, &b, &err), ("reload distortion: " + err).c_str());
+    bool same = a.cameras.size() == 1 && b.cameras.size() == 1;
+    for (int i = 0; same && i < 5; i++) same = near(a.cameras[0].distortion[i], b.cameras[0].distortion[i], 1e-6);
+    check(same && near(b.cameras[0].distortion[0], -0.3, 1e-6) && near(b.cameras[0].distortion[4], 0.02, 1e-6), "camera distortion survives save and reload");
+}
+
 int main() {
+    testCameraDistortionRoundTrip();
     testScale();
     testPrimitives();
     roundTrip(kData + "arm.urdf");
