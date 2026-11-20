@@ -2,6 +2,8 @@
 // 창을 띄우지 않고 (QT_QPA_PLATFORM=offscreen) 위젯 API 와 시그널만 확인한다.
 #include <QMouseEvent>
 #include <QApplication>
+#include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QMenu>
 #include <QSlider>
@@ -14,6 +16,7 @@
 #include "3d/dhPose.h"
 #include "CBase/Math.h"
 #include "CoreQt/QtString.h"
+#include "CoreQt/FolderView.h"
 #include "CoreQt/PropertiesPanel.h"
 #include "CoreQt/SimulView.h"
 #include "CoreQt/UrdfView.h"
@@ -366,6 +369,49 @@ int main(int argc, char** argv) {
             v->ModelPlacement6(v->ModelOfLink(armRoot), pl);
             CHECK(simul::Abs(pl[0] - 1.5f) < 1e-3f && simul::Abs(pl[5] - 30.0f) < 0.05f, "external panel controls the engine");
             CHECK(!ext.isAncestorOf(view.viewer()) && view.viewer()->findChild<PropertiesPanel*>() == nullptr, "panel is not inside the 3D view");
+        }
+        // 폴더 탐색기 (엔진 밖의 독립 위젯): 폴더로 저장한 구성이 보이고, 파일을 더블클릭하면 열기 요청이 나온다
+        {
+            const QString base = QDir::tempPath() + "/simul_fv_test";
+            QDir(base).removeRecursively();
+            QString ferr;
+            QStringList fwarn;
+            CHECK(v->SaveUrdfFolder(base + "/myscene", &ferr, &fwarn), "save scene folder for the explorer");
+            QDir().mkpath(base + "/myscene/obj");
+            QFile stl(base + "/myscene/obj/a.stl");
+            stl.open(QIODevice::WriteOnly);
+            stl.write("x");
+            stl.close();
+            QFile junk(base + "/myscene/notes.txt");   // 목록에 나오지 않아야 하는 파일
+            junk.open(QIODevice::WriteOnly);
+            junk.close();
+            CHECK(FolderView::FolderUrdf(base + "/myscene") && !FolderView::FolderUrdf(base) && FolderView::IsOpenableFile("x/a.GLB") && !FolderView::IsOpenableFile("x/a.txt"), "folder urdf and openable file checks");
+            FolderView fv;
+            QStringList requested;
+            QObject::connect(&fv, &FolderView::openRequested, [&](const QString& p) { requested << p; });
+            fv.SetRootPath(base);
+            CHECK(fv.RootPath() == base && !fv.isAncestorOf(view.viewer()), "explorer root, independent widget");
+            fv.Reveal(base + "/myscene/myscene.urdf");   // 보이게 (읽는 중이면 로드가 끝나는 대로 선택된다)
+            QElapsedTimer tm;
+            tm.start();
+            while (fv.CurrentPath() != base + "/myscene/myscene.urdf" && tm.elapsed() < 3000) QApplication::processEvents(QEventLoop::AllEvents, 50);
+            CHECK(fv.CurrentPath() == base + "/myscene/myscene.urdf", "reveal selects the urdf inside the folder");
+            const QModelIndex urdfIdx = fv.Model()->index(base + "/myscene/myscene.urdf");
+            const QModelIndex sceneIdx = fv.Model()->index(base + "/myscene");
+            QStringList names;
+            tm.restart();
+            while (!names.contains("obj") && tm.elapsed() < 3000) {   // 폴더 내용은 비동기로 읽힌다
+                QApplication::processEvents(QEventLoop::AllEvents, 50);
+                names.clear();
+                for (int i = 0; i < fv.Model()->rowCount(sceneIdx); i++) names << fv.Model()->fileName(fv.Model()->index(i, 0, sceneIdx));
+            }
+            CHECK(urdfIdx.isValid() && names.contains("myscene.urdf") && names.contains("obj") && !names.contains("notes.txt"), "only urdf and mesh files and folders are listed");
+            emit fv.Tree()->doubleClicked(urdfIdx);
+            CHECK(requested.size() == 1 && requested[0] == base + "/myscene/myscene.urdf", "double click on the urdf requests open");
+            const QModelIndex folderIdx = fv.Model()->index(base + "/myscene");
+            emit fv.Tree()->doubleClicked(folderIdx);
+            CHECK(requested.size() == 1, "double click on a folder only expands it");
+            QDir(base).removeRecursively();
         }
         // URDF 파일 보기 (읽기 전용, 엔진 밖의 독립 위젯): 장면 내용을 보여 주고 선택을 서로 따라간다
         {

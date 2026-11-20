@@ -438,6 +438,7 @@ int PrintInfo(const Options& o) {
 #include "3d/Units.h"
 #include "CDynamics/Dynamics.h"
 #include "3d/dhPose.h"
+#include "CoreQt/FolderView.h"
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/LidarPlot.h"
 #include "CoreQt/ModelViewer.h"
@@ -507,13 +508,20 @@ public:
         propDock_ = new QDockWidget(QString::fromUtf8("속성"), this);
         propDock_->setWidget(new PropertiesPanel(viewer_));
         addDockWidget(Qt::RightDockWidgetArea, propDock_);
-        // URDF 파일 보기: 지금 장면이 URDF 로 저장되면 어떻게 되는지를 읽기 전용으로 실시간 보여 준다 (엔진 밖의 독립 위젯)
-        urdfDock_ = new QDockWidget(QString::fromUtf8("URDF 파일"), this);
+        // 폴더(디스크 탐색기): 폴더로 저장한 URDF 구성(이름/, 이름.urdf, obj/)을 포함해 디스크를 탐색하고, 파일을 더블클릭하면 장면에 추가한다
+        folderView_ = new FolderView;
+        folderDock_ = new QDockWidget(QString::fromUtf8("폴더"), this);
+        folderDock_->setWidget(folderView_);
+        addDockWidget(Qt::RightDockWidgetArea, folderDock_);
+        QObject::connect(folderView_, &FolderView::openRequested, this, [this](const QString& p) { openFile(p); });
+        // URDF 내용 보기: 지금 장면이 URDF 로 저장되면 어떻게 되는지를 읽기 전용으로 실시간 보여 준다 (엔진 밖의 독립 위젯)
+        urdfDock_ = new QDockWidget(QString::fromUtf8("URDF 내용"), this);
         urdfDock_->setWidget(new UrdfView(viewer_));
         addDockWidget(Qt::RightDockWidgetArea, urdfDock_);
-        tabifyDockWidget(urdfDock_, propDock_);   // 같은 자리에 탭으로 겹친다 (속성은 두 번째 탭)
-        urdfDock_->raise();
-        resizeDocks(QList<QDockWidget*>() << urdfDock_, QList<int>() << qMax(300, o.width * 2 / 5), Qt::Horizontal);
+        tabifyDockWidget(folderDock_, urdfDock_);   // 같은 자리에 탭으로 겹친다: 폴더, URDF 내용, 속성
+        tabifyDockWidget(urdfDock_, propDock_);
+        folderDock_->raise();
+        resizeDocks(QList<QDockWidget*>() << folderDock_, QList<int>() << qMax(300, o.width * 2 / 5), Qt::Horizontal);
         resizeDocks(QList<QDockWidget*>() << logDock_, QList<int>() << qMax(120, o.height / 5), Qt::Vertical);
         QObject::connect(viewer_, &ModelViewer::modelDragFinished, this, [this](int model, bool rotated) {
             float v[6];
@@ -576,7 +584,7 @@ public:
         QAction* openDirAct = file->addAction(QString::fromUtf8("폴더 열기 (추가)..."));
         QObject::connect(openDirAct, &QAction::triggered, this, [this]() {
             const QString d = QFileDialog::getExistingDirectory(this, QString::fromUtf8("폴더로 저장한 모델 열기 (현재 장면에 추가됩니다)"));
-            if (!d.isEmpty()) openFile(d);
+            if (!d.isEmpty() && openFile(d)) folderView_->Reveal(d);
         });
         file->addSeparator();
         QAction* quit = file->addAction(QString::fromUtf8("종료"));
@@ -674,8 +682,12 @@ public:
         propAct->setText(QString::fromUtf8("속성"));
         propAct->setShortcut(Qt::Key_P);
         view->insertAction(viewSep, propAct);
+        QAction* folderAct = folderDock_->toggleViewAction();
+        folderAct->setText(QString::fromUtf8("폴더 (탐색기)"));
+        folderAct->setShortcut(Qt::Key_E);
+        view->insertAction(viewSep, folderAct);
         QAction* urdfAct = urdfDock_->toggleViewAction();
-        urdfAct->setText(QString::fromUtf8("URDF 파일 보기"));
+        urdfAct->setText(QString::fromUtf8("URDF 내용 보기"));
         urdfAct->setShortcut(Qt::Key_U);
         view->insertAction(viewSep, urdfAct);
         QAction* logAct = logDock_->toggleViewAction();
@@ -827,6 +839,7 @@ public:
         const QString msg = QString::fromUtf8("폴더로 저장: %1 (모델 %2개, 링크 %3, 관절 %4, 경고 %5)").arg(dir).arg(viewer_->ModelCount()).arg(viewer_->Robot().links.size()).arg(viewer_->Robot().joints.size()).arg(warns.size());
         log_->Info(msg);
         statusBar()->showMessage(msg);
+        folderView_->Reveal(dir);   // 탐색기에서 방금 만든 폴더가 보이게 한다
         return true;
     }
 
@@ -1264,6 +1277,7 @@ private:
         configureDock(dock_);
         configureDock(propDock_);
         configureDock(urdfDock_);
+        configureDock(folderDock_);
         configureDock(logDock_);
         configureDock(lidarDock_);
     }
@@ -1377,6 +1391,8 @@ private:
     QDockWidget* logDock_ = nullptr;
     QDockWidget* propDock_ = nullptr;
     QDockWidget* urdfDock_ = nullptr;
+    QDockWidget* folderDock_ = nullptr;
+    FolderView* folderView_ = nullptr;
     QSet<QString> loggedWarnings_;
     QStringList lastCollisions_;
     bool collisionLabelHit_ = false;
