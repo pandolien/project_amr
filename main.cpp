@@ -854,26 +854,45 @@ public:
         updateSelectionLabel();
     }
 
-    // 센서 카메라: --camera 로 지정한 링크에 단다 (URDF 에는 카메라 정의가 아직 없다). 영상 창은 메뉴 센서 > 카메라 로 켜고 끈다.
+    // 센서 카메라: URDF 의 <gazebo><sensor type="camera"> 또는 --camera 로 지정한 링크에 단다 (명령행이 우선). 영상 창은 메뉴 센서 > 카메라 로 켜고 끈다.
     void applyCamera(const Options& o) {
         showCamera(false);
         viewer_->ClearSensorCamera();
         cameraSpec_ = CameraSpec();
-        if (o.cameraLink.empty() || !viewer_->HasRobot()) return;
-        const int link = viewer_->Robot().FindLink(o.cameraLink);
-        if (link < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (카메라를 달지 않음)\n", o.cameraLink.c_str()); return; }
+        if (!viewer_->HasRobot()) return;
+        const simul::urdf::Robot& robot = viewer_->Robot();
         CameraSpec sp;
-        sp.link = link;
-        sp.mount = dhMat::Trans(o.cameraMount[0], o.cameraMount[1], o.cameraMount[2]);
-        sp.settings.width = o.cameraW;
-        sp.settings.height = o.cameraH;
-        sp.settings.horizontalFov = static_cast<float>(dhRad(o.cameraFov));
-        sp.settings.nearClip = o.cameraRange[0];
-        sp.settings.farClip = o.cameraRange[1];
+        bool fromUrdf = false;
+        if (!o.cameraLink.empty()) {  // 명령행
+            sp.link = robot.FindLink(o.cameraLink);
+            if (sp.link < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (카메라를 달지 않음)\n", o.cameraLink.c_str()); return; }
+            sp.mount = dhMat::Trans(o.cameraMount[0], o.cameraMount[1], o.cameraMount[2]);
+            sp.settings.width = o.cameraW;
+            sp.settings.height = o.cameraH;
+            sp.settings.horizontalFov = static_cast<float>(dhRad(o.cameraFov));
+            sp.settings.nearClip = o.cameraRange[0];
+            sp.settings.farClip = o.cameraRange[1];
+        } else if (!robot.cameras.empty()) {  // URDF 의 <gazebo><sensor type="camera">
+            const simul::urdf::CameraDef& d = robot.cameras[0];
+            if (robot.cameras.size() > 1) fprintf(stderr, "알림: 카메라가 %d 개 있어 첫 번째('%s')만 씁니다\n", static_cast<int>(robot.cameras.size()), d.name.c_str());
+            sp.link = robot.FindLink(d.link);
+            if (sp.link < 0) return;
+            sp.mount = d.pose;
+            sp.settings.width = d.width;
+            sp.settings.height = d.height;
+            sp.settings.horizontalFov = d.horizontalFov;
+            sp.settings.nearClip = d.nearClip;
+            sp.settings.farClip = d.farClip;
+            fromUrdf = true;
+        } else {
+            return;
+        }
         cameraSpec_ = sp;
         viewer_->SetSensorCamera(sp.link, sp.settings, sp.mount);
-        log_->Info(QString::fromUtf8("카메라: 링크 '%1', %2x%3, 시야각 %4도").arg(QString::fromUtf8(o.cameraLink.c_str())).arg(o.cameraW).arg(o.cameraH).arg(static_cast<double>(o.cameraFov)));
-        showCamera(true);
+        viewer_->SetSensorCameraDrawn(false);
+        log_->Info(QString::fromUtf8("카메라: 링크 '%1', %2x%3, 시야각 %4도%5").arg(QString::fromUtf8(robot.links[static_cast<size_t>(sp.link)].name.c_str())).arg(sp.settings.width).arg(sp.settings.height)
+                       .arg(dhDeg(static_cast<double>(sp.settings.horizontalFov)), 0, 'f', 1).arg(fromUrdf ? QString::fromUtf8(" (URDF)") : QString()));
+        if (!fromUrdf || !o.cameraSave.empty()) showCamera(true);  // URDF 의 카메라는 메뉴 센서 > 카메라 영상 으로 켠다 (저장을 요청했으면 바로)
     }
 
     // 카메라 영상 도크 (오른쪽). 보이는 동안에만 0.2 초마다 찍어서 갱신한다

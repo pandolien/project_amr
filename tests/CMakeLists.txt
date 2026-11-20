@@ -62,6 +62,7 @@ add_test(NAME test_cmesh_formats COMMAND test_cmesh_formats)
 add_executable(test_curdf test_curdf.cpp)
 target_link_libraries(test_curdf PRIVATE Core)
 simul_set_warnings(test_curdf)
+target_compile_definitions(test_curdf PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_curdf COMMAND test_curdf)
 
 add_executable(test_ccollision test_ccollision.cpp)

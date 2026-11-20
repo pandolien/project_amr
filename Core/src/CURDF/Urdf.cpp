@@ -22,6 +22,7 @@ void Robot::Clear() {
     joints.clear();
     materials.clear();
     lidars.clear();
+    cameras.clear();
     root = -1;
     order.clear();
     baseDir.clear();
@@ -384,11 +385,52 @@ struct Parser {
         return true;
     }
 
+    bool ParseCamera(XMLElement* s, const char* ref, const simul::String& type) {
+        CameraDef d;
+        d.name = s->Attribute("name") ? s->Attribute("name") : "";
+        const simul::String ctx = "카메라 '" + (d.name.empty() ? simul::String(ref ? ref : "") : d.name) + "'";
+        if (!ref || !*ref) return Fail(ctx + ": <gazebo reference=\"링크\"> 가 필요합니다");
+        d.link = ref;
+        if (d.name.empty()) d.name = d.link;
+        if (XMLElement* pose = s->FirstChildElement("pose")) {
+            float v[6];
+            if (!pose->GetText() || !ParseFloats(pose->GetText(), 6, v)) return Fail(ctx + ": <pose> 는 숫자 6개 (x y z roll pitch yaw) 여야 합니다");
+            d.pose = dhEuler(v[5], v[4], v[3]).GetMat();
+            d.pose.v[12] = v[0];
+            d.pose.v[13] = v[1];
+            d.pose.v[14] = v[2];
+        }
+        XMLElement* cam = s->FirstChildElement("camera");
+        if (!cam) {   // <camera> 가 없으면 기본값 (320x240, 60도, 0.05 ~ 10 m)
+            robot->cameras.push_back(d);
+            return true;
+        }
+        if (!ChildFloat(cam, "horizontal_fov", d.horizontalFov, &d.horizontalFov, ctx)) return false;
+        if (!(d.horizontalFov > 0.0f) || !(d.horizontalFov < 3.1315927f)) return Fail(ctx + ": horizontal_fov 는 0 보다 크고 pi 보다 작아야 합니다 (rad)");
+        if (XMLElement* im = cam->FirstChildElement("image")) {
+            float w = static_cast<float>(d.width), h = static_cast<float>(d.height);
+            if (!ChildFloat(im, "width", w, &w, ctx + " image") || !ChildFloat(im, "height", h, &h, ctx + " image")) return false;
+            if (!(w >= 1.0f) || !(h >= 1.0f) || w > 16384.0f || h > 16384.0f || w != static_cast<float>(static_cast<int>(w)) || h != static_cast<float>(static_cast<int>(h)))
+                return Fail(ctx + ": image width, height 는 1 ~ 16384 의 정수여야 합니다");
+            d.width = static_cast<int>(w);
+            d.height = static_cast<int>(h);
+        }
+        if (XMLElement* clip = cam->FirstChildElement("clip"))
+            if (!ChildFloat(clip, "near", d.nearClip, &d.nearClip, ctx + " clip") || !ChildFloat(clip, "far", d.farClip, &d.farClip, ctx + " clip")) return false;
+        if (!(d.nearClip >= 0.0f) || !(d.farClip > d.nearClip)) return Fail(ctx + ": clip 은 0 <= near < far 여야 합니다");
+        robot->cameras.push_back(d);
+        return true;
+    }
+
     bool ParseGazebo(XMLElement* g) {
         const char* ref = g->Attribute("reference");
         for (XMLElement* s = g->FirstChildElement("sensor"); s; s = s->NextSiblingElement("sensor")) {
             const simul::String type = s->Attribute("type") ? s->Attribute("type") : "";
-            if (type != "ray" && type != "gpu_ray" && type != "lidar" && type != "gpu_lidar") continue;  // 카메라 등은 아직 읽지 않는다
+            if (type == "camera" || type == "depth_camera" || type == "rgbd_camera" || type == "depth") {
+                if (!ParseCamera(s, ref, type)) return false;
+                continue;
+            }
+            if (type != "ray" && type != "gpu_ray" && type != "lidar" && type != "gpu_lidar") continue;  // 그 밖의 센서는 읽지 않는다
             LidarDef d;
             d.name = s->Attribute("name") ? s->Attribute("name") : "";
             const simul::String ctx = "라이다 '" + (d.name.empty() ? simul::String(ref ? ref : "") : d.name) + "'";
@@ -463,6 +505,8 @@ struct Parser {
         if (!Validate()) return false;
         for (size_t i = 0; i < robot->lidars.size(); i++)
             if (robot->FindLink(robot->lidars[i].link) < 0) return Fail("라이다 '" + robot->lidars[i].name + "' 가 붙은 링크가 없습니다: " + robot->lidars[i].link);
+        for (size_t i = 0; i < robot->cameras.size(); i++)
+            if (robot->FindLink(robot->cameras[i].link) < 0) return Fail("카메라 '" + robot->cameras[i].name + "' 가 붙은 링크가 없습니다: " + robot->cameras[i].link);
         return true;
     }
 };
