@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!-- 자동 생성: ArUco/ChArUco 마커 (aruco_4x4_id0). 흰 판과 검은 칸 두 메시. 좌표계는 Core/include/CMarker/Marker.h 참고. 단위 m -->
+<robot name="aruco_4x4_id0">
+  <material name="marker_paper"><color rgba="0.93 0.93 0.91 1"/></material>
+  <material name="marker_ink"><color rgba="0.03 0.03 0.03 1"/></material>
+  <link name="marker">
+    <visual><geometry><mesh filename="aruco_4x4_id0_plate.stl"/></geometry><material name="marker_paper"/></visual>
+    <visual><geometry><mesh filename="aruco_4x4_id0_ink.stl"/></geometry><material name="marker_ink"/></visual>
+  </link>
+</robot>
