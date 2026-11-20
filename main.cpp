@@ -59,6 +59,7 @@ struct Options {
     simul::Array<simul::Pair<simul::String, simul::String> > pyScripts;   // --python-script 파일[:오브젝트,...]
     double pyHz;               // --python-hz: 초당 틱 수
     int pySteps;               // --python-steps N: 시작하자마자 N 틱을 돌린 뒤 멈춘다 (확인용)
+    bool objPanel;             // --object-panel: 오브젝트 / 관절 값 도크를 연 채로 시작
     bool pyEditor;             // --python-editor: 오른쪽 Python 편집기를 연 채로 시작
     bool pyRun;                // --python-run: 시작하자마자 실시간으로 돌린다
     simul::String projectFile; // --project 파일: project.simul 을 열어 장면, 스크립트 등록, 자동 시작까지 한다
@@ -114,7 +115,7 @@ struct Options {
     simul::Array<simul::Pair<simul::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     simul::Array<simul::Pair<simul::String, simul::String> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : onlyView(false), hideMenu(false), shading(2), info(false), pyEnabled(false), pyHz(60.0), pySteps(0), pyEditor(false), pyRun(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : onlyView(false), hideMenu(false), shading(2), info(false), pyEnabled(false), pyHz(60.0), pySteps(0), objPanel(false), pyEditor(false), pyRun(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
@@ -156,6 +157,7 @@ void PrintUsage(const char* exe) {
         "  --python-script 파일[:오브젝트,...]  Main.py 에 등록할 외부 python 파일과, 그 파일의 클래스가 움직일 수 있는 오브젝트 (여러 번 가능, --python 을 포함)\n"
         "  --python-main 파일  Main.py 대신 쓸 파일    --python-hz N  초당 틱 수 (기본 60)\n"
         "  --python-editor    오른쪽 Python 편집기를 연 채로 시작 (메뉴 Python > Python 편집기, Ctrl+E)\n"
+        "  --object-panel     오브젝트 / 관절 값 도크를 연 채로 시작 (메뉴 Python > 오브젝트 / 관절 값, Ctrl+J)\n"
         "  --python-run       시작하자마자 시뮬레이션을 실시간으로 돌린다    --python-steps N  N 틱을 바로 돌리고 멈춘다 (확인용)\n"
         "  --project 파일     project.simul 을 연다 (모델 배치, python 등록과 권한, 자동 시작까지)\n"
         "  --pack 프로젝트 [-o 출력]  프로젝트 폴더를 이 프로그램 뒤에 붙여 하나의 실행 파일로 만든다 (실행하면 그 프로젝트가 자동으로 열려 돌아간다)\n"
@@ -235,6 +237,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if ((a == "-o" || a == "--output") && hasNext) { o->packOut = argv[++i]; continue; }
         if (a == "--python") { o->pyEnabled = true; continue; }
         if (a == "--python-editor") { o->pyEditor = true; continue; }
+        if (a == "--object-panel") { o->objPanel = true; continue; }
         if (a == "--python-run") { o->pyEnabled = true; o->pyRun = true; continue; }
         if (a == "--python-main" && hasNext) { o->pyEnabled = true; o->pyMain = argv[++i]; continue; }
         if (a == "--python-hz" && hasNext) {
@@ -613,6 +616,7 @@ int PrintInfo(const Options& o) {
 #include <QInputDialog>
 #include "CoreQt/SimulView.h"
 #include "CoreQt/SimulRunner.h"
+#include "CoreQt/ObjectInfoPanel.h"
 #include "CoreQt/PythonPanel.h"
 #include "CoreQt/LogView.h"
 #include <QSet>
@@ -1030,7 +1034,7 @@ public:
     // 처음 필요할 때 엔진, 인터프리터, Main.py 를 만든다. 실패하면 로그에 남기고 false
     bool ensurePython(const Options& o) {
         if (py_) return pyReady_;
-        backend_ = new ViewerBackend(viewer_);
+        if (!backend_) backend_ = new ViewerBackend(viewer_);
         engine_ = new simul::sim::Engine(backend_);
         runner_ = new SimulRunner(engine_, this);
         runner_->SetRate(o.pyHz);
@@ -1089,6 +1093,22 @@ public:
         addDockWidget(Qt::RightDockWidgetArea, pyDock_);
         resizeDocks(QList<QDockWidget*>() << pyDock_, QList<int>() << 480, Qt::Horizontal);
         pyDock_->hide();
+        // 오브젝트 / 관절 정보: 엔진 없이도 장면에서 바로 읽는다. 더블클릭하면 편집기 커서에 "이름" 이 들어간다
+        if (!backend_) backend_ = new ViewerBackend(viewer_);
+        objPanel_ = new ObjectInfoPanel(backend_);
+        objDock_ = new QDockWidget(QString::fromUtf8("오브젝트 / 관절 값"), this);
+        objDock_->setWidget(objPanel_);
+        addDockWidget(Qt::RightDockWidgetArea, objDock_);
+        splitDockWidget(pyDock_, objDock_, Qt::Vertical);
+        objDock_->hide();
+        m->insertAction(reg, objDock_->toggleViewAction());
+        objDock_->toggleViewAction()->setText(QString::fromUtf8("오브젝트 / 관절 값"));
+        objDock_->toggleViewAction()->setShortcut(Qt::CTRL + Qt::Key_J);
+        QObject::connect(objPanel_, &ObjectInfoPanel::nameActivated, this, [this](const QString& quoted) {
+            if (!pyDock_->isVisible()) pyDock_->show();
+            pyPanel_->editor()->insertPlainText(quoted);
+            pyPanel_->editor()->setFocus();
+        });
         m->insertAction(reg, pyDock_->toggleViewAction());
         pyDock_->toggleViewAction()->setText(QString::fromUtf8("Python 편집기"));
         pyDock_->toggleViewAction()->setShortcut(Qt::CTRL + Qt::Key_E);
@@ -1123,6 +1143,7 @@ public:
             simul::String err;
             py_->RunSnippet("Main.hub.refresh(); print(Main.hub.describe())", &err);
         });
+        if (o.objPanel) objDock_->show();
         if (o.pyEditor) {
             pyDock_->show();
             if (!o.pyScripts.empty()) pyPanel_->Open(simulqt::ToQ(o.pyScripts[0].first));
@@ -1173,6 +1194,7 @@ public:
         o->pyHz = p.hz;
         o->pyRun = p.autostart;
         o->pyEditor = p.showEditor;
+        o->objPanel = o->objPanel || p.showEditor;
         if (!p.mainPy.empty()) o->pyMain = simulqt::FromQ(base.filePath(simulqt::ToQ(p.mainPy)));
         else if (!o->embeddedDir.empty()) o->pyMain = o->embeddedDir + "/__simul/Main.py";
         viewer_->FitView();
@@ -1853,6 +1875,8 @@ private:
     bool pyReady_ = false;
     PythonPanel* pyPanel_ = nullptr;
     QDockWidget* pyDock_ = nullptr;
+    ObjectInfoPanel* objPanel_ = nullptr;
+    QDockWidget* objDock_ = nullptr;
 #endif
     QDockWidget* logDock_ = nullptr;
     SunPanel* sunPanel_ = nullptr;
