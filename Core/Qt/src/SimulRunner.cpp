@@ -77,6 +77,25 @@ bool ViewerBackend::SetJoint(int index, const String& joint, double value, Strin
     return true;
 }
 
+void ViewerBackend::ReadCollisions(simul::Array<ContactInfo>* out) const {
+    out->clear();
+    const simul::urdf::Robot& robot = viewer_->Robot();
+    const simul::Array<simul::CollisionPair>& pairs = viewer_->SelfCollisions();
+    for (size_t i = 0; i < pairs.size(); i++) {
+        const int a = pairs[i].a, b = pairs[i].b;
+        if (a < 0 || b < 0 || static_cast<size_t>(a) >= robot.links.size() || static_cast<size_t>(b) >= robot.links.size()) continue;
+        const int ma = viewer_->ModelOfLink(a), mb = viewer_->ModelOfLink(b);
+        if (ma < 0 || mb < 0) continue;   // world 링크는 오브젝트가 아니다
+        ContactInfo c;
+        c.objectA = simulqt::FromQ(viewer_->ModelName(ma));
+        c.linkA = robot.links[static_cast<size_t>(a)].name;
+        c.objectB = simulqt::FromQ(viewer_->ModelName(mb));
+        c.linkB = robot.links[static_cast<size_t>(b)].name;
+        c.sameObject = ma == mb;
+        out->push_back(c);
+    }
+}
+
 SimulRunner::SimulRunner(Engine* engine, QObject* parent) : QObject(parent), engine_(engine), timer_(new QTimer(this)), dt_(1.0 / 60.0), lastMs_(0), carry_(0.0) {
     timer_->setInterval(8);   // dt 보다 잘게 깨어나서 실제 흐른 시간만큼 틱을 낸다
     connect(timer_, &QTimer::timeout, this, &SimulRunner::onTimer);

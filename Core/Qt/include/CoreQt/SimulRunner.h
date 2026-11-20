@@ -16,6 +16,7 @@ public:
     explicit ViewerBackend(ModelViewer* viewer) : viewer_(viewer) {}
     int ObjectCount() const override;
     bool ReadObject(int index, simul::sim::ObjectInfo* out) const override;
+    void ReadCollisions(simul::Array<simul::sim::ContactInfo>* out) const override;
     bool SetPose(int index, const dhPose& pose, simul::String* error) override;
     bool SetJoint(int index, const simul::String& joint, double value, simul::String* error) override;
 

@@ -55,6 +55,14 @@ struct ObjectInfo {
     Array<JointInfo> joints;  // 움직이는 관절만
 };
 
+// 지금 서로 겹치는 두 부분 (OBB 까지 겹친 것). 같은 오브젝트 안의 링크끼리면 sameObject 가 true (자기충돌).
+struct ContactInfo {
+    String objectA, linkA;
+    String objectB, linkB;
+    bool sameObject;
+    ContactInfo() : sameObject(false) {}
+};
+
 // 호스트가 구현한다. 인덱스는 0 .. ObjectCount()-1 이고 Engine 은 이름으로 오브젝트를 알아본다 (인덱스는 오브젝트가 지워지면 바뀔 수 있다).
 class Backend {
 public:
@@ -63,6 +71,8 @@ public:
     virtual bool ReadObject(int index, ObjectInfo* out) const = 0;
     virtual bool SetPose(int index, const dhPose& pose, String* error) = 0;
     virtual bool SetJoint(int index, const String& joint, double value, String* error) = 0;
+    // 지금 겹쳐 있는 충돌 쌍. 충돌 검사를 하지 않는 호스트는 비워 두면 된다
+    virtual void ReadCollisions(Array<ContactInfo>* out) const { out->clear(); }
 };
 
 enum EventType {
@@ -125,6 +135,7 @@ public:
     Handle Find(const String& name);               // Backend 와 먼저 맞춘다. 없으면 slot -1
     bool Alive(Handle h) const;
     String Name(Handle h) const;                   // 죽은 핸들이면 빈 문자열
+    void Contacts(Array<ContactInfo>* out) const { backend_->ReadCollisions(out); }   // 지금 겹친 쌍 (Backend 에서 읽는다)
     bool Info(Handle h, ObjectInfo* out);          // Backend 에서 지금 상태를 읽는다. 죽은 핸들이면 false
 
     // ---- 명령 (큐에 넣는다. 검사해서 틀리면 false 와 이유. 적용은 다음 틱 시작) ----
