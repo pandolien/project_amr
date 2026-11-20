@@ -1139,6 +1139,36 @@ void ModelViewer::RemoveModel(int index) {
     update();
 }
 
+QString ModelViewer::ModelSourcePath(int index) const {
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return QString();
+    return simulqt::ToQ(world_.entry(static_cast<size_t>(index)).path);
+}
+
+QStringList ModelViewer::ModelReferencedFiles(int index) const {
+    QStringList out;
+    if (index < 0 || static_cast<size_t>(index) >= world_.size()) return out;
+    const simul::urdf::WorldEntry& e = world_.entry(static_cast<size_t>(index));
+    if (e.path.empty()) return out;
+    const simul::String base = simulqt::FromQ(QFileInfo(simulqt::ToQ(e.path)).absolutePath());
+    simul::Array<simul::String> names;
+    for (size_t l = 0; l < e.base.links.size(); l++) {
+        const simul::urdf::Link& link = e.base.links[l];
+        for (size_t v = 0; v < link.visuals.size(); v++) {
+            if (link.visuals[v].geometry.type == simul::urdf::kGeomMesh) names.push_back(link.visuals[v].geometry.filename);
+            if (link.visuals[v].hasMaterial && !link.visuals[v].material.texture.empty()) names.push_back(link.visuals[v].material.texture);
+        }
+        for (size_t k = 0; k < link.collisions.size(); k++)
+            if (link.collisions[k].geometry.type == simul::urdf::kGeomMesh) names.push_back(link.collisions[k].geometry.filename);
+    }
+    for (size_t i = 0; i < names.size(); i++) {
+        simul::String resolved;
+        if (!simul::urdf::ResolveMeshPath(names[i], base, options_, &resolved)) continue;
+        const QString q = QFileInfo(simulqt::ToQ(resolved)).absoluteFilePath();
+        if (!out.contains(q)) out << q;
+    }
+    return out;
+}
+
 QString ModelViewer::ModelName(int index) const {
     if (index < 0 || static_cast<size_t>(index) >= world_.size()) return QString();
     return simulqt::ToQ(world_.entry(static_cast<size_t>(index)).name);

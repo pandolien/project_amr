@@ -247,6 +247,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         }
         const bool hasNext = i + 1 < argc;
         if (a == "--project" && hasNext) { o->projectFile = argv[++i]; continue; }
+        if (a == "--save-project" && hasNext) { o->saveProjectDir = argv[++i]; continue; }
         if (a == "--pack" && hasNext) { o->packProject = argv[++i]; continue; }
         if ((a == "-o" || a == "--output") && hasNext) { o->packOut = argv[++i]; continue; }
         if (a == "--python") { o->pyEnabled = true; continue; }
@@ -373,7 +374,6 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--only-view") { o->onlyView = true; continue; }
         if (a == "--connect" && hasNext) { o->connects.push_back(argv[++i]); continue; }
         if (a == "--export-urdf" && hasNext) { o->exportUrdf = argv[++i]; continue; }
-        if (a == "--save-project" && hasNext) { o->saveProjectDir = argv[++i]; continue; }
         if (a == "--export-dir" && hasNext) { o->exportDir = argv[++i]; continue; }
         if (a == "--export-mesh" && hasNext) {
             const simul::String v = argv[++i];

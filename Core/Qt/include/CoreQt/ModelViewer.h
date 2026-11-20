@@ -70,6 +70,8 @@ public:
     bool SaveUrdfFolder(const QString& dir, QString* error = nullptr, QStringList* warnings = nullptr, int meshFormat = 0) const;   // meshFormat: 0 OBJ+MTL, 1 STL, 2 GLB 그대로
     int ModelCount() const { return static_cast<int>(world_.size()); }
     QString ModelName(int index) const;
+    QString ModelSourcePath(int index) const;           // 읽은 파일 (파일 없이 만든 도형이면 빈 문자열)
+    QStringList ModelReferencedFiles(int index) const;  // 그 URDF 가 쓰는 메시/텍스처 파일 (찾은 것의 절대 경로)
     int ModelOfLink(int link) const { return world_.EntryOfLink(robot_, link); }  // 링크가 속한 모델 (world 링크는 -1)
     int ModelOfRoot(int link) const { return world_.EntryOfRoot(robot_, link); }  // 링크가 어떤 모델의 루트이면 그 모델 번호, 아니면 -1
     // ---- 관절로 연결하기: 모델을 다른 모델의 링크에 관절(fixed, revolute, continuous, prismatic)로 붙인다.
