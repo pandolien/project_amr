@@ -135,7 +135,8 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
         hi.width *= k;
         hi.height *= k;
         hi.antialias = 1;
-        hi.noiseStdDev = 0.0f;   // 잡음은 줄인 깊이에 한 번만 더한다
+        hi.noiseStdDev = 0.0f;   // 잡음은 줄인 영상에 한 번만 더한다
+        hi.colorNoiseStdDev = 0.0f;
         Camera big(hi);
         big.sun_ = sun_;
         CameraImage src;
@@ -166,6 +167,7 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
                     out->depth[i] = d > 0.0f ? d : 0.0f;
                 }
             }
+        addColorNoise(out);
         return;
     }
     const size_t w = static_cast<size_t>(settings_.width), h = static_cast<size_t>(settings_.height), n = w * h;
@@ -329,6 +331,17 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
         out->bgr[i * 3] = ToByte(rgb[2]);
         out->bgr[i * 3 + 1] = ToByte(rgb[1]);
         out->bgr[i * 3 + 2] = ToByte(rgb[0]);
+    }
+    addColorNoise(out);
+}
+
+// 모든 픽셀의 B, G, R 에 따로 가우시안 잡음을 더한다 (0..255 로 자른다)
+void Camera::addColorNoise(CameraImage* out) {
+    const float sd = settings_.colorNoiseStdDev * 255.0f;
+    if (!(sd > 0.0f)) return;
+    for (size_t k = 0; k < out->bgr.size(); k++) {
+        const float v = static_cast<float>(out->bgr[k]) + sd * gaussian() + 0.5f;
+        out->bgr[k] = static_cast<uint8_t>(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v));
     }
 }
 

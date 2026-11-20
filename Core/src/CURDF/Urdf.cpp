@@ -418,6 +418,10 @@ struct Parser {
         if (XMLElement* clip = cam->FirstChildElement("clip"))
             if (!ChildFloat(clip, "near", d.nearClip, &d.nearClip, ctx + " clip") || !ChildFloat(clip, "far", d.farClip, &d.farClip, ctx + " clip")) return false;
         if (!(d.nearClip >= 0.0f) || !(d.farClip > d.nearClip)) return Fail(ctx + ": clip 은 0 <= near < far 여야 합니다");
+        if (XMLElement* noise = cam->FirstChildElement("noise")) {   // Gazebo 의 <noise><type>gaussian</type><stddev>. stddev 는 색, depth_stddev 는 깊이 (확장)
+            if (!ChildFloat(noise, "stddev", d.colorNoise, &d.colorNoise, ctx + " noise") || !ChildFloat(noise, "depth_stddev", d.depthNoise, &d.depthNoise, ctx + " noise")) return false;
+            if (d.colorNoise < 0.0f || d.depthNoise < 0.0f) return Fail(ctx + ": noise stddev 가 음수입니다");
+        }
         if (XMLElement* dist = cam->FirstChildElement("distortion")) {   // Gazebo 의 <distortion><k1><k2><k3><p1><p2>. 저장 순서는 OpenCV (k1, k2, p1, p2, k3)
             const char* tags[5] = {"k1", "k2", "p1", "p2", "k3"};
             for (int i = 0; i < 5; i++)

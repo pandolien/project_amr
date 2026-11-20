@@ -50,6 +50,8 @@ struct BoxMesh {
 
 CameraSettings small(int w, int h) {
     CameraSettings s;
+    s.noiseStdDev = 0.0f;        // 기본값은 잡음이 있다. 정확한 값을 보는 테스트는 잡음 없이
+    s.colorNoiseStdDev = 0.0f;
     s.width = w;
     s.height = h;
     return s;
@@ -433,6 +435,74 @@ void testDistortion() {
     check(!Camera(s).Valid(), "non-finite coefficients are invalid");
 }
 
+void testNoise() {
+    CameraSettings d;   // 기본 설정에는 잡음이 있다
+    check(d.colorNoiseStdDev > 0.0f && d.noiseStdDev > 0.0f && d.HasNoise(), "noise is on by default");
+    const BoxMesh wall(2.0f, -5.0f, -5.0f, 2.1f, 5.0f, 5.0f);
+    CameraTarget t = wall.target(1, 0.5f, 0.5f, 0.5f);
+    CameraSettings s = small(40, 30);
+    s.noiseStdDev = 0.0f;
+    s.colorNoiseStdDev = 0.0f;
+    Camera clean(s);
+    CameraImage c0;
+    clean.Render(dhMat(), &t, 1, &c0);
+    // 색 잡음: 매끈한 벽이 지글거린다. 평균은 그대로, 표준편차는 설정값 근처
+    s.colorNoiseStdDev = 0.02f;
+    Camera noisy(s);
+    CameraImage n1, n2;
+    noisy.Render(dhMat(), &t, 1, &n1);
+    noisy.Render(dhMat(), &t, 1, &n2);
+    double sum = 0.0, sq = 0.0, sum0 = 0.0;
+    size_t diff12 = 0;
+    for (size_t i = 0; i < n1.bgr.size(); i++) {
+        const double e = static_cast<double>(n1.bgr[i]) - static_cast<double>(c0.bgr[i]);
+        sum += e;
+        sq += e * e;
+        sum0 += c0.bgr[i];
+        if (n1.bgr[i] != n2.bgr[i]) diff12++;
+    }
+    const double cnt = static_cast<double>(n1.bgr.size()), mean = sum / cnt, sd = Sqrt(static_cast<float>(sq / cnt - mean * mean));
+    check(Abs(mean) < 1.0 && sd > 3.0 && sd < 8.0, "color noise has about the configured spread (0.02 of 255 = 5)");
+    check(diff12 > n1.bgr.size() / 4, "the noise changes from frame to frame");
+    bool depthSame = true;
+    for (size_t i = 0; i < c0.depth.size(); i++) depthSame = depthSame && c0.depth[i] == n1.depth[i];
+    check(depthSame, "color noise leaves depth alone");
+    // 깊이 잡음
+    s.colorNoiseStdDev = 0.0f;
+    s.noiseStdDev = 0.01f;
+    Camera dn(s);
+    CameraImage d1;
+    dn.Render(dhMat(), &t, 1, &d1);
+    double dsum = 0.0, dsq = 0.0;
+    size_t hit = 0;
+    for (size_t i = 0; i < d1.depth.size(); i++)
+        if (d1.targetIds[i] >= 0) {
+            const double e = static_cast<double>(d1.depth[i]) - static_cast<double>(c0.depth[i]);
+            dsum += e;
+            dsq += e * e;
+            hit++;
+        }
+    const double dm = dsum / static_cast<double>(hit), dsd = Sqrt(static_cast<float>(dsq / static_cast<double>(hit) - dm * dm));
+    check(hit > 100 && Abs(dm) < 0.003 && dsd > 0.006 && dsd < 0.015, "depth noise has about the configured spread (10 mm)");
+    // 0 이면 없다, 안티앨리어싱과 함께여도 한 번만 더한다
+    s.noiseStdDev = 0.0f;
+    s.colorNoiseStdDev = 0.0f;
+    Camera off(s);
+    CameraImage o1, o2;
+    off.Render(dhMat(), &t, 1, &o1);
+    off.Render(dhMat(), &t, 1, &o2);
+    check(o1.bgr == o2.bgr && o1.bgr == c0.bgr, "zero noise gives identical frames");
+    s.colorNoiseStdDev = 0.02f;
+    s.antialias = 2;
+    Camera aa(s);
+    CameraImage a1;
+    aa.Render(dhMat(), &t, 1, &a1);
+    size_t changed = 0;
+    for (size_t i = 0; i < a1.bgr.size(); i++)
+        if (a1.bgr[i] != c0.bgr[i]) changed++;
+    check(a1.width == 40 && changed > a1.bgr.size() / 4, "noise works with antialiasing");
+}
+
 void testEdgeCases() {
     CameraSettings s = small(0, 10);
     Camera bad(s);
@@ -463,6 +533,7 @@ int main() {
     testSun();
     testAntialias();
     testDistortion();
+    testNoise();
     testEdgeCases();
     if (g_fail) {
         printf("test_ccamera: %d failure(s)\n", g_fail);

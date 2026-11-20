@@ -83,6 +83,8 @@ struct Options {
     float cameraRange[2];      // --camera-range 최소,최대 (m)
     float cameraDistort[5];    // --camera-distort k1,k2,p1,p2,k3: 렌즈 왜곡 (OpenCV 와 같은 뜻, 0 = 없음)
     bool cameraDistortSet;
+    float cameraNoise[2];      // --camera-noise 색,깊이 (색은 0..1 비율, 깊이는 m). 0,0 = 잡음 없음
+    bool cameraNoiseSet;
     int cameraAa;              // --camera-aa 1~4: 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균, 1 = 끔)
     simul::String cameraSave;  // --camera-save: 찍은 영상을 저장할 PNG 파일 (깊이는 이름_depth.png, 16비트 mm 는 이름_depth16.png)
     bool hasMove;
@@ -115,6 +117,9 @@ struct Options {
         cameraAa = 1;
         for (int i = 0; i < 5; i++) cameraDistort[i] = 0.0f;
         cameraDistortSet = false;
+        cameraNoise[0] = 0.02f;
+        cameraNoise[1] = 0.005f;
+        cameraNoiseSet = false;
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -simul::dynamics::kStandardGravity;
@@ -154,6 +159,7 @@ void PrintUsage(const char* exe) {
         "  --camera 링크[,x,y,z]  그 링크에 카메라를 달고 시야 절두체(노랑)와 영상 창을 표시. 센서 +x 가 보는 방향, +y 왼쪽, +z 위\n"
         "  --camera-size 가로x세로  --camera-fov 도(가로 시야각)  --camera-range 최소,최대  (기본 320x240, 60도, 0.05~10 m)\n"
         "  --camera-distort k1,k2,p1,p2,k3  카메라 렌즈 왜곡 (OpenCV 와 같음. 예: -0.3,0.1,0,0,0 = 통 모양. URDF 의 <distortion> 보다 우선)\n"
+        "  --camera-noise 색,깊이  카메라 잡음 (색은 0~1 비율, 깊이는 m. 기본 0.02,0.005. 0,0 이면 잡음 없음. URDF 의 <noise> 보다 우선)\n"
         "  --camera-aa 1~4  카메라 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균. 1 = 끔, 시간은 n^2 배)\n"
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 오늘 날짜의 10:00). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
@@ -267,6 +273,14 @@ int ParseArgs(int argc, char** argv, Options* o) {
             if (n < 1 || n > 5 || *c) { fprintf(stderr, "--camera-distort 는 k1,k2,p1,p2,k3 형식입니다 (숫자 1~5개, 모자라면 0. 예: -0.3,0.1)\n"); return false; }
             for (int j = 0; j < 5; j++) o->cameraDistort[j] = f[j];
             o->cameraDistortSet = true;
+            continue;
+        }
+        if (a == "--camera-noise" && hasNext) {
+            float c = 0.0f, d = 0.0f;
+            if (sscanf(argv[++i], "%f,%f", &c, &d) != 2 || c < 0.0f || d < 0.0f) { fprintf(stderr, "--camera-noise 는 색,깊이 형식입니다 (0 이상, 예: 0.02,0.005)\n"); return false; }
+            o->cameraNoise[0] = c;
+            o->cameraNoise[1] = d;
+            o->cameraNoiseSet = true;
             continue;
         }
         if (a == "--camera-aa" && hasNext) {
@@ -1018,6 +1032,8 @@ public:
             sp.settings.nearClip = o.cameraRange[0];
             sp.settings.farClip = o.cameraRange[1];
             for (int i = 0; i < 5; i++) sp.settings.distortion[i] = o.cameraDistort[i];
+            sp.settings.colorNoiseStdDev = o.cameraNoise[0];
+            sp.settings.noiseStdDev = o.cameraNoise[1];
         } else if (!robot.cameras.empty()) {  // URDF 의 <gazebo><sensor type="camera">
             const simul::urdf::CameraDef& d = robot.cameras[0];
             if (robot.cameras.size() > 1) fprintf(stderr, "알림: 카메라가 %d 개 있어 첫 번째('%s')만 씁니다\n", static_cast<int>(robot.cameras.size()), d.name.c_str());
@@ -1030,6 +1046,8 @@ public:
             sp.settings.nearClip = d.nearClip;
             sp.settings.farClip = d.farClip;
             for (int i = 0; i < 5; i++) sp.settings.distortion[i] = o.cameraDistortSet ? o.cameraDistort[i] : d.distortion[i];
+            sp.settings.colorNoiseStdDev = o.cameraNoiseSet ? o.cameraNoise[0] : d.colorNoise;
+            sp.settings.noiseStdDev = o.cameraNoiseSet ? o.cameraNoise[1] : d.depthNoise;
             fromUrdf = true;
         } else {
             return;
@@ -1103,6 +1121,28 @@ public:
             });
             distRow->addWidget(dist);
             lay->addLayout(distRow);
+            QHBoxLayout* noiseRow = new QHBoxLayout;
+            noiseRow->addWidget(new QLabel(QString::fromUtf8("잡음 색(0~1), 깊이(m)")));
+            QLineEdit* noise = new QLineEdit(QString("%1, %2").arg(cameraSpec_.settings.colorNoiseStdDev).arg(cameraSpec_.settings.noiseStdDev));
+            noise->setToolTip(QString::fromUtf8("색 잡음은 만점 대비 비율(0.02 = 약 5/255), 깊이 잡음은 미터. 0, 0 이면 잡음 없음. 엔터로 적용"));
+            QObject::connect(noise, &QLineEdit::returnPressed, this, [this, noise]() {
+                if (cameraSpec_.link < 0) return;
+                QString flat = noise->text();
+                flat.replace(',', ' ');
+                const QStringList p = flat.simplified().split(' ', QString::SkipEmptyParts);
+                bool ok1 = false, ok2 = false;
+                const float c = p.size() == 2 ? p[0].toFloat(&ok1) : 0.0f, d = p.size() == 2 ? p[1].toFloat(&ok2) : 0.0f;
+                if (!(ok1 && ok2) || c < 0.0f || d < 0.0f) {
+                    log_->Info(QString::fromUtf8("잡음은 '색, 깊이' 두 숫자(0 이상)입니다"));
+                    return;
+                }
+                cameraSpec_.settings.colorNoiseStdDev = c;
+                cameraSpec_.settings.noiseStdDev = d;
+                viewer_->SetSensorCamera(cameraSpec_.link, cameraSpec_.settings, cameraSpec_.mount);
+                log_->Info(QString::fromUtf8("카메라 잡음: 색 %1, 깊이 %2 m").arg(c).arg(d));
+            });
+            noiseRow->addWidget(noise);
+            lay->addLayout(noiseRow);
             lay->addWidget(cameraView_, 1);
             cameraDock_ = new QDockWidget(QString::fromUtf8("카메라"), this);
             cameraDock_->setWidget(box);
