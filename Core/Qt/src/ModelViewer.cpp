@@ -170,6 +170,9 @@ ModelViewer::ModelViewer(QWidget* parent)
     dragged_ = false;
     lidarOn_ = false;
     lidarDraw_ = true;
+    cameraOn_ = false;
+    cameraDraw_ = true;
+    cameraLink_ = -1;
     shading_ = 2;
     lidarLink_ = -1;
     lidarHeading_ = 0.0f;
@@ -1469,6 +1472,103 @@ const simul::sensor::LidarScan& ModelViewer::ScanLidar() {
     return lidarScan_;
 }
 
+void ModelViewer::SetSensorCamera(int link, const simul::sensor::CameraSettings& settings, const dhMat& mount) {
+    cameraOn_ = true;
+    cameraDraw_ = true;
+    cameraLink_ = link;
+    cameraMount_ = mount;
+    camera_.SetSettings(settings);
+    update();
+}
+
+void ModelViewer::ClearSensorCamera() {
+    cameraOn_ = false;
+    cameraImage_ = simul::sensor::CameraImage();
+    update();
+}
+
+dhMat ModelViewer::SensorCameraPose() const {
+    dhMat pose = dhMat::Trans(objectPos_.x, objectPos_.y, objectPos_.z);
+    if (cameraLink_ >= 0 && static_cast<size_t>(cameraLink_) < linkT_.size()) pose = pose * linkT_[static_cast<size_t>(cameraLink_)];
+    return pose * cameraMount_;
+}
+
+// 카메라가 볼 메시들 (skipLink 의 링크는 뺀다). 색은 primitive 의 기본 색이다.
+void ModelViewer::collectTargets(int skipLink, simul::Array<simul::sensor::CameraTarget>* out) {
+    for (size_t i = 0; i < items_.size(); i++) {
+        Item& it = *items_[i];
+        if (skipLink >= 0 && it.link == skipLink) continue;
+        if (it.link < 0 && !hasScene_) continue;
+        if (it.data.empty() || it.indices.empty()) continue;
+        simul::sensor::CameraTarget c;
+        c.mesh.positions = it.data.data();
+        c.mesh.vertexCount = it.data.size() / 6;
+        c.mesh.indices = it.indices.data();
+        c.mesh.indexCount = it.indices.size();
+        c.mesh.stride = 6;
+        c.mesh.world = itemWorld(it);
+        c.mesh.id = it.link < 0 ? 0 : it.link;
+        if (!it.bvhOk) {
+            it.bvh.Build(it.data.data(), it.data.size() / 6, it.indices.data(), it.indices.size(), 6);
+            it.bvhOk = true;
+        }
+        c.mesh.bvh = &it.bvh;
+        c.color[0] = it.color[0];
+        c.color[1] = it.color[1];
+        c.color[2] = it.color[2];
+        out->push_back(c);
+    }
+}
+
+const simul::sensor::CameraImage& ModelViewer::RenderSensorCamera() {
+    if (!cameraOn_) {
+        cameraImage_ = simul::sensor::CameraImage();
+        return cameraImage_;
+    }
+    simul::Array<simul::sensor::CameraTarget> targets;
+    collectTargets(cameraLink_, &targets);
+    camera_.Render(SensorCameraPose(), targets.data(), targets.size(), &cameraImage_);
+    emit sensorCameraRendered(cameraImage_);
+    return cameraImage_;
+}
+
+// 시야 절두체: 센서 원점에서 먼 면의 네 모서리까지 선 4개와 그 사각형. 먼 면은 far 또는 0.5 m 중 가까운 쪽에 둔다.
+void ModelViewer::drawSensorCameraFrustum() {
+    if (!camera_.Valid()) return;
+    const simul::sensor::CameraSettings& cs = camera_.Settings();
+    const float d = simul::Min(cs.farClip, 0.5f);
+    const dhMat pose = SensorCameraPose();
+    const float w = static_cast<float>(cs.width), h = static_cast<float>(cs.height);
+    dhVector c[4];
+    const float us[4] = {0.0f, w, w, 0.0f}, vs[4] = {0.0f, 0.0f, h, h};
+    for (int i = 0; i < 4; i++) c[i] = pose * (camera_.PixelDirection(us[i], vs[i]) * d);
+    const dhVector o = pose.O();
+    simul::Array<float> v;
+    const dhVector* pts[8][2] = {{&o, &c[0]}, {&o, &c[1]}, {&o, &c[2]}, {&o, &c[3]}, {&c[0], &c[1]}, {&c[1], &c[2]}, {&c[2], &c[3]}, {&c[3], &c[0]}};
+    for (int e = 0; e < 8; e++)
+        for (int k = 0; k < 2; k++) {
+            v.push_back(pts[e][k]->x);
+            v.push_back(pts[e][k]->y);
+            v.push_back(pts[e][k]->z);
+        }
+    glLineWidth(1.5f);
+    prog_->setUniformValue("uColor", QVector4D(1.0f, 0.85f, 0.1f, 0.9f));
+    prog_->setAttributeArray(0, GL_FLOAT, v.data(), 3);
+    glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(v.size() / 3));
+    // 위쪽 변 위에 작은 삼각형을 겹쳐 영상의 위가 어느 쪽인지 알려준다
+    const dhVector tipBase0 = (c[0] + c[1]) * 0.5f;
+    const dhVector tip = tipBase0 + (tipBase0 - (c[2] + c[3]) * 0.5f) * 0.25f;
+    simul::Array<float> t;
+    const dhVector* tv[6] = {&c[0], &tip, &tip, &c[1], &c[1], &c[0]};
+    for (int i = 0; i < 6; i++) {
+        t.push_back(tv[i]->x);
+        t.push_back(tv[i]->y);
+        t.push_back(tv[i]->z);
+    }
+    prog_->setAttributeArray(0, GL_FLOAT, t.data(), 3);
+    glDrawArrays(GL_LINES, 0, 6);
+}
+
 void ModelViewer::drawLidar() {
     const simul::sensor::LidarScan& scan = ScanLidar();
     emit lidarScanned(scan, lidarOrigin_, lidarHeading_);
@@ -1677,6 +1777,16 @@ void ModelViewer::paintScene() {
         prog_->enableAttributeArray(0);
         prog_->disableAttributeArray(1);
         drawLidar();
+    }
+    if (cameraOn_ && cameraDraw_) {
+        prog_->setUniformValue("uLit", 0.0f);
+        prog_->setUniformValue("uMVP", proj * view);
+        prog_->setUniformValue("uModelView", view);
+        prog_->enableAttributeArray(0);
+        prog_->disableAttributeArray(1);
+        glDisable(GL_DEPTH_TEST);
+        drawSensorCameraFrustum();
+        glEnable(GL_DEPTH_TEST);
     }
     if (showFrame_ && HasSelection()) drawSelectionFrame(proj, view);
     prog_->release();

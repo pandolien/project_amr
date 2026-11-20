@@ -68,6 +68,12 @@ struct Options {
     simul::String lidarCsv;      // --lidar-csv: 스캔 결과를 CSV 로 저장할 파일
     int lidarChannels;         // --lidar-channels: 수직 채널 수 (1 이면 2D)
     float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
+    simul::String cameraLink;    // --camera: 카메라를 달 링크 이름 (비어 있으면 없음)
+    float cameraMount[3];      //   그 링크 좌표계에서의 센서 위치 (m). 센서 +x 가 보는 방향
+    int cameraW, cameraH;      // --camera-size 가로x세로
+    float cameraFov;           // --camera-fov 가로 시야각 (도)
+    float cameraRange[2];      // --camera-range 최소,최대 (m)
+    simul::String cameraSave;  // --camera-save: 찍은 영상을 저장할 PNG 파일 (깊이는 이름_depth.png, 16비트 mm 는 이름_depth16.png)
     bool hasMove;
     float move[3];             // --move: 시작할 때 오브젝트를 옮길 위치 (월드, m)
     int clickX, clickY;        // --click: 3D 화면의 이 픽셀을 마우스로 클릭한 것처럼 처리 (-1 이면 안 함)
@@ -78,6 +84,12 @@ struct Options {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
+        cameraMount[0] = cameraMount[1] = cameraMount[2] = 0;
+        cameraW = 320;
+        cameraH = 240;
+        cameraFov = 60.0f;
+        cameraRange[0] = 0.05f;
+        cameraRange[1] = 10.0f;
         gravity[0] = 0;
         gravity[1] = 0;
         gravity[2] = -simul::dynamics::kStandardGravity;
@@ -120,6 +132,9 @@ void PrintUsage(const char* exe) {
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
         "                     센서가 붙은 링크 자신을 뺀 나머지 메시를 스캔하고, 맞은 점 수와 거리 범위를 출력\n"
         "  --lidar-channels 개수,최소고각,최대고각  (도) 수직 채널을 늘려 3D 라이다로 (예: 16,-15,15). 큰 메시에서는 느리다\n"
+        "  --camera 링크[,x,y,z]  그 링크에 카메라를 달고 시야 절두체(노랑)와 영상 창을 표시. 센서 +x 가 보는 방향, +y 왼쪽, +z 위\n"
+        "  --camera-size 가로x세로  --camera-fov 도(가로 시야각)  --camera-range 최소,최대  (기본 320x240, 60도, 0.05~10 m)\n"
+        "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
         "  --size 가로x세로   창 크기 (기본 1100x720)\n"
@@ -182,6 +197,36 @@ int ParseArgs(int argc, char** argv, Options* o) {
             }
             continue;
         }
+        if (a == "--camera" && hasNext) {   // 링크 또는 링크,x,y,z
+            const simul::String spec = argv[++i];
+            const size_t comma = spec.find(',');
+            o->cameraLink = spec.substr(0, comma);
+            if (comma != simul::String::npos && sscanf(spec.c_str() + comma + 1, "%f,%f,%f", &o->cameraMount[0], &o->cameraMount[1], &o->cameraMount[2]) != 3) {
+                fprintf(stderr, "--camera 는 링크이름 또는 링크이름,x,y,z 형식입니다\n");
+                return false;
+            }
+            continue;
+        }
+        if (a == "--camera-size" && hasNext) {
+            if (sscanf(argv[++i], "%dx%d", &o->cameraW, &o->cameraH) != 2 || o->cameraW < 1 || o->cameraH < 1 || o->cameraW > 4096 || o->cameraH > 4096) {
+                fprintf(stderr, "--camera-size 는 가로x세로 형식입니다 (1~4096, 예: 640x480)\n");
+                return false;
+            }
+            continue;
+        }
+        if (a == "--camera-fov" && hasNext) {
+            o->cameraFov = static_cast<float>(atof(argv[++i]));
+            if (!(o->cameraFov > 1.0f && o->cameraFov < 179.0f)) { fprintf(stderr, "--camera-fov 는 1~179 도입니다\n"); return false; }
+            continue;
+        }
+        if (a == "--camera-range" && hasNext) {
+            if (sscanf(argv[++i], "%f,%f", &o->cameraRange[0], &o->cameraRange[1]) != 2 || o->cameraRange[0] < 0 || o->cameraRange[1] <= o->cameraRange[0]) {
+                fprintf(stderr, "--camera-range 는 최소,최대 형식입니다 (최대가 더 커야 함, 예: 0.05,10)\n");
+                return false;
+            }
+            continue;
+        }
+        if (a == "--camera-save" && hasNext) { o->cameraSave = argv[++i]; continue; }
         if (a == "--only-view") { o->onlyView = true; continue; }
         if (a == "--connect" && hasNext) { o->connects.push_back(argv[++i]); continue; }
         if (a == "--export-urdf" && hasNext) { o->exportUrdf = argv[++i]; continue; }
@@ -436,7 +481,9 @@ int PrintInfo(const Options& o) {
 #include <QLabel>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QCheckBox>
 #include <QMessageBox>
+#include <QVBoxLayout>
 #include <QMimeData>
 #include <QSurfaceFormat>
 #include <QStatusBar>
@@ -453,6 +500,7 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/FolderView.h"
 #include "CoreQt/JointDialog.h"
 #include "CoreQt/JointPanel.h"
+#include "CoreQt/CameraView.h"
 #include "CoreQt/LidarPlot.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
@@ -790,6 +838,13 @@ public:
             lidarMenu->setEnabled(lidarSpec_.link >= 0);
             lidarMenu->setTitle(QString::fromUtf8(lidarSpec_.link >= 0 ? "라이다" : "라이다 (이 모델에는 없음)"));
         });
+        QAction* cameraAct = sensorMenu->addAction(QString::fromUtf8("카메라 영상"));
+        cameraAct->setCheckable(true);
+        QObject::connect(sensorMenu, &QMenu::aboutToShow, this, [this, cameraAct]() {
+            cameraAct->setEnabled(cameraSpec_.link >= 0);
+            cameraAct->setChecked(cameraDock_ && cameraDock_->isVisible());
+        });
+        QObject::connect(cameraAct, &QAction::triggered, this, [this](bool on) { showCamera(on); });
         QAction* usage = help->addAction(QString::fromUtf8("조작 방법"));
         usage->setShortcut(Qt::Key_F1);
         QObject::connect(usage, &QAction::triggered, this, [this]() {
@@ -894,6 +949,7 @@ public:
             log_->Warning(viewer_->Warnings()[i]);
         }
         applyLidar(cli_);  // URDF 의 라이다 설정을 읽어 둔다
+        applyCamera(cli_);
         if (beamsWere && lidarSpec_.link >= 0) showLidarBeams(true);  // 모델을 더해도 켜 둔 라이다 표시는 유지
         if (graphWere && lidarSpec_.link >= 0) showLidarGraph(true);
         return true;
@@ -1011,6 +1067,61 @@ public:
         tree_->SelectLink(li);
         viewer_->SetSelectedLink(li);
         updateSelectionLabel();
+    }
+
+    // 센서 카메라: --camera 로 지정한 링크에 단다 (URDF 에는 카메라 정의가 아직 없다). 영상 창은 메뉴 센서 > 카메라 로 켜고 끈다.
+    void applyCamera(const Options& o) {
+        showCamera(false);
+        viewer_->ClearSensorCamera();
+        cameraSpec_ = CameraSpec();
+        if (o.cameraLink.empty() || !viewer_->HasRobot()) return;
+        const int link = viewer_->Robot().FindLink(o.cameraLink);
+        if (link < 0) { fprintf(stderr, "경고: 링크 '%s' 이 없습니다 (카메라를 달지 않음)\n", o.cameraLink.c_str()); return; }
+        CameraSpec sp;
+        sp.link = link;
+        sp.mount = dhMat::Trans(o.cameraMount[0], o.cameraMount[1], o.cameraMount[2]);
+        sp.settings.width = o.cameraW;
+        sp.settings.height = o.cameraH;
+        sp.settings.horizontalFov = static_cast<float>(dhRad(o.cameraFov));
+        sp.settings.nearClip = o.cameraRange[0];
+        sp.settings.farClip = o.cameraRange[1];
+        cameraSpec_ = sp;
+        viewer_->SetSensorCamera(sp.link, sp.settings, sp.mount);
+        log_->Info(QString::fromUtf8("카메라: 링크 '%1', %2x%3, 시야각 %4도").arg(QString::fromUtf8(o.cameraLink.c_str())).arg(o.cameraW).arg(o.cameraH).arg(static_cast<double>(o.cameraFov)));
+        showCamera(true);
+    }
+
+    // 카메라 영상 도크 (오른쪽). 보이는 동안에만 0.2 초마다 찍어서 갱신한다
+    void showCamera(bool on) {
+        if (on && cameraSpec_.link < 0) return;
+        if (!on) {
+            if (cameraDock_) cameraDock_->hide();
+            if (viewer_->SensorCameraEnabled()) viewer_->SetSensorCameraDrawn(false);
+            return;
+        }
+        if (!cameraView_) {
+            cameraView_ = new CameraView;
+            QWidget* box = new QWidget;
+            QVBoxLayout* lay = new QVBoxLayout(box);
+            lay->setContentsMargins(0, 0, 0, 0);
+            QCheckBox* depth = new QCheckBox(QString::fromUtf8("깊이 보기"));
+            QObject::connect(depth, &QCheckBox::toggled, cameraView_, &CameraView::SetShowDepth);
+            lay->addWidget(depth);
+            lay->addWidget(cameraView_, 1);
+            cameraDock_ = new QDockWidget(QString::fromUtf8("카메라"), this);
+            cameraDock_->setWidget(box);
+            addDockWidget(Qt::RightDockWidgetArea, cameraDock_);
+            configureDock(cameraDock_);
+            QTimer* t = new QTimer(this);
+            QObject::connect(t, &QTimer::timeout, this, [this]() {
+                if (!viewer_->SensorCameraEnabled() || !cameraDock_->isVisible()) return;
+                cameraView_->SetDepthRange(viewer_->SensorCameraSettings().nearClip, viewer_->SensorCameraSettings().farClip);
+                cameraView_->SetImage(viewer_->RenderSensorCamera());
+            });
+            t->start(200);
+        }
+        viewer_->SetSensorCameraDrawn(true);
+        cameraDock_->show();
     }
 
     // 라이다: URDF 의 <gazebo><sensor type="ray"> 에서 설정을 읽어 둔다 (여럿이면 첫 번째).
@@ -1209,6 +1320,7 @@ public:
         log_->Info(QString::fromUtf8("제거: %1  (남은 모델 %2개)").arg(name).arg(viewer_->ModelCount()));
         afterLoad(QString::fromUtf8("%1 제거").arg(name));
         applyLidar(cli_);
+        applyCamera(cli_);
         if (beamsWere && lidarSpec_.link >= 0) showLidarBeams(true);
         if (graphWere && lidarSpec_.link >= 0) showLidarGraph(true);
     }
@@ -1467,6 +1579,15 @@ private:
         LidarSpec() : link(-1), fromUrdf(false) {}
     };
     LidarSpec lidarSpec_;
+    struct CameraSpec {
+        int link;
+        simul::sensor::CameraSettings settings;
+        dhMat mount;
+        CameraSpec() : link(-1) {}
+    };
+    CameraSpec cameraSpec_;
+    CameraView* cameraView_ = nullptr;
+    QDockWidget* cameraDock_ = nullptr;
     ModelViewer* viewer_;
     LidarPlot* lidarPlot_ = nullptr;
     QDockWidget* lidarDock_ = nullptr;
@@ -1552,9 +1673,9 @@ int main(int argc, char** argv) {
         const int cx = o.clickX, cy = o.clickY;
         const bool settle = o.settle;
         const double simSeconds = o.simulate;
-        const simul::String lidarCsv = o.lidarCsv;
+        const simul::String lidarCsv = o.lidarCsv, cameraSave = o.cameraSave;
         const int d0x = o.dragX0, d0y = o.dragY0, d1x = o.dragX1, d1y = o.dragY1;
-        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle, simSeconds, lidarCsv]() {
+        QTimer::singleShot(600, &app, [&app, v, win, shot, shotWindow, cx, cy, d0x, d0y, d1x, d1y, settle, simSeconds, lidarCsv, cameraSave]() {
             bool ok = true;
             if (d0x >= 0 && d0y >= 0 && d1x >= 0 && d1y >= 0) {
                 const QPoint p0(d0x, d0y), p1(d1x, d1y);
@@ -1623,6 +1744,38 @@ int main(int argc, char** argv) {
                     }
                     if (simul::WriteFileText(lidarCsv, csv)) printf("스캔을 저장했습니다: %s\n", lidarCsv.c_str());
                     else fprintf(stderr, "스캔 저장 실패: %s\n", lidarCsv.c_str());
+                }
+            }
+            if (v->SensorCameraEnabled()) {   // 확인용: 영상 요약, --camera-save 면 저장
+                const simul::sensor::CameraImage& im = v->RenderSensorCamera();
+                size_t hits = 0;
+                float lo = 1e30f, hi = 0;
+                for (size_t i = 0; i < im.depth.size(); i++)
+                    if (im.targetIds[i] >= 0) {
+                        hits++;
+                        if (im.depth[i] < lo) lo = im.depth[i];
+                        if (im.depth[i] > hi) hi = im.depth[i];
+                    }
+                printf("카메라: %dx%d, 픽셀 %zu 개 중 %zu 개가 물체", im.width, im.height, im.depth.size(), hits);
+                if (hits) printf(", 깊이 %.3f ~ %.3f m", static_cast<double>(lo), static_cast<double>(hi));
+                printf("\n");
+                if (!cameraSave.empty()) {
+                    const QString base = QString::fromLocal8Bit(cameraSave.c_str());
+                    const QString stem = base.endsWith(".png", Qt::CaseInsensitive) ? base.left(base.size() - 4) : base;
+                    const simul::sensor::CameraSettings& cs = v->SensorCameraSettings();
+                    bool okc = CameraView::ColorToQImage(im).save(stem + ".png");
+                    okc = CameraView::DepthToQImage(im, cs.nearClip, cs.farClip).save(stem + "_depth.png") && okc;
+                    QImage d16(im.width, im.height, QImage::Format_Grayscale16);
+                    for (int y = 0; y < im.height; y++) {
+                        quint16* row = reinterpret_cast<quint16*>(d16.scanLine(y));
+                        for (int x = 0; x < im.width; x++) {
+                            const float mm = im.Depth(x, y) * 1000.0f;
+                            row[x] = static_cast<quint16>(mm > 65535.0f ? 65535.0f : mm);
+                        }
+                    }
+                    okc = d16.save(stem + "_depth16.png") && okc;
+                    if (okc) printf("카메라 영상을 저장했습니다: %s(.png, _depth.png, _depth16.png)\n", qPrintable(stem));
+                    else fprintf(stderr, "카메라 영상 저장 실패: %s\n", cameraSave.c_str());
                 }
             }
             if (simSeconds > 0) win->runSimulation(simSeconds);

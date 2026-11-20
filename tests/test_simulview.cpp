@@ -19,6 +19,7 @@
 #include "CoreQt/FolderView.h"
 #include "CoreQt/JointDialog.h"
 #include "CoreQt/PropertiesPanel.h"
+#include "CoreQt/ModelViewer.h"
 #include "CoreQt/SimulView.h"
 #include "CoreQt/UrdfView.h"
 #include "CURDF/UrdfWriter.h"
@@ -552,6 +553,31 @@ int main(int argc, char** argv) {
     v->CloseAll();
     CHECK(view.tree()->topLevelItemCount() == 0 && !view.treePanel()->isVisibleTo(view.viewer()), "tree hides when empty");
     CHECK(v->ModelCount() == 0, "closed all");
+
+    // 센서 카메라: 링크에 달고 찍으면 BGR/깊이 영상이 나오고 cameraRendered 가 나간다 (그리기는 GL 이 필요해 여기서는 확인하지 않는다)
+    {
+        ModelViewer cv;
+        QString cerr;
+        CHECK(cv.AddFile(room, &cerr), "camera test: add room");
+        CHECK(!cv.SensorCameraEnabled() && cv.RenderSensorCamera().width == 0, "no camera: empty image");
+        int rendered = 0;
+        QObject::connect(&cv, &ModelViewer::sensorCameraRendered, [&](const simul::sensor::CameraImage&) { rendered++; });
+        const int lidarLink = cv.Robot().FindLink(simul::String("lidar_link"));
+        CHECK(lidarLink >= 0, "camera test: lidar_link exists");
+        simul::sensor::CameraSettings cs;
+        cs.width = 32;
+        cs.height = 24;
+        cv.SetSensorCamera(lidarLink, cs, dhMat());
+        CHECK(cv.SensorCameraEnabled() && cv.SensorCameraSettings().width == 32, "camera set");
+        const simul::sensor::CameraImage& im = cv.RenderSensorCamera();
+        size_t hits = 0;
+        for (size_t i = 0; i < im.targetIds.size(); i++) if (im.targetIds[i] >= 0) hits++;
+        CHECK(im.width == 32 && im.height == 24 && im.bgr.size() == 32 * 24 * 3 && im.depth.size() == 32 * 24, "camera image sizes");
+        CHECK(hits > 0 && rendered == 1, "the room is seen and cameraRendered is emitted");
+        CHECK(cv.SensorCameraPose().v[12] == cv.SensorCameraPose().v[12], "camera pose is a number");
+        cv.ClearSensorCamera();
+        CHECK(!cv.SensorCameraEnabled() && cv.RenderSensorCamera().width == 0 && rendered == 1, "camera cleared");
+    }
 
     if (failures) { fprintf(stderr, "test_simulview: %d failed\n", failures); return 1; }
     printf("test_simulview: all passed\n");
