@@ -242,7 +242,6 @@ struct Exporter {
         }
         g->filename = "obj/" + rel;
         g->scale[0] = g->scale[1] = g->scale[2] = 1.0f;
-        if (!toStl) return true;   // OBJ 는 색과 텍스처를 파일이 가진다
         // STL 에 담지 못하는 정보
         bool textured = false, vertexColors = false;
         for (size_t m = 0; m < sc.materials.size(); m++)
@@ -250,6 +249,7 @@ struct Exporter {
         for (size_t m = 0; m < sc.meshes.size(); m++)
             for (size_t p = 0; p < sc.meshes[m].primitives.size(); p++)
                 if (!sc.meshes[m].primitives[p].colors.empty()) vertexColors = true;
+        if (!toStl && (textured || vertexColors)) return true;   // 텍스처/정점 색은 OBJ 파일이 가진다
         if (textured) Warn(where + ": STL 에는 텍스처를 담을 수 없어 빠집니다 (" + BaseName(src) + ")");
         if (vertexColors) Warn(where + ": STL 에는 정점 색을 담을 수 없어 빠집니다 (" + BaseName(src) + ")");
         if (wantColor && !sc.materials.empty()) {   // 기본 색 하나는 URDF 의 <material> 로 옮긴다
@@ -265,7 +265,10 @@ struct Exporter {
             if (first >= 0) {
                 *gotColor = true;
                 *color = sc.materials[static_cast<size_t>(first)].baseColor;
-                if (several) Warn(where + ": 재질이 여러 색이라 첫 번째 색 하나만 남깁니다 (" + BaseName(src) + ")");
+                if (several) {
+                    if (toStl) Warn(where + ": 재질이 여러 색이라 첫 번째 색 하나만 남깁니다 (" + BaseName(src) + ")");
+                    else *gotColor = false;   // 여러 색은 mtl 이 정확히 가진다
+                }
             }
         }
         return true;

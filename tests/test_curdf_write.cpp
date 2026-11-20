@@ -239,7 +239,7 @@ void testFolder() {
         const String text(ub.empty() ? "" : reinterpret_cast<const char*>(&ub[0]), ub.size());
         check(text.find(src) == String::npos, "saved urdf has no absolute source path");
         check(text.find("filename=\"obj/tri/tri.obj\"") != String::npos && text.find("filename=\"obj/src.stl\"") != String::npos && text.find("filename=\"obj/box/box.obj\"") != String::npos, "meshes referenced as obj/...");
-        check(text.find("0.2 0.4 0.6") == String::npos, "the glb color stays in the mesh file, not in the urdf");
+        check(text.find("0.2 0.4 0.6") != String::npos, "a single-color glb also writes the color into the urdf (for tools that ignore mtl)");
 
         // 다시 읽기: 같은 구조, 같은 모양, 같은 색
         Robot again;
