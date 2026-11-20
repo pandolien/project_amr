@@ -418,6 +418,11 @@ struct Parser {
         if (XMLElement* clip = cam->FirstChildElement("clip"))
             if (!ChildFloat(clip, "near", d.nearClip, &d.nearClip, ctx + " clip") || !ChildFloat(clip, "far", d.farClip, &d.farClip, ctx + " clip")) return false;
         if (!(d.nearClip >= 0.0f) || !(d.farClip > d.nearClip)) return Fail(ctx + ": clip 은 0 <= near < far 여야 합니다");
+        if (XMLElement* dist = cam->FirstChildElement("distortion")) {   // Gazebo 의 <distortion><k1><k2><k3><p1><p2>. 저장 순서는 OpenCV (k1, k2, p1, p2, k3)
+            const char* tags[5] = {"k1", "k2", "p1", "p2", "k3"};
+            for (int i = 0; i < 5; i++)
+                if (!ChildFloat(dist, tags[i], 0.0f, &d.distortion[i], ctx + " distortion")) return false;
+        }
         robot->cameras.push_back(d);
         return true;
     }

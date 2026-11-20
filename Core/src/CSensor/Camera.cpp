@@ -8,11 +8,48 @@
 namespace simul {
 namespace sensor {
 
+void DistortNormalized(const float dist[5], float x, float y, float* xd, float* yd) {
+    const float k1 = dist[0], k2 = dist[1], p1 = dist[2], p2 = dist[3], k3 = dist[4];
+    const float r2 = x * x + y * y;
+    const float radial = 1.0f + r2 * (k1 + r2 * (k2 + r2 * k3));
+    *xd = x * radial + 2.0f * p1 * x * y + p2 * (r2 + 2.0f * x * x);
+    *yd = y * radial + p1 * (r2 + 2.0f * y * y) + 2.0f * p2 * x * y;
+}
+
+bool UndistortNormalized(const float dist[5], float xd, float yd, float* x, float* y) {
+    const float k1 = dist[0], k2 = dist[1], p1 = dist[2], p2 = dist[3], k3 = dist[4];
+    float ux = xd, uy = yd;
+    for (int it = 0; it < 50; it++) {   // 고정점 반복: 왜곡 없는 좌표 = (왜곡된 좌표 - 접선 성분) / 방사 성분
+        const float r2 = ux * ux + uy * uy;
+        const float radial = 1.0f + r2 * (k1 + r2 * (k2 + r2 * k3));
+        if (!(radial > 1e-3f) || !IsFinite(radial)) return false;
+        const float dx = 2.0f * p1 * ux * uy + p2 * (r2 + 2.0f * ux * ux);
+        const float dy = p1 * (r2 + 2.0f * uy * uy) + 2.0f * p2 * ux * uy;
+        const float nx = (xd - dx) / radial, ny = (yd - dy) / radial;
+        if (!IsFinite(nx) || !IsFinite(ny)) return false;
+        const bool done = fabsf(nx - ux) < 1e-7f && fabsf(ny - uy) < 1e-7f;
+        ux = nx;
+        uy = ny;
+        if (done) break;
+    }
+    // 되돌린 값을 다시 왜곡해서 원래 값과 맞는지 확인 (반복이 발산했거나 다른 해로 갔는지 거른다)
+    float cx, cy;
+    DistortNormalized(dist, ux, uy, &cx, &cy);
+    const float tol = 1e-4f * (1.0f + fabsf(xd) + fabsf(yd));
+    if (!(fabsf(cx - xd) <= tol && fabsf(cy - yd) <= tol)) return false;
+    *x = ux;
+    *y = uy;
+    return true;
+}
+
 bool CameraImage::PixelPoint(int u, int v, dhVector* p) const {
     if (u < 0 || v < 0 || u >= width || v >= height) return false;
     const float d = Depth(u, v);
     if (!(d > 0.0f)) return false;
-    *p = dhVector(d, -(static_cast<float>(u) + 0.5f - intrinsics.cx) / intrinsics.fx * d, -(static_cast<float>(v) + 0.5f - intrinsics.cy) / intrinsics.fy * d);
+    float x = (static_cast<float>(u) + 0.5f - intrinsics.cx) / intrinsics.fx, y = (static_cast<float>(v) + 0.5f - intrinsics.cy) / intrinsics.fy;
+    const bool distorted = distortion[0] != 0.0f || distortion[1] != 0.0f || distortion[2] != 0.0f || distortion[3] != 0.0f || distortion[4] != 0.0f;
+    if (distorted && !UndistortNormalized(distortion, x, y, &x, &y)) return false;
+    *p = dhVector(d, -x * d, -y * d);
     return true;
 }
 
@@ -23,11 +60,17 @@ void Camera::SetSettings(const CameraSettings& s) {
     rng_ = s.seed;
 }
 
+static bool AllFinite5(const float* v) {
+    for (int i = 0; i < 5; i++)
+        if (!IsFinite(v[i])) return false;
+    return true;
+}
+
 bool Camera::Valid() const {
     return settings_.width > 0 && settings_.height > 0 && settings_.width <= 16384 && settings_.height <= 16384 &&
            settings_.antialias >= 1 && settings_.antialias <= 4 && settings_.width * settings_.antialias <= 16384 && settings_.height * settings_.antialias <= 16384 &&
            settings_.horizontalFov > 0.0f && settings_.horizontalFov < static_cast<float>(dhPI) - 0.01f && settings_.nearClip >= 0.0f && settings_.farClip > settings_.nearClip &&
-           IsFinite(settings_.farClip);
+           IsFinite(settings_.farClip) && AllFinite5(settings_.distortion);
 }
 
 CameraIntrinsics Camera::Intrinsics() const {
@@ -43,9 +86,21 @@ float Camera::VerticalFov() const {
     return 2.0f * atanf(static_cast<float>(settings_.height) * 0.5f / k.fy);
 }
 
-dhVector Camera::PixelDirection(float u, float v) const {
+bool Camera::PixelRay(float u, float v, dhVector* dir) const {
     const CameraIntrinsics k = Intrinsics();
-    return dhVector(1.0f, -(u - k.cx) / k.fx, -(v - k.cy) / k.fy);
+    float x = (u - k.cx) / k.fx, y = (v - k.cy) / k.fy;
+    if (settings_.HasDistortion() && !UndistortNormalized(settings_.distortion, x, y, &x, &y)) {
+        *dir = dhVector(1.0f, -x, -y);
+        return false;
+    }
+    *dir = dhVector(1.0f, -x, -y);
+    return true;
+}
+
+dhVector Camera::PixelDirection(float u, float v) const {
+    dhVector d;
+    PixelRay(u, v, &d);
+    return d;
 }
 
 unsigned Camera::nextRandom() {
@@ -89,6 +144,7 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
         out->width = settings_.width;
         out->height = settings_.height;
         out->intrinsics = Intrinsics();
+        for (int i = 0; i < 5; i++) out->distortion[i] = settings_.distortion[i];
         out->bgr.assign(w * h * 3, 0);
         out->depth.assign(w * h, 0.0f);
         out->targetIds.assign(w * h, -1);
@@ -116,6 +172,7 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
     out->width = settings_.width;
     out->height = settings_.height;
     out->intrinsics = Intrinsics();
+    for (int i = 0; i < 5; i++) out->distortion[i] = settings_.distortion[i];
     out->depth.assign(n, 0.0f);
     out->targetIds.assign(n, -1);
     out->bgr.assign(n * 3, 0);
@@ -130,10 +187,26 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
     Array<int> who(n, -1);             // 맞은 targets 번호
     Array<size_t> hitTri(n, 0);        // 맞은 삼각형 번호
 
-    // 광선 방향(센서)은 (1, a_u, a_v) 꼴이라 열마다/행마다 한 번만 계산한다
-    Array<float> dy(w), dz(h);
-    for (size_t u = 0; u < w; u++) dy[u] = PixelDirection(static_cast<float>(u) + 0.5f, 0.0f).y;
-    for (size_t v = 0; v < h; v++) dz[v] = PixelDirection(0.0f, static_cast<float>(v) + 0.5f).z;
+    // 광선 방향(센서)은 (1, dy, dz). 왜곡이 없으면 dy 는 열마다, dz 는 행마다 같지만, 왜곡이 있으면 픽셀마다 다르다.
+    // 그래서 픽셀마다 배열로 둔다 (dy[i], dz[i], i = v * w + u). 왜곡을 되돌리지 못한 픽셀은 ray[i] = 0 으로 표시하고 광선을 쏘지 않는다.
+    Array<float> dy(n), dz(n);
+    Array<unsigned char> ray(n, 1);
+    if (!settings_.HasDistortion()) {
+        for (size_t v = 0; v < h; v++)
+            for (size_t u = 0; u < w; u++) {
+                dy[v * w + u] = PixelDirection(static_cast<float>(u) + 0.5f, 0.0f).y;
+                dz[v * w + u] = PixelDirection(0.0f, static_cast<float>(v) + 0.5f).z;
+            }
+    } else {
+        for (size_t v = 0; v < h; v++)
+            for (size_t u = 0; u < w; u++) {
+                dhVector d;
+                const size_t i = v * w + u;
+                ray[i] = PixelRay(static_cast<float>(u) + 0.5f, static_cast<float>(v) + 0.5f, &d) ? 1 : 0;
+                dy[i] = d.y;
+                dz[i] = d.z;
+            }
+    }
 
     for (size_t k = 0; k < targetCount; k++) {
         const CameraTarget& ct = targets[k];
@@ -145,7 +218,8 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
         for (size_t v = 0; v < h; v++) {
             for (size_t u = 0; u < w; u++) {
                 const size_t i = v * w + u;
-                const float sd[3] = {1.0f, dy[u], dz[v]};
+                if (!ray[i]) continue;
+                const float sd[3] = {1.0f, dy[i], dz[i]};
                 const float d[3] = {M.v[0] * sd[0] + M.v[4] * sd[1] + M.v[8] * sd[2], M.v[1] * sd[0] + M.v[5] * sd[1] + M.v[9] * sd[2],
                                     M.v[2] * sd[0] + M.v[6] * sd[1] + M.v[10] * sd[2]};
                 const float limit = IsFinite(best[i]) ? best[i] : settings_.farClip;  // t 는 곧 깊이 (sd.x = 1, M 은 강체변환)
@@ -180,7 +254,6 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
         if (who[i] < 0) continue;
         const CameraTarget& ct = targets[static_cast<size_t>(who[i])];
         const LidarTarget& tg = ct.mesh;
-        const size_t px = i % w, py = i / w;
         const float t = best[i];
         // 면 법선 (메시 좌표) -> 월드. 광선 방향(월드)과 같은 쪽이면 뒤집어 카메라를 향하게 한다 (양면)
         float nm[3] = {0.0f, 0.0f, 1.0f};
@@ -206,7 +279,7 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
         const dhMat& W = tg.world;   // 메시 -> 월드 (강체)
         float nw[3] = {W.v[0] * nm[0] + W.v[4] * nm[1] + W.v[8] * nm[2], W.v[1] * nm[0] + W.v[5] * nm[1] + W.v[9] * nm[2], W.v[2] * nm[0] + W.v[6] * nm[1] + W.v[10] * nm[2]};
         // 센서 좌표의 광선 방향 -> 월드
-        const float sdv[3] = {1.0f, dy[px], dz[py]};
+        const float sdv[3] = {1.0f, dy[i], dz[i]};
         float dwv[3] = {sensorPose.v[0] * sdv[0] + sensorPose.v[4] * sdv[1] + sensorPose.v[8] * sdv[2], sensorPose.v[1] * sdv[0] + sensorPose.v[5] * sdv[1] + sensorPose.v[9] * sdv[2],
                         sensorPose.v[2] * sdv[0] + sensorPose.v[6] * sdv[1] + sensorPose.v[10] * sdv[2]};
         const float dl = sqrtf(dwv[0] * dwv[0] + dwv[1] * dwv[1] + dwv[2] * dwv[2]);
@@ -227,8 +300,8 @@ void Camera::Render(const dhMat& sensorPose, const CameraTarget* targets, size_t
             if (lit && sun_.shadows) {
                 // 맞은 점(월드)에서 법선 쪽으로 조금 띄워 태양 쪽으로 광선을 쏜다. 아무 메시나 맞으면 그림자.
                 const dhMat Wn = sensorPose;
-                const float P[3] = {Wn.v[0] * t + Wn.v[4] * dy[px] * t + Wn.v[8] * dz[py] * t + Wn.v[12], Wn.v[1] * t + Wn.v[5] * dy[px] * t + Wn.v[9] * dz[py] * t + Wn.v[13],
-                                    Wn.v[2] * t + Wn.v[6] * dy[px] * t + Wn.v[10] * dz[py] * t + Wn.v[14]};
+                const float P[3] = {Wn.v[0] * t + Wn.v[4] * dy[i] * t + Wn.v[8] * dz[i] * t + Wn.v[12], Wn.v[1] * t + Wn.v[5] * dy[i] * t + Wn.v[9] * dz[i] * t + Wn.v[13],
+                                    Wn.v[2] * t + Wn.v[6] * dy[i] * t + Wn.v[10] * dz[i] * t + Wn.v[14]};
                 const float eps = 2e-3f;
                 const dhVector origin(P[0] + nw[0] * eps, P[1] + nw[1] * eps, P[2] + nw[2] * eps);
                 for (size_t k = 0; k < targetCount && lit; k++) {

@@ -329,6 +329,110 @@ void testAntialias() {
     check(same && noisy, "noise with antialiasing is repeatable and nonzero");
 }
 
+void testDistortion() {
+    // 1) 왜곡 -> 되돌리기 왕복
+    const float sets[4][5] = {{-0.3f, 0.1f, 0, 0, 0}, {0.2f, -0.05f, 0.001f, -0.002f, 0.01f}, {0, 0, 0.01f, 0.02f, 0}, {-0.25f, 0.08f, 0.003f, 0.001f, -0.01f}};
+    bool roundTrip = true;
+    for (int k = 0; k < 4; k++)
+        for (float x = -0.8f; x <= 0.8f; x += 0.2f)
+            for (float y = -0.6f; y <= 0.6f; y += 0.2f) {
+                float xd, yd, bx = 0, by = 0;
+                DistortNormalized(sets[k], x, y, &xd, &yd);
+                roundTrip = roundTrip && UndistortNormalized(sets[k], xd, yd, &bx, &by) && near(bx, x, 1e-4) && near(by, y, 1e-4);
+            }
+    check(roundTrip, "undistort inverts distort");
+    const float zero[5] = {0, 0, 0, 0, 0};
+    float zx = 0, zy = 0;
+    DistortNormalized(zero, 0.3f, -0.2f, &zx, &zy);
+    check(zx == 0.3f && zy == -0.2f, "zero coefficients leave points alone");
+
+    // 2) 세로로 선 막대(센서 +y 쪽, 영상 왼쪽): 왜곡이 없으면 모든 행에서 같은 열. 통 모양(k1 < 0)이면 위쪽 행에서 가운데 쪽으로 휜다. 실패 모양(k1 > 0)이면 바깥쪽으로.
+    const BoxMesh bar(2.0f, 0.9f, -5.0f, 2.1f, 1.0f, 5.0f);
+    CameraTarget t = bar.target(5, 1.0f, 1.0f, 1.0f);
+    CameraSettings s = small(120, 90);
+    s.background[0] = s.background[1] = s.background[2] = 0.0f;
+    struct Col {
+        static int Find(const CameraImage& im, int row) {   // 막대의 가운데 열 (흰 픽셀들의 평균)
+            int sum = 0, n = 0;
+            for (int u = 0; u < im.width; u++)
+                if (im.IsHit(u, row)) {
+                    sum += u;
+                    n++;
+                }
+            return n ? sum / n : -1;
+        }
+    };
+    Camera plain(s);
+    CameraImage a;
+    plain.Render(dhMat(), &t, 1, &a);
+    const int aMid = Col::Find(a, 45), aTop = Col::Find(a, 2);
+    check(aMid >= 0 && aMid == aTop, "without distortion the bar is vertical in the image");
+    check(!plain.Settings().HasDistortion(), "default settings have no distortion");
+
+    s.distortion[0] = -0.4f;
+    Camera barrel(s);
+    CameraImage b;
+    barrel.Render(dhMat(), &t, 1, &b);
+    const int bMid = Col::Find(b, 45), bTop = Col::Find(b, 2);
+    check(bMid >= 0 && bTop >= 0, "the bar is visible with barrel distortion");
+    check(Abs(60.0 - bTop) < Abs(60.0 - bMid), "barrel distortion bends the bar toward the center at the top");
+    check(near(b.distortion[0], -0.4, 1e-6) && near(b.intrinsics.fx, a.intrinsics.fx, 1e-4), "image carries the coefficients and the same K");
+
+    s.distortion[0] = 0.3f;
+    Camera pin(s);
+    CameraImage c;
+    pin.Render(dhMat(), &t, 1, &c);
+    const int cMid = Col::Find(c, 45), cTop = Col::Find(c, 2);
+    check(cMid >= 0 && (cTop < 0 || Abs(60.0 - cTop) > Abs(60.0 - cMid)), "pincushion distortion bends the bar away from the center at the top");
+
+    // 3) 깊이는 그대로 z-depth (막대는 x = 2 평면): 왜곡을 되돌린 PixelPoint 가 막대 위의 점을 돌려준다
+    s.distortion[0] = -0.4f;
+    Camera barrel2(s);
+    CameraImage d;
+    barrel2.Render(dhMat(), &t, 1, &d);
+    bool depthOk = true, pointOk = true;
+    int hits = 0;
+    for (int v = 0; v < d.height; v++)
+        for (int u = 0; u < d.width; u++)
+            if (d.IsHit(u, v)) {
+                hits++;
+                depthOk = depthOk && d.Depth(u, v) > 1.999f && d.Depth(u, v) < 2.101f;   // 막대는 x = 2 ~ 2.1
+                dhVector p;
+                pointOk = pointOk && d.PixelPoint(u, v, &p) && p.x > 1.999f && p.x < 2.101f && p.y > 0.88f && p.y < 1.02f;
+            }
+    check(hits > 0 && depthOk, "depth stays the distance along the sensor x axis");
+    check(pointOk, "PixelPoint undoes the distortion");
+
+    // 4) 접선 왜곡도 영상을 바꾼다
+    s.distortion[0] = 0;
+    s.distortion[2] = 0.05f;
+    Camera tang(s);
+    CameraImage e;
+    tang.Render(dhMat(), &t, 1, &e);
+    check(Col::Find(e, 2) != aTop || Col::Find(e, 80) != Col::Find(a, 80), "tangential distortion changes the image");
+
+    // 5) 너무 큰 왜곡: 되돌리지 못하는 픽셀은 못 본 것으로 두고, 죽지 않는다
+    s.distortion[2] = 0;
+    s.distortion[0] = -5.0f;
+    Camera extreme(s);
+    CameraImage f;
+    extreme.Render(dhMat(), &t, 1, &f);
+    check(f.width == 120 && f.height == 90 && f.bgr.size() == 120 * 90 * 3, "extreme distortion still renders");
+
+    // 6) 안티앨리어싱과 함께
+    s.distortion[0] = -0.4f;
+    s.antialias = 2;
+    Camera aa(s);
+    CameraImage g;
+    aa.Render(dhMat(), &t, 1, &g);
+    check(g.width == 120 && g.height == 90 && near(g.distortion[0], -0.4, 1e-6) && Col::Find(g, 2) >= 0, "distortion works with antialiasing");
+
+    // 7) 유한하지 않은 계수는 올바르지 않다
+    s.antialias = 1;
+    s.distortion[1] = HUGE_VALF;
+    check(!Camera(s).Valid(), "non-finite coefficients are invalid");
+}
+
 void testEdgeCases() {
     CameraSettings s = small(0, 10);
     Camera bad(s);
@@ -358,6 +462,7 @@ int main() {
     testPoseNoiseBvh();
     testSun();
     testAntialias();
+    testDistortion();
     testEdgeCases();
     if (g_fail) {
         printf("test_ccamera: %d failure(s)\n", g_fail);
