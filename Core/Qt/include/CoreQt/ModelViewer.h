@@ -184,6 +184,11 @@ public:
     // 그림자 (태양 조명일 때만): 태양 방향에서 깊이 맵을 그려 가려진 곳의 태양빛을 뺀다. 기본 켜짐. 태양이 꺼져 있거나 해가 졌으면 그리지 않는다.
     void SetShadowsEnabled(bool on);
     bool ShadowsEnabled() const { return shadows_; }
+    // 태양 위치 표시 (태양 조명일 때, 기본 켜짐): 3D 화면에 장면 중심에서 태양으로 가는 선(+ 바닥 투영선), 방위 나침반(북/동/남/서), 화면 위에 방위각/고도/시각 글자를 보인다.
+    // 월드 +y 의 방위(SunSite::northBearingDeg)를 바꾸면 나침반이 같이 돌아서 태양 위치가 제대로 들어갔는지 눈으로 확인할 수 있다.
+    // 3D 화면에서 태양 표시(노란 십자)를 왼쪽 버튼으로 끌면 그날의 태양 경로(노란 곡선)를 따라 시각이 바뀐다 (날짜와 위치는 그대로). 패널도 같이 바뀐다.
+    void SetSunGuideVisible(bool on);
+    bool SunGuideVisible() const { return sunGuide_; }
     // 하늘 (기본 켜짐): 하늘색 그라데이션, 구름, 태양 빛무리를 배경에 그린다. 태양 조명이 꺼져 있어도 낮 하늘(구름)을 그린다 (태양 원반 없음). 낮에는 흰 구름, 해 질 녘엔 붉게, 밤엔 어둡게. 기본 켜짐.
     void SetSkyEnabled(bool on);
     bool SkyEnabled() const { return skyOn_; }
@@ -321,6 +326,14 @@ private:
     simul::UniquePtr<QOpenGLFramebufferObject> shadowFbo_;
     bool shadows_, shadowActive_;
     bool skyOn_;
+    bool sunGuide_;
+    bool dragSun_;                                          // 3D 화면의 태양 표시를 끌어서 시각을 바꾸는 중
+    bool sunHit(const QPoint& pos) const;                    // 마우스가 태양 표시(선 끝) 위인가
+    void setSunFromScreen(const QPoint& pos);                // 그날의 태양 경로에서 화면상 마우스에 가장 가까운 시각으로 바꾼다
+    void sunPath(simul::Array<QVector3D>* points, simul::Array<int>* minutes, simul::Array<bool>* up) const;  // 그날의 태양 경로 (10분 간격)
+    void drawSunGuide();                                   // 태양 선, 바닥 투영선, 나침반 (3D 선)
+    void paintSunOverlay(const QMatrix4x4& proj, const QMatrix4x4& view);   // 나침반 글자와 방위각/고도 글자 (QPainter)
+    void sunGuideGeometry(QVector3D* origin, float* length) const;
     simul::UniquePtr<QOpenGLShaderProgram> skyProg_;
     void drawSky(const QMatrix4x4& proj, const QMatrix4x4& view, const SunLighting& sun);
     QString shaderLog_;

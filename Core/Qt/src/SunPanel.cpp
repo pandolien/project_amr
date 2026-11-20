@@ -38,6 +38,10 @@ SunPanel::SunPanel(ModelViewer* viewer, QWidget* parent) : QWidget(parent), view
     sky_->setChecked(viewer_->SkyEnabled());
     top->addWidget(sky_);
     connect(sky_, &QCheckBox::toggled, viewer_, &ModelViewer::SetSkyEnabled);
+    guide_ = new QCheckBox(QString::fromUtf8("태양 위치 표시 (3D 화면: 태양 선, 나침반, 방위각/고도 글자)"));
+    guide_->setChecked(viewer_->SunGuideVisible());
+    top->addWidget(guide_);
+    connect(guide_, &QCheckBox::toggled, viewer_, &ModelViewer::SetSunGuideVisible);
     QFormLayout* form = new QFormLayout;
     time_ = new QDateTimeEdit;
     time_->setDisplayFormat("yyyy-MM-dd HH:mm");
@@ -136,6 +140,7 @@ void SunPanel::refreshFromViewer() {
     enabled_->setChecked(s.enabled);
     shadows_->setChecked(viewer_->ShadowsEnabled());
     sky_->setChecked(viewer_->SkyEnabled());
+    guide_->setChecked(viewer_->SunGuideVisible());
     time_->setDateTime(QDateTime(QDate(s.time.year, s.time.month, s.time.day), QTime(s.time.hour, s.time.minute, static_cast<int>(s.time.second))));
     utc_->setValue(s.time.utcOffsetHours);
     lat_->setValue(s.site.latitudeDeg);

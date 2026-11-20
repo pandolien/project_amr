@@ -275,7 +275,7 @@ const float kDefaultRough = 0.45f;
 }  // namespace
 
 ModelViewer::ModelViewer(QWidget* parent)
-    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
+    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), sunGuide_(true), dragSun_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
@@ -1469,6 +1469,250 @@ void ModelViewer::SetSunEnabled(bool on) {
     if (!SetSun(s, &err)) return;   // 시각/위치가 올바르지 않으면 켜지 않는다 (기본값은 항상 올바르다)
 }
 
+void ModelViewer::SetSunGuideVisible(bool on) {
+    if (sunGuide_ == on) return;
+    sunGuide_ = on;
+    update();
+}
+
+// 표시 기준: 장면 중심의 바닥(z = 0) 위 점, 선 길이 (장면 크기에 맞춘다)
+void ModelViewer::sunGuideGeometry(QVector3D* origin, float* length) const {
+    *origin = QVector3D(center_.x(), center_.y(), 0.0f);
+    *length = simul::Max(radius_ * 1.6f, gridCell_ * 3.0f);
+}
+
+// 월드 안의 방위 bearingDeg (북에서 시계 방향) 의 수평 단위 벡터. 월드 +y 의 방위가 northBearingDeg 이다.
+static QVector3D BearingDir(double bearingDeg, double northBearingDeg) {
+    const double phi = (bearingDeg - northBearingDeg) * 3.14159265358979323846 / 180.0;
+    return QVector3D(static_cast<float>(sin(phi)), static_cast<float>(cos(phi)), 0.0f);
+}
+
+// 그날의 태양 경로: 같은 날짜/위치에서 10분마다의 방향 (센터에서 길이 L). up[i] = 해가 떠 있는가
+void ModelViewer::sunPath(simul::Array<QVector3D>* points, simul::Array<int>* minutes, simul::Array<bool>* up) const {
+    QVector3D o;
+    float L = 0.0f;
+    sunGuideGeometry(&o, &L);
+    for (int m = 0; m < 1440; m += 10) {
+        simul::env::SunTime t = sunSettings_.time;
+        t.hour = m / 60;
+        t.minute = m % 60;
+        t.second = 0.0;
+        simul::env::SunState st;
+        if (!simul::env::ComputeSun(t, sunSettings_.site, &st)) continue;
+        points->push_back(o + QVector3D(st.direction.x, st.direction.y, st.direction.z) * L);
+        minutes->push_back(m);
+        up->push_back(st.elevationDeg >= 0.0);
+    }
+}
+
+bool ModelViewer::sunHit(const QPoint& pos) const {
+    if (!sunGuide_ || !sunSettings_.enabled) return false;
+    QVector3D o;
+    float L = 0.0f;
+    sunGuideGeometry(&o, &L);
+    const QVector3D tip = o + QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z) * L;
+    const QVector4D c = (projMatrix() * viewMatrix()) * QVector4D(tip, 1.0f);
+    if (c.w() <= 1e-6f) return false;
+    const float sx = (c.x() / c.w() * 0.5f + 0.5f) * static_cast<float>(width()), sy = (1.0f - (c.y() / c.w() * 0.5f + 0.5f)) * static_cast<float>(height());
+    const float dx = sx - static_cast<float>(pos.x()), dy = sy - static_cast<float>(pos.y());
+    return dx * dx + dy * dy <= 18.0f * 18.0f;
+}
+
+void ModelViewer::setSunFromScreen(const QPoint& pos) {
+    QVector3D o;
+    float L = 0.0f;
+    sunGuideGeometry(&o, &L);
+    const QMatrix4x4 pv = projMatrix() * viewMatrix();
+    double bestD = 1e30;
+    int best = -1;
+    for (int m = 0; m < 1440; m++) {
+        simul::env::SunTime t = sunSettings_.time;
+        t.hour = m / 60;
+        t.minute = m % 60;
+        t.second = 0.0;
+        simul::env::SunState st;
+        if (!simul::env::ComputeSun(t, sunSettings_.site, &st) || st.elevationDeg < -1.0) continue;
+        const QVector4D c = pv * QVector4D(o + QVector3D(st.direction.x, st.direction.y, st.direction.z) * L, 1.0f);
+        if (c.w() <= 1e-6f) continue;
+        const double dx = (c.x() / c.w() * 0.5 + 0.5) * width() - pos.x(), dy = (1.0 - (c.y() / c.w() * 0.5 + 0.5)) * height() - pos.y();
+        const double d = dx * dx + dy * dy;
+        if (d < bestD) {
+            bestD = d;
+            best = m;
+        }
+    }
+    if (best < 0) return;
+    simul::env::SunTime t = sunSettings_.time;
+    t.hour = best / 60;
+    t.minute = best % 60;
+    t.second = 0.0;
+    if (t.hour == sunSettings_.time.hour && t.minute == sunSettings_.time.minute) return;
+    SetSunTime(t, nullptr);
+}
+
+void ModelViewer::drawSunGuide() {
+    if (!sunGuide_ || !sunSettings_.enabled) return;
+    QVector3D o;
+    float L = 0.0f;
+    sunGuideGeometry(&o, &L);
+    const QVector3D sd(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z);
+    const double nb = sunSettings_.site.northBearingDeg;
+    glLineWidth(1.5f);
+    // 나침반: 바닥의 원과 북(붉은색)/동/남/서 눈금
+    {
+        const int N = 64;
+        simul::Array<float> ring;
+        for (int i = 0; i <= N; i++) {
+            const double a = 2.0 * 3.14159265358979323846 * i / N;
+            ring.push_back(o.x() + L * static_cast<float>(sin(a)));
+            ring.push_back(o.y() + L * static_cast<float>(cos(a)));
+            ring.push_back(0.0f);
+        }
+        prog_->setUniformValue("uColor", QVector4D(0.30f, 0.36f, 0.50f, 1.0f));
+        prog_->setAttributeArray(0, GL_FLOAT, ring.data(), 3);
+        glDrawArrays(GL_LINE_STRIP, 0, N + 1);
+        for (int k = 0; k < 4; k++) {
+            const QVector3D d = BearingDir(90.0 * k, nb);
+            const float t[6] = {o.x() + d.x() * L * 0.9f, o.y() + d.y() * L * 0.9f, 0.0f, o.x() + d.x() * L * 1.08f, o.y() + d.y() * L * 1.08f, 0.0f};
+            prog_->setUniformValue("uColor", k == 0 ? QVector4D(1.0f, 0.3f, 0.3f, 1.0f) : QVector4D(0.30f, 0.36f, 0.50f, 1.0f));
+            prog_->setAttributeArray(0, GL_FLOAT, t, 3);
+            glDrawArrays(GL_LINES, 0, 2);
+        }
+    }
+    // 그날의 태양 경로: 뜬 구간을 곡선으로, 정시마다 작은 점(십자)
+    {
+        simul::Array<QVector3D> pts;
+        simul::Array<int> mins;
+        simul::Array<bool> up;
+        sunPath(&pts, &mins, &up);
+        simul::Array<float> seg, ticks;
+        for (size_t i = 0; i + 1 < pts.size(); i++) {
+            if (!up[i] || !up[i + 1]) continue;
+            const float s[6] = {pts[i].x(), pts[i].y(), pts[i].z(), pts[i + 1].x(), pts[i + 1].y(), pts[i + 1].z()};
+            seg.insert(seg.end(), s, s + 6);
+        }
+        const float ts = L * 0.018f;
+        for (size_t i = 0; i < pts.size(); i++) {
+            if (!up[i] || mins[i] % 60 != 0) continue;
+            const QVector3D& q = pts[i];
+            const float c[18] = {q.x() - ts, q.y(), q.z(), q.x() + ts, q.y(), q.z(), q.x(), q.y() - ts, q.z(), q.x(), q.y() + ts, q.z(), q.x(), q.y(), q.z() - ts, q.x(), q.y(), q.z() + ts};
+            ticks.insert(ticks.end(), c, c + 18);
+        }
+        glLineWidth(2.0f);
+        prog_->setUniformValue("uColor", QVector4D(0.95f, 0.82f, 0.35f, 1.0f));
+        if (!seg.empty()) {
+            prog_->setAttributeArray(0, GL_FLOAT, seg.data(), 3);
+            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(seg.size() / 3));
+        }
+        if (!ticks.empty()) {
+            prog_->setAttributeArray(0, GL_FLOAT, ticks.data(), 3);
+            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(ticks.size() / 3));
+        }
+    }
+    // 태양: 중심 -> 태양 선(노랑), 바닥 투영선과 수직 보조선(주황), 끝에 십자
+    {
+        const bool up = sunState_.aboveHorizon;
+        const QVector4D yellow = up ? QVector4D(1.0f, 0.88f, 0.2f, 1.0f) : QVector4D(0.5f, 0.5f, 0.45f, 1.0f);
+        const QVector4D orange = up ? QVector4D(1.0f, 0.55f, 0.15f, 1.0f) : QVector4D(0.45f, 0.4f, 0.35f, 1.0f);
+        const QVector3D tip = o + sd * L;
+        const QVector3D foot(tip.x(), tip.y(), 0.0f);
+        const float ray[6] = {o.x(), o.y(), o.z(), tip.x(), tip.y(), tip.z()};
+        const float ground[6] = {o.x(), o.y(), 0.0f, foot.x(), foot.y(), 0.0f};
+        const float drop[6] = {foot.x(), foot.y(), 0.0f, tip.x(), tip.y(), tip.z()};
+        glLineWidth(3.0f);
+        prog_->setUniformValue("uColor", yellow);
+        prog_->setAttributeArray(0, GL_FLOAT, ray, 3);
+        glDrawArrays(GL_LINES, 0, 2);
+        glLineWidth(1.5f);
+        prog_->setUniformValue("uColor", orange);
+        prog_->setAttributeArray(0, GL_FLOAT, ground, 3);
+        glDrawArrays(GL_LINES, 0, 2);
+        prog_->setAttributeArray(0, GL_FLOAT, drop, 3);
+        glDrawArrays(GL_LINES, 0, 2);
+        const float s = L * 0.05f;
+        const float cross[18] = {tip.x() - s, tip.y(), tip.z(), tip.x() + s, tip.y(), tip.z(), tip.x(), tip.y() - s, tip.z(), tip.x(), tip.y() + s, tip.z(), tip.x(), tip.y(), tip.z() - s, tip.x(), tip.y(), tip.z() + s};
+        glLineWidth(3.0f);
+        prog_->setUniformValue("uColor", yellow);
+        prog_->setAttributeArray(0, GL_FLOAT, cross, 3);
+        glDrawArrays(GL_LINES, 0, 6);
+    }
+    glLineWidth(1.0f);
+}
+
+void ModelViewer::paintSunOverlay(const QMatrix4x4& proj, const QMatrix4x4& view) {
+    if (!sunGuide_ || !sunSettings_.enabled) return;
+    for (int i = 0; i < 4; i++) glDisableVertexAttribArray(static_cast<GLuint>(i));   // QPainter 가 쓰기 전에 남은 정점 배열을 꺼 둔다
+    QVector3D o;
+    float L = 0.0f;
+    sunGuideGeometry(&o, &L);
+    const QMatrix4x4 pv = proj * view;
+    auto toScreen = [&](const QVector3D& w, QPointF* out) {
+        const QVector4D c = pv * QVector4D(w, 1.0f);
+        if (c.w() <= 1e-6f) return false;
+        *out = QPointF((c.x() / c.w() * 0.5f + 0.5f) * width(), (1.0f - (c.y() / c.w() * 0.5f + 0.5f)) * height());
+        return true;
+    };
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QFont f = p.font();
+    f.setBold(true);
+    f.setPointSizeF(f.pointSizeF() > 0 ? f.pointSizeF() * 1.15 : 10.0);
+    p.setFont(f);
+    // 글자는 어두운 반투명 바탕 위에 그려서 밝은 하늘 위에서도 읽힌다
+    auto label = [&](const QRectF& r, const QString& text, const QColor& color) {
+        const QFontMetrics m(p.font());
+        const QRectF box(r.center().x() - (m.horizontalAdvance(text) + 8) * 0.5, r.center().y() - (m.height() + 2) * 0.5, m.horizontalAdvance(text) + 8, m.height() + 2);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 0, 0, 120));
+        p.drawRoundedRect(box, 4, 4);
+        p.setPen(color);
+        p.drawText(box, Qt::AlignCenter, text);
+    };
+    const double nb = sunSettings_.site.northBearingDeg;
+    const char* names[4] = {"북", "동", "남", "서"};
+    for (int k = 0; k < 4; k++) {
+        const QVector3D d = BearingDir(90.0 * k, nb);
+        QPointF s;
+        if (!toScreen(QVector3D(o.x() + d.x() * L * 1.2f, o.y() + d.y() * L * 1.2f, 0.0f), &s)) continue;
+        label(QRectF(s.x() - 20, s.y() - 12, 40, 24), QString::fromUtf8(names[k]), k == 0 ? QColor(255, 120, 120) : QColor(225, 230, 245));
+    }
+    QPointF sp;
+    if (toScreen(o + QVector3D(sunState_.direction.x, sunState_.direction.y, sunState_.direction.z) * L * 1.12f, &sp)) {
+        label(QRectF(sp.x() - 30, sp.y() - 26, 60, 22), QString::fromUtf8("태양"), sunState_.aboveHorizon ? QColor(255, 225, 90) : QColor(170, 170, 160));
+    }
+    {   // 정시 글자 (경로 위)
+        simul::Array<QVector3D> pts;
+        simul::Array<int> mins;
+        simul::Array<bool> up;
+        sunPath(&pts, &mins, &up);
+        QFont small = p.font();
+        small.setPointSizeF(small.pointSizeF() * 0.8);
+        small.setBold(false);
+        p.setFont(small);
+        for (size_t i = 0; i < pts.size(); i++) {
+            if (!up[i] || mins[i] % 120 != 0) continue;   // 2시간마다 글자
+            QPointF s;
+            if (toScreen(pts[i], &s)) label(QRectF(s.x() - 20, s.y() + 10, 40, 16), QString::fromUtf8("%1시").arg(mins[i] / 60), QColor(240, 220, 150));
+        }
+        p.setFont(f);
+    }
+    // 위쪽에 글자: 시각, 방위각(8방위 이름), 고도
+    static const char* dir8[8] = {"북", "북동", "동", "남동", "남", "남서", "서", "북서"};
+    const int idx = static_cast<int>((sunState_.azimuthDeg + 22.5) / 45.0) % 8;
+    const simul::env::SunTime& t = sunSettings_.time;
+    const QString text = QString::fromUtf8("태양  %1-%2-%3 %4:%5   방위각 %6° (%7)   고도 %8° %9")
+                             .arg(t.year, 4, 10, QChar('0')).arg(t.month, 2, 10, QChar('0')).arg(t.day, 2, 10, QChar('0')).arg(t.hour, 2, 10, QChar('0')).arg(t.minute, 2, 10, QChar('0'))
+                             .arg(sunState_.azimuthDeg, 0, 'f', 1).arg(QString::fromUtf8(dir8[idx < 0 ? 0 : idx])).arg(sunState_.elevationDeg, 0, 'f', 1)
+                             .arg(sunState_.aboveHorizon ? QString::fromUtf8("(떠 있음)") : QString::fromUtf8("(해 진 상태)"));
+    const QFontMetrics fm(p.font());
+    const QRect box(10, 8, fm.horizontalAdvance(text) + 18, fm.height() + 10);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 120));
+    p.drawRoundedRect(box, 5, 5);
+    p.setPen(sunState_.aboveHorizon ? QColor(255, 230, 120) : QColor(190, 190, 180));
+    p.drawText(box, Qt::AlignCenter, text);
+}
+
 void ModelViewer::SetSkyEnabled(bool on) {
     if (skyOn_ == on) return;
     skyOn_ = on;
@@ -1930,6 +2174,7 @@ void ModelViewer::paintScene() {
             }
         }
         glLineWidth(1.0f);
+        drawSunGuide();
         prog_->disableAttributeArray(0);
     }
 
@@ -2012,6 +2257,7 @@ void ModelViewer::paintScene() {
     }
     if (showFrame_ && HasSelection()) drawSelectionFrame(proj, view);
     prog_->release();
+    paintSunOverlay(proj, view);
 }
 
 // 선택한 것의 좌표계. 다른 물체에 가려지지 않게 깊이 버퍼를 지우고 그리며, 화면에서 보이는 크기가 일정하도록 거리에 비례해 키운다.
@@ -2080,6 +2326,12 @@ static bool RayPlane(const QVector3D& ro, const QVector3D& rd, const QVector3D& 
 }
 
 void ModelViewer::mousePressEvent(QMouseEvent* e) {
+    if (e->button() == Qt::LeftButton && sunHit(e->pos())) {   // 태양 표시를 잡았다: 끌어서 시각을 바꾼다
+        dragSun_ = true;
+        dragged_ = true;
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
     lastPos_ = e->pos();
     pressPos_ = e->pos();
     dragged_ = false;
@@ -2153,6 +2405,12 @@ void ModelViewer::mousePressEvent(QMouseEvent* e) {
 }
 
 void ModelViewer::mouseReleaseEvent(QMouseEvent* e) {
+    if (dragSun_) {
+        dragSun_ = false;
+        setCursor(sunHit(e->pos()) ? Qt::OpenHandCursor : Qt::ArrowCursor);
+        update();
+        return;
+    }
     // 거의 움직이지 않고 뗀 왼쪽 버튼 = 클릭: 그 자리의 물체를 선택한다
     if (e->button() != Qt::LeftButton) return;
     if (dragAxis_ >= 0 || dragRing_ >= 0) {  // 화살표/링을 끌던 중이었다: 선택은 그대로 두고 끝낸다
@@ -2341,7 +2599,12 @@ int ModelViewer::PickAt(const QPoint& pos, bool* model) const {
 }
 
 void ModelViewer::mouseMoveEvent(QMouseEvent* e) {
+    if (dragSun_) {
+        setSunFromScreen(e->pos());
+        return;
+    }
     if (e->buttons() == Qt::NoButton) {
+        setCursor(sunHit(e->pos()) ? Qt::OpenHandCursor : Qt::ArrowCursor);
         const int hr = mouseEdit_ ? hitRing(e->pos(), nullptr) : -1;
         if (hr != hoverRing_) { hoverRing_ = hr; update(); }
         return;
