@@ -1696,15 +1696,12 @@ private:
     QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
     QDockWidget* logDock_ = nullptr;
-<<<<<<< HEAD
     QDockWidget* propDock_ = nullptr;
     QDockWidget* urdfDock_ = nullptr;
     QDockWidget* folderDock_ = nullptr;
     FolderView* folderView_ = nullptr;
-=======
     SunPanel* sunPanel_ = nullptr;
     QDockWidget* sunDock_ = nullptr;
->>>>>>> origin/main
     QSet<QString> loggedWarnings_;
     QStringList lastCollisions_;
     bool collisionLabelHit_ = false;
