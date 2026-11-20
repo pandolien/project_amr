@@ -260,6 +260,17 @@ simul::String UrdfToString(const Robot& robot, const simul::String& outDir, cons
         if (d.noiseStdDev > 0.0f) out += "        <noise><stddev>" + Num(d.noiseStdDev) + "</stddev></noise>\n";
         out += "      </ray>\n    </sensor>\n  </gazebo>\n";
     }
+    for (size_t i = 0; i < robot.cameras.size(); i++) {
+        const CameraDef& d = robot.cameras[i];
+        out += "\n  <gazebo reference=\"" + Escape(d.link) + "\">\n    <sensor type=\"camera\" name=\"" + Escape(d.name) + "\">\n";
+        double rpy[3];
+        RpyFromMat(d.pose, rpy);
+        out += "      <pose>" + Num(d.pose.v[12]) + " " + Num(d.pose.v[13]) + " " + Num(d.pose.v[14]) + " " + Num(rpy[0]) + " " + Num(rpy[1]) + " " + Num(rpy[2]) + "</pose>\n";
+        out += "      <camera>\n        <horizontal_fov>" + Num(d.horizontalFov) + "</horizontal_fov>\n";
+        out += "        <image><width>" + Num(d.width) + "</width><height>" + Num(d.height) + "</height></image>\n";
+        out += "        <clip><near>" + Num(d.nearClip) + "</near><far>" + Num(d.farClip) + "</far></clip>\n";
+        out += "      </camera>\n    </sensor>\n  </gazebo>\n";
+    }
     out += "</robot>\n";
     return out;
 }

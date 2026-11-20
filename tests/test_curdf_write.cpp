@@ -80,6 +80,11 @@ void sameRobot(const Robot& a, const Robot& b, const String& tag) {
         check(x.hasMimic == y.hasMimic && (!x.hasMimic || (x.mimicJoint == y.mimicJoint && near(x.mimicMultiplier, y.mimicMultiplier) && near(x.mimicOffset, y.mimicOffset))), (tag + ": mimic " + x.name).c_str());
     }
     check(a.lidars.size() == b.lidars.size(), (tag + ": lidar count").c_str());
+    check(a.cameras.size() == b.cameras.size(), (tag + ": camera count").c_str());
+    for (size_t i = 0; i < a.cameras.size() && i < b.cameras.size(); i++)
+        check(a.cameras[i].link == b.cameras[i].link && a.cameras[i].width == b.cameras[i].width && a.cameras[i].height == b.cameras[i].height && near(a.cameras[i].horizontalFov, b.cameras[i].horizontalFov, 1e-5) &&
+                  near(a.cameras[i].nearClip, b.cameras[i].nearClip, 1e-5) && near(a.cameras[i].farClip, b.cameras[i].farClip, 1e-5) && near(a.cameras[i].pose.v[12], b.cameras[i].pose.v[12], 1e-5),
+              (tag + ": camera fields").c_str());
     check(b.links[static_cast<size_t>(b.root)].name == a.links[static_cast<size_t>(a.root)].name, (tag + ": root").c_str());
 }
 
@@ -429,6 +434,7 @@ int main() {
     testPrimitives();
     roundTrip(kData + "arm.urdf");
     roundTrip(kData + "arm_gripper.urdf");
+    roundTrip(kData + "camera_scene.urdf");
     roundTrip(kData + "lidar_room.urdf");
     roundTrip(kData + "lidar_room_3d.urdf");
     testRpy();
