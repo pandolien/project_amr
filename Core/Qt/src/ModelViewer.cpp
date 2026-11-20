@@ -1861,10 +1861,10 @@ void ModelViewer::paintSunOverlay(const QMatrix4x4& proj, const QMatrix4x4& view
         simul::Array<int> mins;
         simul::Array<bool> up;
         sunPath(&pts, &mins, &up);
-        QFont small = p.font();
-        small.setPointSizeF(small.pointSizeF() * 0.8);
-        small.setBold(false);
-        p.setFont(small);
+        QFont smallFont = p.font();
+        smallFont.setPointSizeF(smallFont.pointSizeF() * 0.8);
+        smallFont.setBold(false);
+        p.setFont(smallFont);
         for (size_t i = 0; i < pts.size(); i++) {
             if (!up[i] || mins[i] % 120 != 0) continue;   // 2시간마다 글자
             QPointF s;
