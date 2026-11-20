@@ -78,7 +78,7 @@ struct Options {
     bool sunSiteSet;
     bool viewSet;               // --view-angle 방위각,고도각 (도)
     double viewYaw, viewPitch;
-    bool noSunGuide;            // --no-sun-guide: 태양 위치 표시(선, 나침반, 글자)를 끈다
+    bool sunGuide;              // --sun-guide: 태양 위치 표시(선, 방위 글자, 방위각/고도 글자)를 켠다 (기본은 꺼짐)
     bool noSky;                 // --no-sky: 3D 화면의 하늘(구름)을 끄고 단색 배경
     bool noShadow;              // --no-shadow: 3D 화면의 그림자를 끈다
     simul::String cameraLink;    // --camera: 카메라를 달 링크 이름 (비어 있으면 없음)
@@ -108,7 +108,7 @@ struct Options {
         sunSiteSet = false;
         noShadow = false;
         noSky = false;
-        noSunGuide = false;
+        sunGuide = false;
         viewSet = false;
         viewYaw = viewPitch = 0.0;
         cameraW = 320;
@@ -168,7 +168,7 @@ void PrintUsage(const char* exe) {
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
         "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 오늘 날짜의 10:00). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
         "  --sun-now (지금 시각)  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
-        "  --no-shadow  3D 화면의 그림자를 끈다 (태양 조명일 때 기본은 켜짐)  --no-sky  하늘과 구름을 끄고 단색 배경  --no-sun-guide  태양 위치 표시를 끈다\n"
+        "  --no-shadow  3D 화면의 그림자를 끈다 (태양 조명일 때 기본은 켜짐)  --no-sky  하늘과 구름을 끄고 단색 배경  --sun-guide  태양 위치 표시(태양 선, 동서남북, 방위각/고도 글자, 끌어서 시각 선택)를 켠다\n"
         "  --view-angle 방위각,고도각  시작 시점(도, 고도각 -89~89, 음수면 올려다봄)\n"
         "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
         "  --click x,y        3D 화면의 (x,y) 픽셀을 왼쪽 클릭한 것처럼 선택 (--shot 과 함께 확인용)\n"
@@ -382,7 +382,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
             o->viewSet = true;
             continue;
         }
-        if (a == "--no-sun-guide") { o->noSunGuide = true; continue; }
+        if (a == "--sun-guide") { o->sunGuide = true; continue; }
         if (a == "--no-sky") { o->noSky = true; continue; }
         if (a == "--sun-now") { o->sunOn = true; o->sunTimeSet = false; o->sunNow = true; continue; }
         if (a == "--sun-site" && hasNext) {   // 위도,경도[,UTC오프셋[,월드+y방위]]
@@ -1001,7 +1001,7 @@ public:
     void applySun(const Options& o) {
         viewer_->SetShadowsEnabled(!o.noShadow);
         viewer_->SetSkyEnabled(!o.noSky);
-        viewer_->SetSunGuideVisible(!o.noSunGuide);
+        viewer_->SetSunGuideVisible(o.sunGuide);
         if (!o.sunOn) return;
         ModelViewer::SunSettings s;
         s.enabled = true;

@@ -276,7 +276,7 @@ const float kDefaultRough = 0.45f;
 }  // namespace
 
 ModelViewer::ModelViewer(QWidget* parent)
-    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), sunGuide_(true), sunHover_(false), dragSun_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
+    : QOpenGLWidget(parent), shadows_(true), shadowActive_(false), skyOn_(true), sunGuide_(false), sunHover_(false), dragSun_(false), buffersDirty_(false), hasRobot_(false), triangleCount_(0), radius_(1.0f),
       dist_(3.0f), yaw_(-1.0471976f), pitch_(0.43633232f), scaleInfo_(nullptr), scaleInfoVisible_(true), frameStatsVisible_(false), fps_(0.0), paintMs_(0.0), statFrames_(0), statPaintSum_(0.0), showBoxes_(false), showObbs_(false), showGrid_(true), gridCell_(1.0f) {
     setMouseTracking(true);  // 버튼을 누르지 않아도 링 위에 있으면 밝게 보인다
     selectedLink_ = -1;
