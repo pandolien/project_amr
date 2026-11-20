@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QImage>
 #include <QOpenGLBuffer>
+#include <QOpenGLFramebufferObject>
 #include <QOpenGLTexture>
 #include <QSharedPointer>
 #include <QOpenGLFunctions>
@@ -208,6 +209,10 @@ public:
     bool SetSunTime(const simul::env::SunTime& time, QString* error = nullptr);   // 시각만 바꾼다 (시간 흐름에 쓴다)
     void SetSunEnabled(bool on);
     bool SunEnabled() const { return sunSettings_.enabled; }
+    // 그림자 (태양 조명일 때만): 태양 방향에서 깊이 맵을 그려 가려진 곳의 태양빛을 뺀다. 기본 켜짐. 태양이 꺼져 있거나 해가 졌으면 그리지 않는다.
+    void SetShadowsEnabled(bool on);
+    bool ShadowsEnabled() const { return shadows_; }
+    bool ShadowsActive() const { return shadowActive_; }   // 마지막으로 그린 화면에 그림자 맵을 썼는가 (확인용)
     const SunSettings& Sun() const { return sunSettings_; }
     const simul::env::SunState& SunStateNow() const { return sunState_; }   // 지금 설정의 태양 방위/고도/방향
 
@@ -298,13 +303,15 @@ private:
         QImage image;                   // 기본 색 텍스처 (디코딩한 것, 비어 있으면 없음). 같은 이미지를 쓰는 primitive 끼리 같은 데이터를 나눠 쓴다
         QString imageKey;               // 같은 이미지인지 알아보는 이름 (파일 경로 또는 내용의 해시)
         bool hasVertexColor;
+        mutable bool boxOk;              // 아래 경계 상자를 계산했는가 (그림자 범위용, 메시는 바뀌지 않는다)
+        mutable float boxLo[3], boxHi[3];  // 이 primitive 의 (base 좌표) 경계 상자
         int alphaMode;                  // 재질의 알파 모드 (0 불투명, 1 마스크, 2 블렌드)
         float alphaCutoff;
         QOpenGLBuffer vbo;
         QOpenGLBuffer ibo;
         QOpenGLBuffer evbo;             // extra 를 올린 버퍼
         QSharedPointer<QOpenGLTexture> tex;
-        Item() : link(-1), bvhOk(false), hasVertexColor(false), alphaMode(0), alphaCutoff(0.5f), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer), evbo(QOpenGLBuffer::VertexBuffer) {
+        Item() : link(-1), bvhOk(false), hasVertexColor(false), boxOk(false), alphaMode(0), alphaCutoff(0.5f), vbo(QOpenGLBuffer::VertexBuffer), ibo(QOpenGLBuffer::IndexBuffer), evbo(QOpenGLBuffer::VertexBuffer) {
             color[0] = color[1] = color[2] = 0.75f;
             color[3] = 1.0f;
             metallic = 0.0f;
@@ -335,6 +342,11 @@ private:
         SunLighting() : on(false), sunK(1.0f), ambient(1.0f) { color[0] = color[1] = color[2] = 1.0f; sky[0] = 0.16f; sky[1] = 0.17f; sky[2] = 0.20f; }
     };
     SunLighting sunLighting() const;
+    bool renderShadowMap(const QMatrix4x4& view, const SunLighting& sun);   // 그림자 맵을 그리고 셰이더 uniform 을 채운다. 쓸 수 없으면 false
+    void shadowBounds(QVector3D* center, float* radius) const;             // 그림자를 받고 드리울 모든 불투명 물체의 월드 경계 구
+    simul::UniquePtr<QOpenGLShaderProgram> shadowProg_;
+    simul::UniquePtr<QOpenGLFramebufferObject> shadowFbo_;
+    bool shadows_, shadowActive_;
     QString shaderLog_;
     SunSettings sunSettings_;
     simul::env::SunState sunState_;

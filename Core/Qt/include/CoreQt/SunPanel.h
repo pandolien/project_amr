@@ -30,6 +30,7 @@ private:
     void updateInfo();
     ModelViewer* viewer_;
     QCheckBox* enabled_;
+    QCheckBox* shadows_;
     QDateTimeEdit* time_;
     QDoubleSpinBox *lat_, *lon_, *utc_, *north_, *speed_;
     QCheckBox* lapse_;
