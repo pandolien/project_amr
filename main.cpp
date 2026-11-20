@@ -71,6 +71,7 @@ struct Options {
     float lidarElev[2];        //   첫/마지막 채널의 고각 (도)
     bool sunOn;                 // --sun / --sun-now / --sun-site: 태양 조명을 켠다
     simul::env::SunTime sunTime;   // --sun 날짜시각 (현지). 지정하지 않으면 지금 시각
+    bool sunNow;                // --sun-now: 지금 시각 (아니면 오늘 날짜의 10:00)
     bool sunTimeSet;            // --sun 에 날짜를 줬는가
     simul::env::SunSite sunSite;   // --sun-site 위도,경도[,UTC오프셋[,월드+y방위]]
     bool sunOffsetSet;          // UTC 오프셋을 직접 줬는가 (안 줬으면 서울 기본이면 +9, 위치를 줬으면 경도/15 반올림)
@@ -102,6 +103,7 @@ struct Options {
         cameraMount[0] = cameraMount[1] = cameraMount[2] = 0;
         sunOn = false;
         sunTimeSet = false;
+        sunNow = false;
         sunOffsetSet = false;
         sunSiteSet = false;
         noShadow = false;
@@ -164,8 +166,8 @@ void PrintUsage(const char* exe) {
         "  --camera-distort k1,k2,p1,p2,k3  카메라 렌즈 왜곡 (OpenCV 와 같음. 예: -0.3,0.1,0,0,0 = 통 모양. URDF 의 <distortion> 보다 우선)\n"
         "  --camera-aa 1~4  카메라 안티앨리어싱 (픽셀을 n x n 으로 나눠 찍어 평균. 1 = 끔, 시간은 n^2 배)\n"
         "  --camera-save 파일.png  (--camera 와 함께) 영상을 저장: 컬러 PNG, 이름_depth.png (회색, 가까울수록 밝음), 이름_depth16.png (16비트, mm)\n"
-        "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 지금). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
-        "  --sun-now  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
+        "  --sun [YYYY-MM-DDTHH:MM]  태양 조명을 켠다 (현지 시각, 생략하면 오늘 날짜의 10:00). 해 위치는 시각과 위치로 계산하고 월드 +x 가 동, +y 가 북\n"
+        "  --sun-now (지금 시각)  --sun-site 위도,경도[,UTC오프셋[,월드+y의 방위]]  지금 시각 / 위치 (기본 서울 37.5665,126.978, +9). 센서 카메라 영상에도 같은 태양과 그림자가 적용된다\n"
         "  --no-shadow  3D 화면의 그림자를 끈다 (태양 조명일 때 기본은 켜짐)  --no-sky  하늘과 구름을 끄고 단색 배경  --no-sun-guide  태양 위치 표시를 끈다\n"
         "  --view-angle 방위각,고도각  시작 시점(도, 고도각 -89~89, 음수면 올려다봄)\n"
         "  --lidar-csv 파일.csv  (--lidar 와 함께) 스캔 결과를 CSV 로 저장: 광선 번호, 채널, 방위각(도), 고각(도), 맞음(1/0), 거리(m), 맞은 점 x,y,z(월드), 맞은 링크\n"
@@ -357,11 +359,11 @@ int ParseArgs(int argc, char** argv, Options* o) {
             else { fprintf(stderr, "--shading 은 lambert, phong, pbr 중 하나입니다: %s\n", v.c_str()); return false; }
             continue;
         }
-        if (a == "--sun") {   // --sun [YYYY-MM-DDTHH:MM]  (현지 시각. 날짜를 생략하면 지금 시각)
+        if (a == "--sun") {   // --sun [YYYY-MM-DDTHH:MM]  (현지 시각. 생략하면 오늘 날짜의 10:00, 시각만 생략하면 10:00)
             o->sunOn = true;
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 const char* v = argv[++i];
-                int y, mo, d, h = 12, mi = 0;
+                int y, mo, d, h = 10, mi = 0;
                 const int n = sscanf(v, "%d-%d-%dT%d:%d", &y, &mo, &d, &h, &mi);
                 if (n < 3) { fprintf(stderr, "--sun 은 YYYY-MM-DDTHH:MM 형식입니다 (현지 시각, 예: 2026-06-21T14:30)\n"); return false; }
                 o->sunTime.year = y; o->sunTime.month = mo; o->sunTime.day = d; o->sunTime.hour = h; o->sunTime.minute = mi; o->sunTime.second = 0;
@@ -382,7 +384,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         }
         if (a == "--no-sun-guide") { o->noSunGuide = true; continue; }
         if (a == "--no-sky") { o->noSky = true; continue; }
-        if (a == "--sun-now") { o->sunOn = true; o->sunTimeSet = false; continue; }
+        if (a == "--sun-now") { o->sunOn = true; o->sunTimeSet = false; o->sunNow = true; continue; }
         if (a == "--sun-site" && hasNext) {   // 위도,경도[,UTC오프셋[,월드+y방위]]
             double lat, lon, off = 0, nb = 0;
             const int n = sscanf(argv[++i], "%lf,%lf,%lf,%lf", &lat, &lon, &off, &nb);
@@ -995,7 +997,7 @@ public:
         if (o.viewSet) viewer_->SetCamera(viewer_->CameraTarget(), viewer_->CameraDistance(), dhRad(o.viewYaw), dhRad(o.viewPitch));
     }
 
-    // 태양: 명령행에서 켠 경우. 날짜를 주지 않으면 지금 시각 (그 컴퓨터의 시간대), 위치만 주고 UTC 오프셋을 안 주면 경도/15 를 반올림한다.
+    // 태양: 명령행에서 켠 경우. 날짜를 주지 않으면 오늘 날짜의 10:00 (--sun-now 면 지금 시각, 그 컴퓨터의 시간대), 위치만 주고 UTC 오프셋을 안 주면 경도/15 를 반올림한다.
     void applySun(const Options& o) {
         viewer_->SetShadowsEnabled(!o.noShadow);
         viewer_->SetSkyEnabled(!o.noSky);
@@ -1008,7 +1010,9 @@ public:
             s.time = o.sunTime;
             if (!o.sunOffsetSet) s.time.utcOffsetHours = o.sunSiteSet ? simul::Floor(o.sunSite.longitudeDeg / 15.0 + 0.5) : 9.0;   // 기본 위치(서울)는 +9
         } else {
-            s.time = simul::env::SunTimeNow();
+            // 기본값은 SunSettings 의 오늘 날짜 10:00. --sun-now 면 지금 시각
+            if (o.sunNow) s.time = simul::env::SunTimeNow();
+            else if (!o.sunOffsetSet && o.sunSiteSet) s.time.utcOffsetHours = simul::Floor(o.sunSite.longitudeDeg / 15.0 + 0.5);
             if (o.sunOffsetSet) s.time.utcOffsetHours = o.sunTime.utcOffsetHours;
         }
         QString err;

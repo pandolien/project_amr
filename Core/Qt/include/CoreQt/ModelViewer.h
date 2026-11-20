@@ -203,7 +203,14 @@ public:
         bool enabled;
         simul::env::SunTime time;   // 현지 시각과 UTC 오프셋
         simul::env::SunSite site;   // 위도, 경도, 월드 +y 의 방위
-        SunSettings() : enabled(false) {}
+        // 기본 시각: 오늘 날짜의 10:00 (UTC+9, 기본 위치 서울에 맞춤). 지금 시각을 따라가지 않는다 ("지금" 은 태양 패널의 버튼이나 --sun-now).
+        SunSettings() : enabled(false) {
+            time = simul::env::SunTimeNow();
+            time.hour = 10;
+            time.minute = 0;
+            time.second = 0.0;
+            time.utcOffsetHours = 9.0;
+        }
     };
     bool SetSun(const SunSettings& settings, QString* error = nullptr);    // 올바르지 않으면 false (바뀌지 않는다)
     bool SetSunTime(const simul::env::SunTime& time, QString* error = nullptr);   // 시각만 바꾼다 (시간 흐름에 쓴다)
