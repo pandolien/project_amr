@@ -439,6 +439,7 @@ void testCameraDistortionRoundTrip() {
     check(LoadUrdf(out, &b, &err), ("reload distortion: " + err).c_str());
     bool same = a.cameras.size() == 1 && b.cameras.size() == 1;
     for (int i = 0; same && i < 5; i++) same = near(a.cameras[0].distortion[i], b.cameras[0].distortion[i], 1e-6);
+    same = same && near(a.cameras[0].colorNoise, b.cameras[0].colorNoise, 1e-6) && near(a.cameras[0].depthNoise, b.cameras[0].depthNoise, 1e-6) && near(b.cameras[0].colorNoise, 0.02, 1e-6);
     check(same && near(b.cameras[0].distortion[0], -0.3, 1e-6) && near(b.cameras[0].distortion[4], 0.02, 1e-6), "camera distortion survives save and reload");
 }
 

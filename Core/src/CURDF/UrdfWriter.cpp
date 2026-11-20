@@ -269,6 +269,7 @@ simul::String UrdfToString(const Robot& robot, const simul::String& outDir, cons
         out += "      <camera>\n        <horizontal_fov>" + Num(d.horizontalFov) + "</horizontal_fov>\n";
         out += "        <image><width>" + Num(d.width) + "</width><height>" + Num(d.height) + "</height></image>\n";
         out += "        <clip><near>" + Num(d.nearClip) + "</near><far>" + Num(d.farClip) + "</far></clip>\n";
+        out += "        <noise><type>gaussian</type><mean>0</mean><stddev>" + Num(d.colorNoise) + "</stddev><depth_stddev>" + Num(d.depthNoise) + "</depth_stddev></noise>\n";
         if (d.distortion[0] != 0.0f || d.distortion[1] != 0.0f || d.distortion[2] != 0.0f || d.distortion[3] != 0.0f || d.distortion[4] != 0.0f)
             out += "        <distortion><k1>" + Num(d.distortion[0]) + "</k1><k2>" + Num(d.distortion[1]) + "</k2><k3>" + Num(d.distortion[4]) + "</k3><p1>" + Num(d.distortion[2]) +
                    "</p1><p2>" + Num(d.distortion[3]) + "</p2></distortion>\n";
