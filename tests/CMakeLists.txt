@@ -133,3 +133,8 @@ target_link_libraries(test_cprocess PRIVATE Core)
 simul_set_warnings(test_cprocess)
 target_compile_definitions(test_cprocess PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_cprocess COMMAND test_cprocess)
+
+add_executable(test_cmarker test_cmarker.cpp)
+target_link_libraries(test_cmarker PRIVATE Core)
+simul_set_warnings(test_cmarker)
+add_test(NAME test_cmarker COMMAND test_cmarker)

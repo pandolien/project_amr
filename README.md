@@ -337,6 +337,22 @@ std::vector<simul::dynamics::LinkContribution> parts = simul::dynamics::GravityC
 - 정밀도의 한계는 저장 형식(`float`)입니다. 입력 행렬이 `float` 이므로 특이값이 `max(r,c)·1.2e-7·최대특이값` 이하이면 잡음으로 보고 0 으로 취급합니다.
 - `A.SVD()`가 돌려주는 `S`는 `r x c`가 아니라 `p x p` (`p = min(r, c)`) 대각행렬입니다.
 
+## ArUco / ChArUco 마커 (CMarker)
+
+센서 카메라가 볼 수 있는 ArUco 마커와 ChArUco 보드를 만든다. OpenCV 의 `DICT_4X4/5X5/6X6/7X7_1000` 과 같은 마커이고 (표는 `tools/gen_aruco_tables.py` 로 OpenCV 에서 뽑아 `Core/src/CMarker/ArucoTables.inc` 에 넣어 두었다. 빌드에 OpenCV 는 필요 없다), ChArUco 배치도 OpenCV 4.7 이후 기본(`legacyPattern=false`)과 같다.
+마커는 "흰 판" 메시와 "검은 칸" 메시 두 개로 만들어진다 (검은 칸은 판 위로 0.4 mm 띄운다). 센서 카메라는 물체마다 색 하나로 그리므로, 두 메시에 흰/검은 재질을 주면 영상(BGR)에도 3D 화면에도 마커가 정확히 보인다.
+
+```
+simul_main --make-marker aruco,4x4,0,0.15 --marker-dir Data/Object/markers
+simul_main --make-marker charuco,4x4,5,7,0.04,0.03 --marker-dir Data/Object/markers
+```
+
+- `aruco,사전,id,한변(m)`: 한 변은 검은 테두리 포함. 흰 여백은 칸 하나. 좌표계는 OpenCV 와 같다 (원점 가운데, x 오른쪽, y 위, z 보는 쪽).
+- `charuco,사전,가로칸,세로칸,칸길이(m),마커한변(m)[,첫id]`: 원점 왼쪽 위, x 오른쪽, y 아래, z 보드 안쪽. 왼쪽 위 칸이 검은색이고 흰 칸에 id 가 위에서 아래로 0, 1, 2 ... 순서로 들어간다.
+- 결과는 `이름_plate.stl`, `이름_ink.stl` 과 이 둘을 쓰는 `이름.urdf` 이다. 코드에서는 `simul::marker::BuildAruco / BuildCharuco / WriteMarkerFiles` (`Core/include/CMarker/Marker.h`).
+- 기본 제공: `Data/Object/markers/` (ArUco 4x4~7x7 id 0, 4x4 id 20, ChArUco 4x4 / 5x5 5x7 보드), 장면 예제 `Data/Object/samples/marker_scene.urdf` (`--camera-save` 로 찍으면 OpenCV `ArucoDetector` / `CharucoDetector` 가 18개 마커와 보드 코너 24개를 모두 찾는다).
+- 마커 칸이 몇 픽셀은 되어야 읽히므로 카메라 해상도와 거리를 맞춘다 (예제는 1280x960, 가로 시야각 40도, 약 1.5 m).
+
 ## 서드파티 라이선스
 
 | 라이브러리 | 용도 | 라이선스 |

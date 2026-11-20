@@ -22,6 +22,7 @@
 #include "CDynamics/Gravity.h"
 #include "CMesh/MeshLoader.h"
 #include "CURDF/Urdf.h"
+#include "CMarker/Marker.h"
 
 namespace {
 
@@ -46,6 +47,8 @@ struct Options {
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
+    simul::String makeMarker;  // --make-marker 명세: ArUco/ChArUco 마커 메시와 URDF 를 만들고 끝낸다
+    simul::String makeMarkerDir;  // --marker-dir: 마커 파일을 쓸 폴더 (기본 현재 폴더)
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
     bool obb;                  // OBB 충돌 박스를 처음부터 표시
     bool torque;               // 관절별 중력 토크를 출력 (--info 와 같이)
@@ -131,6 +134,10 @@ void PrintUsage(const char* exe) {
         "사용법: %s [옵션] [파일]\n"
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
+        "  --make-marker 명세 ArUco/ChArUco 마커를 만들어 STL 2개 + URDF 로 쓰고 끝낸다 (--marker-dir 폴더 기본 .)\n"
+        "                     aruco,사전,id,한변(m)  예: aruco,4x4,0,0.15\n"
+        "                     charuco,사전,가로칸,세로칸,칸길이(m),마커한변(m)[,첫id]  예: charuco,4x4,5,7,0.04,0.03\n"
+        "                     사전: 4x4 5x5 6x6 7x7 (OpenCV DICT_nXn_1000 과 같은 마커)\n"
         "  --aabb, --obb      AABB / OBB 충돌 박스를 표시 (--info 와 같이 쓰면 링크별 AABB 와 충돌 목록을 출력)\n"
         "  --torque           관절별 중력 토크를 출력 (--info 와 같이 쓰거나, 창의 관절 패널에서 확인)\n"
         "  --gravity gx,gy,gz 중력 가속도 m/s^2 (루트 링크 좌표계, 기본 0,0,-9.80665)\n"
@@ -198,6 +205,8 @@ int ParseArgs(int argc, char** argv, Options* o) {
             continue;
         }
         const bool hasNext = i + 1 < argc;
+        if (a == "--make-marker" && hasNext) { o->makeMarker = argv[++i]; continue; }
+        if (a == "--marker-dir" && hasNext) { o->makeMarkerDir = argv[++i]; continue; }
         if (a == "--fps") { o->showFps = true; continue; }
         if (a == "--shot" && hasNext) { o->shot = argv[++i]; continue; }
         if (a == "--shot-window" && hasNext) { o->shotWindow = argv[++i]; continue; }
@@ -488,6 +497,18 @@ void PrintTorques(const simul::urdf::Robot& robot, const Options& o) {
 }
 
 // 창 없이 파일 정보를 출력한다. 성공하면 0.
+int MakeMarkerFiles(const Options& o) {
+    simul::marker::MarkerParts parts;
+    simul::String name, err, urdf;
+    if (!simul::marker::BuildMarkerFromSpec(o.makeMarker, simul::marker::MarkerBuildOptions(), &parts, &name, &err) ||
+        !simul::marker::WriteMarkerFiles(parts, o.makeMarkerDir.empty() ? simul::String(".") : o.makeMarkerDir, name, &urdf, &err)) {
+        fprintf(stderr, "마커를 만들 수 없습니다: %s\n", err.c_str());
+        return 2;
+    }
+    printf("마커 %d개 (판 %.3f x %.3f m) -> %s\n", static_cast<int>(parts.ids.size()), parts.width, parts.height, urdf.c_str());
+    return 0;
+}
+
 int PrintInfo(const Options& o) {
     if (o.file.empty()) { PrintUsage("simul_main"); return 2; }
     simul::String err;
@@ -1626,6 +1647,7 @@ int main(int argc, char** argv) {
     const int pr = ParseArgs(argc, argv, &o);
     if (pr == 1) return 0;
     if (pr == 2) return 2;
+    if (!o.makeMarker.empty()) return MakeMarkerFiles(o);
     if (o.info) return PrintInfo(o);
 
     QSurfaceFormat fmt;
@@ -1794,6 +1816,7 @@ int main(int argc, char** argv) {
     const int pr = ParseArgs(argc, argv, &o);
     if (pr == 1) return 0;
     if (pr == 2) return 2;
+    if (!o.makeMarker.empty()) return MakeMarkerFiles(o);
     if (o.file.empty()) {
         PrintUsage(argv[0]);
         printf("\n(이 빌드는 Qt 없이 만들어져 3D 창이 없습니다. -DSIMUL_BUILD_QT=ON 으로 다시 빌드하세요.)\n");
