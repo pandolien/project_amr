@@ -384,6 +384,30 @@ register(SwingArm)
 - **Python 편집기 (오른쪽 도크, 메뉴 Python > Python 편집기, Ctrl+E, `--python-editor`)**: 줄 번호, 문법 색, Tab 들여쓰기, 자동 들여쓰기가 있는 편집기. 새 파일은 Behavior 틀로 시작하고, 위쪽 버튼으로 열기/저장, 아래 `저장 후 등록` 은 저장하고 Main.py 에 등록한다 (같은 파일을 다시 누르면 이전 클래스를 `on_stop` 으로 내리고 새로 읽는다. 시뮬레이션이 돌고 있어도 바로 바뀐다). 맨 아래 입력줄은 한 줄 실행 (`simul.find("arm").joints`). 새 파일 기본 저장 위치는 `Data/Python/user/`. 결과와 오류는 로그 창.
 - 지금은 인터프리터와 클래스 등록까지다. 스크립트를 파일 이름으로 오브젝트에 자동으로 붙이는 것, 제어기 DLL(모터 토크 입력 경로)은 다음 단계.
 
+## 프로젝트와 하나의 실행 파일 (project.simul, --pack)
+
+장면(모델), python 파일과 권한, 실행 설정을 프로젝트 폴더 하나로 묶고, 그것을 **실행 파일 하나**로 만들 수 있다. 받은 사람은 그 실행 파일만 실행하면 3D 화면이 뜨고 python 코드가 뒤에서 돌면서 시뮬레이션이 그대로 움직인다.
+
+```
+my_project/
+  project.simul          <- 설명 파일 (XML)
+  models/arm.urdf ...    <- 장면에 올릴 모델 (mesh 파일 포함, 상대 경로)
+  scripts/swing.py ...   <- 등록할 python 파일
+```
+
+```xml
+<simul_project version="1" name="arm_demo">
+  <model file="models/arm.urdf" x="0" y="0" z="0" roll="0" pitch="0" yaw="0"/>   <!-- 위치 m, 자세 rad (생략하면 0) -->
+  <script file="scripts/swing.py" objects="arm"/>     <!-- 이 파일의 클래스가 움직일 수 있는 오브젝트 (비우면 파일 안의 objects) -->
+  <python hz="60" autostart="true" editor="false" main=""/>   <!-- 틱 수, 열자마자 시작, 편집기 도크, 다른 Main.py -->
+</simul_project>
+```
+
+- 열기: `simul_main --project my_project/project.simul` (모델 배치, python 등록, 자동 시작까지). 예제: `Data/Projects/arm_demo/`.
+- 하나의 실행 파일로: `simul_main --pack my_project/project.simul -o MySystem` (Windows 는 `MySystem.exe`). 프로젝트 폴더 전체(모델, 메시, python 파일)와 기본 Main.py 를 압축해서 이 프로그램의 실행 파일 뒤에 붙인다. 만들어진 실행 파일을 실행하면 시작할 때 자기 안의 프로젝트를 임시 폴더(`simul_pkg_<체크섬>`, 같은 패키지는 한 번만)에 풀어서 연다. 개발용 `Data` 폴더가 없는 PC 에서도 돈다.
+- 알아 둘 것: **Qt DLL 과 Python(Windows 는 python3xx.dll)은 실행 파일 안에 들어가지 않는다.** Qt 는 LGPL 규칙상 동적 링크여야 하므로 정적으로 합칠 수 없다. 그래서 묶은 실행 파일은 이 프로그램을 배포할 때 쓰는 DLL 폴더(windeployqt 결과 + Python DLL) 안에 두고 실행한다. 프로젝트 쪽(모델, python, 설정)이 하나의 파일이 되는 것이다.
+- 프로젝트 안의 파일은 프로젝트 폴더 밖을 가리킬 수 없다 (`..`, 절대 경로 거부). 모델이 다른 폴더의 mesh 를 쓰면 프로젝트 폴더 안으로 복사해서 쓴다.
+
 ## 서드파티 라이선스
 
 | 라이브러리 | 용도 | 라이선스 |

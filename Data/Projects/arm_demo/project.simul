@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<simul_project version="1" name="arm_demo">
+  <model file="models/arm.urdf"/>
+  <script file="scripts/swing.py" objects="arm"/>
+  <python hz="60" autostart="true" editor="false" main=""/>
+</simul_project>
