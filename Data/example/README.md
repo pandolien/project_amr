@@ -12,3 +12,4 @@
 | 03_camera_pan_tilt | 카메라 pan/tilt 로 훑기 |
 | 04_lidar_patrol | 라이다 몸체가 방 안 네 지점을 순찰 (x_slide, y_slide, yaw) |
 | 05_arm_and_marker | arm 과 ArUco 마커 두 오브젝트 (mesh 가 OBJECT/OBJ/ 에 모인 예) |
+| 06_arm_track_marker | 마커가 원을 그리며 돌고, arm 이 그것을 따라 몸통을 돌려 가리킨다 (다른 오브젝트의 위치를 읽는 예) |
