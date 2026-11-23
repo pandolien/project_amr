@@ -24,6 +24,23 @@ simul::Array<simul::String> ActuatedJointNames(const urdf::Robot& robot);
 JointTorques InverseDynamics(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,
                              const Gravity& g = Gravity(), bool clampToLimits = true);
 
+// 관절이 자식 쪽(자식 링크와 그 아래 전체)에 전달해야 하는 하중 (힘/토크 센서가 읽는 값).
+//   force  = sum m_i (a_i - g)               (N)    그 아래 링크들의 관성력과 중력을 합친 것. 정지 상태면 -M g (위로 받치는 힘)
+//   moment = sum (p_i - o) x m_i (a_i - g) + 회전 관성 항   (N·m, 관절 원점 o = 자식 링크 원점 기준)
+// 루트 링크 좌표계. 부호는 "부모가 자식에게 가하는 하중". 외력(접촉 등)은 포함하지 않는다 (CSensor/ForceTorque 가 처리한다).
+// robot.joints 와 같은 순서로 모든 관절(fixed 포함)을 돌려준다. 마찰은 포함하지 않는다. qd, qdd 에 없는 관절은 0.
+struct JointWrench {
+    simul::String name;
+    double force[3];
+    double moment[3];
+    JointWrench() {
+        force[0] = force[1] = force[2] = 0;
+        moment[0] = moment[1] = moment[2] = 0;
+    }
+};
+simul::Array<JointWrench> JointWrenches(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,
+                                        const Gravity& g = Gravity(), bool clampToLimits = true);
+
 // 질량 행렬 M(q) (구동 관절 기준, 대칭 양의 정부호). m 은 n x n 행 우선.
 struct MassMatrix {
     simul::Array<simul::String> joints;

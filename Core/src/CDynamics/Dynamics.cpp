@@ -60,7 +60,10 @@ struct Rnea {
 
     // qd, qdd: 구동 관절 순서의 값. gravity: 떨어지는 방향의 가속도 벡터 (0 벡터면 중력 없음).
     // 반환: 구동 관절별 토크/힘 (mimic 관절의 몫은 마스터에 배율을 곱해 합친다)
-    simul::Array<double> Run(const simul::Array<double>& qd, const simul::Array<double>& qdd, const V3& gravity) const {
+    // linkForce, linkMoment 를 주면 링크마다 "그 링크와 자손 전체가 필요로 하는 합력/합모멘트" 를 돌려준다
+    // (루트 좌표계, 모멘트는 링크 원점 기준). 링크 c 의 값은 c 를 부모에 잇는 관절이 c 쪽에 전달해야 하는 하중이다.
+    simul::Array<double> Run(const simul::Array<double>& qd, const simul::Array<double>& qdd, const V3& gravity,
+                             simul::Array<V3>* linkForce = 0, simul::Array<V3>* linkMoment = 0) const {
         const size_t nl = robot.links.size(), nj = robot.joints.size();
         simul::Array<V3> w(nl), al(nl), ac(nl);
         // 루트: 정지. 중력은 루트가 위로 -g 만큼 가속한다고 놓는 방법으로 넣는다.
@@ -118,6 +121,8 @@ struct Rnea {
             if (pi < 0 || ci < 0) continue;
             const size_t p = static_cast<size_t>(pi), c = static_cast<size_t>(ci);
             if (j.IsMovable()) tauJoint[ji] = j.IsAngular() ? Dot(k.axisW[ji], n[c]) : Dot(k.axisW[ji], f[c]);
+            if (linkForce) (*linkForce)[c] = f[c];
+            if (linkMoment) (*linkMoment)[c] = n[c];
             f[p] = f[p] + f[c];
             n[p] = n[p] + n[c] + Cross(k.p[c] - k.p[p], f[c]);
         }
@@ -282,6 +287,24 @@ JointTorques InverseDynamics(const urdf::Robot& robot, const urdf::JointValues& 
                              const Gravity& g, bool clampToLimits) {
     const Rnea dyn(robot, q, clampToLimits);
     return ToMap(robot, dyn.act, dyn.Run(ToVec(robot, dyn.act, qd), ToVec(robot, dyn.act, qdd), GVec(g)));
+}
+
+simul::Array<JointWrench> JointWrenches(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,
+                                        const Gravity& g, bool clampToLimits) {
+    const Rnea dyn(robot, q, clampToLimits);
+    simul::Array<V3> lf(robot.links.size()), lm(robot.links.size());
+    dyn.Run(ToVec(robot, dyn.act, qd), ToVec(robot, dyn.act, qdd), GVec(g), &lf, &lm);
+    simul::Array<JointWrench> out(robot.joints.size());
+    for (size_t ji = 0; ji < robot.joints.size(); ji++) {
+        out[ji].name = robot.joints[ji].name;
+        const int ci = robot.JointChild(ji);
+        if (ci < 0) continue;
+        const V3& f = lf[static_cast<size_t>(ci)];
+        const V3& m = lm[static_cast<size_t>(ci)];
+        out[ji].force[0] = f.x; out[ji].force[1] = f.y; out[ji].force[2] = f.z;
+        out[ji].moment[0] = m.x; out[ji].moment[1] = m.y; out[ji].moment[2] = m.z;
+    }
+    return out;
 }
 
 MassMatrix ComputeMassMatrix(const urdf::Robot& robot, const urdf::JointValues& q, bool clampToLimits) {

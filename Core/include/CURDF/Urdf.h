@@ -135,6 +135,18 @@ struct CameraDef {
     CameraDef() : width(320), height(240), horizontalFov(1.0471976f), nearClip(0.05f), farClip(10.0f), colorNoise(0.02f), depthNoise(0.005f) { for (int i = 0; i < 5; i++) distortion[i] = 0.0f; }
 };
 
+// <gazebo reference="관절"><sensor type="force_torque"> 로 적은 힘/토크 센서 (Gazebo 형식). 관절에 붙는다 (라이다/카메라는 링크).
+//   <pose> 는 자식 링크 기준 센서 자세, <force_torque><measure_direction> 은 parent_to_child(기본) 또는 child_to_parent,
+//   <noise><stddev> 는 힘 잡음(N), <noise><torque_stddev> 는 토크 잡음(N·m, 확장. 없으면 stddev 와 같은 값).
+struct FtDef {
+    simul::String name;    // sensor name (없으면 관절 이름)
+    simul::String joint;   // 센서가 붙은 관절
+    dhMat pose;          // 자식 링크 기준 센서 자세
+    bool childToParent;
+    float forceNoise, torqueNoise;
+    FtDef() : childToParent(false), forceNoise(0), torqueNoise(0) {}
+};
+
 struct Robot {
     simul::String name;
     simul::Array<Link> links;
@@ -142,6 +154,7 @@ struct Robot {
     simul::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
     simul::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
     simul::Array<CameraDef> cameras;       // <gazebo> 센서 중 카메라
+    simul::Array<FtDef> forceTorques;      // <gazebo> 센서 중 힘/토크 센서
     int root;                            // 루트 link 인덱스
     simul::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스
     simul::String baseDir;                 // URDF 파일이 있는 폴더 (문자열로 읽었으면 빈 문자열)

@@ -23,6 +23,7 @@ void Robot::Clear() {
     materials.clear();
     lidars.clear();
     cameras.clear();
+    forceTorques.clear();
     root = -1;
     order.clear();
     baseDir.clear();
@@ -431,10 +432,46 @@ struct Parser {
         return true;
     }
 
+    bool ParseForceTorque(XMLElement* s, const char* ref) {
+        FtDef d;
+        d.name = s->Attribute("name") ? s->Attribute("name") : "";
+        const simul::String ctx = "힘/토크 센서 '" + (d.name.empty() ? simul::String(ref ? ref : "") : d.name) + "'";
+        if (!ref || !*ref) return Fail(ctx + ": <gazebo reference=\"관절\"> 가 필요합니다");
+        d.joint = ref;
+        if (d.name.empty()) d.name = d.joint;
+        if (XMLElement* pose = s->FirstChildElement("pose")) {
+            float v[6];
+            if (!pose->GetText() || !ParseFloats(pose->GetText(), 6, v)) return Fail(ctx + ": <pose> 는 숫자 6개 (x y z roll pitch yaw) 여야 합니다");
+            d.pose = dhEuler(v[5], v[4], v[3]).GetMat();
+            d.pose.v[12] = v[0];
+            d.pose.v[13] = v[1];
+            d.pose.v[14] = v[2];
+        }
+        if (XMLElement* ft = s->FirstChildElement("force_torque")) {
+            if (XMLElement* md = ft->FirstChildElement("measure_direction")) {
+                const simul::String dir = md->GetText() ? md->GetText() : "";
+                if (dir == "child_to_parent") d.childToParent = true;
+                else if (dir != "parent_to_child") return Fail(ctx + ": measure_direction 은 parent_to_child 또는 child_to_parent 여야 합니다");
+            }
+        }
+        if (XMLElement* noise = s->FirstChildElement("noise")) {
+            if (!ChildFloat(noise, "stddev", 0.0f, &d.forceNoise, ctx + " noise")) return false;
+            d.torqueNoise = d.forceNoise;
+            if (!ChildFloat(noise, "torque_stddev", d.forceNoise, &d.torqueNoise, ctx + " noise")) return false;
+            if (d.forceNoise < 0.0f || d.torqueNoise < 0.0f) return Fail(ctx + ": noise stddev 가 음수입니다");
+        }
+        robot->forceTorques.push_back(d);
+        return true;
+    }
+
     bool ParseGazebo(XMLElement* g) {
         const char* ref = g->Attribute("reference");
         for (XMLElement* s = g->FirstChildElement("sensor"); s; s = s->NextSiblingElement("sensor")) {
             const simul::String type = s->Attribute("type") ? s->Attribute("type") : "";
+            if (type == "force_torque") {
+                if (!ParseForceTorque(s, ref)) return false;
+                continue;
+            }
             if (type == "camera" || type == "depth_camera" || type == "rgbd_camera" || type == "depth") {
                 if (!ParseCamera(s, ref, type)) return false;
                 continue;
@@ -514,6 +551,8 @@ struct Parser {
         if (!Validate()) return false;
         for (size_t i = 0; i < robot->lidars.size(); i++)
             if (robot->FindLink(robot->lidars[i].link) < 0) return Fail("라이다 '" + robot->lidars[i].name + "' 가 붙은 링크가 없습니다: " + robot->lidars[i].link);
+        for (size_t i = 0; i < robot->forceTorques.size(); i++)
+            if (robot->FindJoint(robot->forceTorques[i].joint) < 0) return Fail("힘/토크 센서 '" + robot->forceTorques[i].name + "' 가 붙은 관절이 없습니다: " + robot->forceTorques[i].joint);
         for (size_t i = 0; i < robot->cameras.size(); i++)
             if (robot->FindLink(robot->cameras[i].link) < 0) return Fail("카메라 '" + robot->cameras[i].name + "' 가 붙은 링크가 없습니다: " + robot->cameras[i].link);
         return true;

@@ -17,6 +17,11 @@ simul_set_warnings(test_csensor)
 target_compile_definitions(test_csensor PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
 add_test(NAME test_csensor COMMAND test_csensor)
 
+add_executable(test_cforcetorque test_cforcetorque.cpp)
+target_link_libraries(test_cforcetorque PRIVATE Core)
+simul_set_warnings(test_cforcetorque)
+add_test(NAME test_cforcetorque COMMAND test_cforcetorque)
+
 add_executable(test_cenv test_cenv.cpp)
 target_link_libraries(test_cenv PRIVATE Core)
 simul_set_warnings(test_cenv)

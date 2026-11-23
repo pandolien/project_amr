@@ -41,7 +41,7 @@ project_simul/
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
 | CEnv | 환경: 태양 위치 (날짜/시각/위치 -> 방위각, 고도, 일출/일몰) | 3d |
-| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상) | CCollision, 3d |
+| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상 / 힘·토크 센서: 관절 전달 하중, 편향·잡음·포화) | CCollision, CDynamics, 3d |
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
@@ -245,6 +245,25 @@ URDF 만 있으면 어떤 로봇이든 쓰는 범용 수치 IK 입니다. `Solve
 - **URDF 에서 읽기**: Gazebo 형식 `<gazebo reference="링크"><sensor type="camera">` (`depth_camera`, `rgbd_camera` 도 같은 카메라로 읽음) 의 `<pose>`, `<camera><horizontal_fov>`, `<image><width/><height>`, `<clip><near/><far>` 를 읽는다 (`Robot::cameras`, `CameraDef`). 없는 값은 기본값(320x240, 60도, 0.05~10 m). 여럿이면 첫 번째만 쓴다. 앱은 URDF 의 카메라를 자동으로 달아 두고 영상 창은 메뉴 센서 > 카메라 영상 으로 켠다. 예제: `Data/Object/samples/camera_scene.urdf` (탁자 위 색 물체 4개를 보는 팬/틸트 카메라, 슬라이더 `pan`, `tilt` 로 돌려 본다).
 - **앱**: `simul_main 모델.urdf --camera 링크,x,y,z --camera-size 640x480 --camera-fov 70 --camera-range 0.05,10 --camera-save out/c` (명령행이 URDF 보다 우선하고 영상 창이 같이 뜬다. `--camera-save` 는 `c.png` 컬러, `c_depth.png` 회색 깊이, `c_depth16.png` 16비트 mm 를 저장한다). 메뉴 센서 > 카메라 영상 으로 창을 켜고 끈다.
 - **검증**: `test_ccamera` (깊이 해석해, BGR 순서, 영상 방향, 가림, near/far, 잡음 재현성, BVH 일치, 내부 변수, 예외), `test_simulview` (링크에 달아 찍기, 시그널).
+
+## 힘/토크 센서 (CSensor: ForceTorque.h)
+
+로봇암 손목이나 AMR 과 암의 체결부에 다는 6축 F/T 센서입니다. 센서는 관절 하나(보통 fixed)에 붙고, 그 관절이 **자식 쪽 전체를 붙들려고 전달하는 하중**을 읽습니다 (`측정값 = 아래쪽 링크의 관성력 + 중력 반력 - 아래쪽에 걸린 외력`).
+
+- 계산: `dynamics::JointWrenches` (재귀 뉴턴-오일러) 로 관절 하중을 구하고, 센서 좌표계(`FtSettings::pose`, 자식 링크 기준)와 센서 원점 기준 모멘트로 옮긴 뒤 편향, 가우시안 잡음, 측정 범위 포화를 적용합니다. 단위는 N, N·m.
+- 부호: 기본 `kFtParentToChild` (부모가 자식에게 가하는 하중, 정지한 센서는 +z 로 무게를 받침). `kFtChildToParent` 는 부호를 뒤집습니다.
+- 외력: `FtExternalWrench` (링크, 작용점, 힘, 토크, 루트 좌표계) 를 주면 센서 아래쪽 링크의 것만 반영합니다. 위쪽 링크에 건 힘은 센서가 못 느낍니다.
+- 중력: 루트 좌표계 벡터로 넘깁니다. AMR 이 기울어 있으면 IMU 로 구한 방향을 넣으면 됩니다.
+- URDF: `<gazebo reference="관절"><sensor type="force_torque">` 의 `<pose>`, `<force_torque><measure_direction>`, `<noise><stddev>` (힘), `<noise><torque_stddev>` (토크, 확장) 를 읽어 `Robot::forceTorques` 에 담고 `FtSettingsFromDef` 로 설정으로 바꿉니다. 없는 관절을 가리키면 읽기가 실패합니다.
+- 검증: `tests/test_cforcetorque.cpp` (정지 무게와 모멘트의 해석해, 센서 자세, 가속 관성력, 외력, 부호, 편향/잡음/포화, URDF).
+
+```cpp
+simul::sensor::FtSettings s;
+s.joint = "wrist";                 // fixed 관절
+s.forceNoiseStdDev = 0.1f;
+simul::sensor::ForceTorque ft(s);
+simul::sensor::FtReading m = ft.MeasureStatic(robot, q);   // m.force[3] (N), m.torque[3] (N·m)
+```
 
 ## 태양 (CEnv: Sun.h)
 
