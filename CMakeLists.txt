@@ -74,7 +74,7 @@ if(SIMUL_BUILD_QT)
     add_subdirectory(Core/Qt)   # CoreQt: 재사용 Qt 위젯
 endif()
 
-# ---- 공유 라이브러리 simul_core (C API, Qt 없음) 와 simul_gui (3D 창, Qt) : python ctypes 가 불러 쓴다 ----
+# ---- 공유 라이브러리 simul_core (C API, Qt 없음) 와 simul_gui (3D 창, Qt)  (다른 프로그램이 불러 쓴다) ----
 add_subdirectory(api)
 
 if(SIMUL_BUILD_TESTS)
