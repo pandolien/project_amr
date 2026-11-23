@@ -357,63 +357,24 @@ simul_main --make-marker charuco,4x4,5,7,0.04,0.03 --marker-dir Data/Object/mark
 
 - **엔진 (`Core/include/CSimul/Engine.h`, Qt 무관)**: 오브젝트 등록부(이름 -> 핸들, 지워졌다 다시 생겨도 옛 핸들은 거부), 명령 큐, 시간(틱), `move_to`/`move_joint`(속도로 이동), 이벤트(`added removed arrived joint_reached command_failed`). 한 틱 순서: 등록부 맞춤 -> 큐의 명령 적용 -> 이동 진행 -> 시간 증가 -> 이벤트 전달. 낸 명령은 다음 틱에 적용되므로 호출하는 쪽이 느려도 결과는 같다(lockstep).
 - 엔진은 `Backend` 인터페이스(오브젝트 읽기/쓰기, 충돌 읽기)로 장면을 다룬다. 3D 창 뒤의 `ViewerBackend`(Qt)와 창 없는 `HeadlessScene`(`CSimul/Headless.h`)이 있고, 후자를 공유 라이브러리로 내보낸 것이 아래의 `simul_core` 이다.
-- **python 은 앱 안에 내장하지 않는다.** python 이 `simul_core` 를 불러 시뮬레이션을 직접 돌린다 (다음 절).
+- **python 은 앱 안에 두지 않는다.** 시뮬레이션 코어는 공유 라이브러리(다음 절)로 나가고, python 쪽(에디터)은 별도 브랜치다.
 
 ### 오브젝트 / 관절 값 패널
 
-3D 창의 "오브젝트 / 관절 값" 도크 (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. python 코드에 쓸 이름과 관절 값을 확인하는 용도다.
+3D 창의 "오브젝트 / 관절 값" 도크 (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. 오브젝트 이름과 관절 값을 확인하는 용도다.
 
-## python 에서 불러 쓰기 (simul_core / simul_gui, python/simul)
+## 공유 라이브러리 (DLL / so): simul_core, simul_gui
 
-시뮬레이션 코어가 공유 라이브러리(C 인터페이스)로 나와 있고, python 은 그것을 `ctypes` 로 불러 시뮬레이션을 직접 돌린다 (python 이 주인이다).
+Main 의 결과물은 3D View 와 공유 라이브러리다. 다른 프로그램(python 에디터 등)이 C 인터페이스로 불러 쓴다.
 
-| 라이브러리 | 내용 | 의존 |
-|---|---|---|
-| `simul_core` (`libsimul_core.so` / `simul_core.dll`) | 모델 올리기, 오브젝트·관절 상태, 충돌, 명령, 시간 진행, 이벤트. `api/include/simul_api.h` | Qt 없음 |
-| `simul_gui` (`libsimul_gui.so` / `simul_gui.dll`) | 3D 창 (보기 전용). `api/include/simul_gui.h` | Qt 5 (선택) |
+| 라이브러리 | 내용 | 헤더 | 의존 |
+|---|---|---|---|
+| `simul_core` (`libsimul_core.so` / `simul_core.dll`) | 모델 올리기, 오브젝트·관절 상태, 충돌, 명령(이동/관절), 시간 진행, 이벤트 | `api/include/simul_api.h` | Qt 없음 |
+| `simul_gui` (`libsimul_gui.so` / `simul_gui.dll`) | 3D 화면: 별도 창(`simul_window_open`) 또는 호출한 쪽 창에 넣는 위젯(`simul_window_create_embedded` + `simul_window_widget`). 보기 전용이고 상태는 simul_core 에서 읽는다 | `api/include/simul_gui.h` | Qt 5 |
 
-빌드하면 `build/lib` (Windows 는 `build/bin`)에 생긴다. python 쪽은 `python/simul` 패키지다 (설치 필요 없음: `PYTHONPATH=python` 또는 `sys.path` 에 넣는다). 라이브러리는 환경 변수 `SIMUL_LIB` (파일 또는 폴더)로 알려 준다.
-
-```python
-import math, simul
-
-sim = simul.Simulation()
-arm = sim.add_model("Data/Object/samples/arm.urdf", position=(0, 0, 0), rpy=(0, 0, 0))
-sim.show()                                   # 선택: 3D 창 (Qt 가 있어야 함)
-
-arm.move_joint("shoulder_pitch", 0.5, speed=1.0)   # 명령은 다음 step 시작에 적용된다
-for _ in range(100):
-    sim.step(0.01)
-print(arm.joints["shoulder_pitch"].value, sim.time, sim.collisions(), sim.events())
-
-def update(info):                            # 정보 묶음(시간, 오브젝트, 충돌)을 받고 움직임을 돌려준다
-    return {"arm": {"joints": {"base_yaw": 0.8 * math.sin(info.time)}}}
-sim.run(update, dt=0.02, duration=5.0, realtime=True)     # 창이 열려 있으면 매 step 갱신, 창을 닫으면 끝
-```
-
-- 단위: 길이 m, 각도 rad, 시간 s, 자세 쿼터니언 (x, y, z, w). 명령(`set_pose`, `set_joint`, `move_to`, `move_joint`, `stop`)은 큐에 들어가 다음 `step` 시작에 적용된다. 한계를 넘는 값이나 없는 관절은 `SimulError`.
-- `info`: `time`, `dt`, `objects[이름]` (`position`, `quaternion`, `joints[이름].value/.lower/.upper`), `collisions` (`Contact`: `a`, `b`, `link_a`, `link_b`, `same`), `collided(이름)`. 돌려주는 움직임: `{오브젝트: {"joints": {관절: 목표 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}}`. 같은 목표는 다시 내지 않는다.
-- 충돌은 OBB 까지 겹친 링크 쌍이다 (`same` 이 True 면 같은 오브젝트 안의 자기충돌).
-- 창은 simul_core 의 상태를 그리는 보기 전용이다. 시뮬레이션은 창 없이도 돌고, 창은 `update_window()` 를 부르는 스레드에서만 다룬다.
-- C 에서 직접 쓰려면 `api/include/simul_api.h` 를 본다 (예: `tests/test_capi.cpp`). 예제: `python/examples/arm_swing.py`, 시험: `tests/test_python_api.py`.
-
-### 프로젝트 만들기 (main.py + URDF + 오브젝트별 python)
-
-프로젝트는 폴더 하나다: **main.py**(DLL 을 불러 시뮬레이션을 돌리는 시작 파일), 작업에 쓰는 **URDF 오브젝트 파일**, 오브젝트마다 하나씩인 **python 코드**.
-
-```
-my_project/
-  main.py                 <- python main.py 로 실행 (--no-window 면 창 없이)
-  simul/                  <- DLL 과 연결하는 python 파일 (python/simul 복사본) + simul_core / simul_gui DLL
-  models/arm/arm.urdf     <- URDF 와 mesh (원본 폴더째 복사)
-  objects/arm.py          <- 오브젝트 arm 의 코드: def update(info): return {"joints": {...}}
-```
-
-- 만들기: `python3 tools/new_project.py my_project Data/Object/samples/arm.urdf --lib build/lib` (모델마다 `objects/<이름>.py` 틀과 main.py 가 생긴다. 틀에 그 오브젝트의 관절 이름이 적혀 있다).
-- `objects/<오브젝트 이름>.py` 의 `update(info)` 는 매 스텝 불리고, 그 오브젝트의 움직임(`{"joints": {...}, "position": ..., "speed": ...}`)만 돌려준다. `on_start(sim)` 은 선택. 어떤 파일에서 예외가 나면 그 오브젝트의 코드만 멈추고 나머지는 계속 돈다.
-- main.py 는 `simul.Behaviors(폴더, sim)` 로 오브젝트 파일들을 읽어 `sim.run(behaviors, ...)` 에 넘긴다. 직접 고쳐 쓰면 된다 (모델 위치, 시간 간격, 창 여부).
-- **3D 창의 Qt 를 python venv 로 맞추기**: 프로젝트에 `requirements.txt`(`PyQt5==5.12.3`), `setup_env.sh/.bat`(`.venv` 만들고 설치), `run.sh/.bat`(`.venv` 로 main.py 실행)이 같이 생긴다. `simul` 은 `show()` 때 venv 에 PyQt5 가 있으면 그것을 먼저 불러 QApplication 을 만들고, `simul_gui` 는 이미 올라온 그 Qt 5.12 라이브러리를 그대로 쓴다 (Qt 가 한 벌만 돈다, 시스템에 Qt 를 따로 안 깔아도 된다). 주의: `simul_gui` 는 PyQt5 와 같은 Qt 5.12 계열로 빌드해야 한다 (더 새 Qt 로 빌드했으면 `version Qt_5.15 not found` 로 못 올라온다). PyQt5 가 없으면 시스템 Qt 를 쓰고, `SIMUL_NO_PYQT=1` 이면 PyQt5 를 건드리지 않는다.
-- `simul_core`(와 있으면 `simul_gui`) DLL 도 `simul/` 안에 복사된다. 그래서 폴더째 다른 PC(같은 OS)로 옮겨도 그대로 돈다. 다만 3D 창은 Qt 5 DLL 이 그 PC 에 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이(`--no-window`)는 Qt 없이 돈다. 다른 DLL 을 쓰려면 환경 변수 `SIMUL_LIB`.
+- 빌드하면 `build/lib`(Windows 는 `build/bin/<구성>`)에 생긴다. 단위: 길이 m, 각도 rad, 시간 s, 자세 쿼터니언 (x, y, z, w).
+- 명령(`simul_set_pose`, `simul_set_joint`, `simul_move_to`, `simul_move_joint`, `simul_stop_motion`)은 큐에 들어가 다음 `simul_step` 시작에 적용된다. 이벤트(추가, 삭제, 도착, 관절 도달, 명령 실패)는 `simul_take_events` 로 받는다.
+- 사용 예와 시험: `tests/test_capi.cpp`. python 에서 쓰는 쪽(ctypes 래퍼, 에디터)은 `editor` 브랜치에 있다.
 
 ## 프로젝트 파일 (project.simul)
 
@@ -433,7 +394,7 @@ my_project/
 
 - 예제: `Data/Projects/arm_demo/`. 파일 안의 경로는 프로젝트 폴더 밖을 가리킬 수 없다 (`..`, 절대 경로 거부).
 - 화면 메뉴 파일 > "프로젝트로 저장..." 은 지금 장면의 모델마다 폴더(URDF + 메시)와 배치를 저장하고, 명령줄은 `simul_main 모델.urdf --save-project 폴더` 로 저장만 하고 끝낸다. 다른 모델에 연결한 모델은 월드 자세로 저장한다 (로그에 경고).
-- 이전의 "python 등록, 프로젝트 저장, 하나의 실행 파일로 내보내기(`--pack`)"는 내장 python 과 함께 없앴다. python 쪽은 `python/simul` 로 시뮬레이션을 직접 구성하므로 프로젝트 파일에 담을 필요가 없다 (예: `python/examples/arm_swing.py`).
+- python 등록, 프로젝트 저장 묶기(`--pack`)는 없다. python 프로젝트(main.py + URDF + 오브젝트별 python)는 에디터 쪽의 일이다.
 
 ## 서드파티 라이선스
 

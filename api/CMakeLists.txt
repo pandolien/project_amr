@@ -1,4 +1,4 @@
-# simul_core: 시뮬레이션 코어를 공유 라이브러리로 (C 인터페이스, Qt 필요 없음). python ctypes 가 이것을 불러 쓴다.
+# simul_core: 시뮬레이션 코어를 공유 라이브러리로 (C 인터페이스, Qt 필요 없음). 다른 프로그램(python 에디터 등)이 이것을 불러 쓴다.
 add_library(simul_core SHARED src/simul_api.cpp)
 target_include_directories(simul_core PUBLIC include)
 target_compile_definitions(simul_core PRIVATE SIMUL_API_BUILD)
