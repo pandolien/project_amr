@@ -424,8 +424,9 @@ pip install PyQt5==5.12.3          # 프로젝트의 .venv 에서 (setup_env.sh)
 python3 editor/simul_editor.py [프로젝트 폴더]     # 새 프로젝트: 파일 > 새 프로젝트 (빌드한 DLL 위치는 SIMUL_LIB)
 ```
 
-- 왼쪽 프로젝트 파일 트리 / 가운데 python 편집기(문법 색, 자동 들여쓰기, Ctrl+S) / 오른쪽 오브젝트와 관절 / 아래 실행 결과.
-- 오른쪽 관절 **슬라이더·값 입력**으로 `models/` 의 URDF 를 움직여 본다 (한계 안에서만). 에디터 왼쪽 위의 **3D 화면**에 바로 반영된다 (F3: 카메라를 모델 전체에 맞춤; 별도 창은 python 에서 `sim.show()`). 더블클릭하면 오브젝트/관절 이름이 코드에 들어가고, **Ctrl+Shift+J** 는 지금 관절 값을 `{"joints": {...}}` 로 넣는다.
+- 화면 배치: **왼쪽 솔루션 탭**(프로젝트 파일 트리 + 오브젝트/관절), **가운데 위 3D View**, **가운데 아래 Python Command**(탭: 실행 결과), **오른쪽 Editor**(python 편집기: 문법 색, 자동 들여쓰기, Ctrl+S).
+- **Python Command**: 대화형 python. `sim`, 오브젝트 이름(`arm` 등), `step(n, dt)`, `simul` 을 바로 쓴다. 예) `arm.set_joint("base_yaw", 1.0)`, `step(100)`, `arm.joints["base_yaw"].value`. ↑↓ 로 이전 명령.
+- 왼쪽 관절 **슬라이더·값 입력**으로 `models/` 의 URDF 를 움직여 본다 (한계 안에서만). 에디터 왼쪽 위의 **3D 화면**에 바로 반영된다 (F3: 카메라를 모델 전체에 맞춤; 별도 창은 python 에서 `sim.show()`). 더블클릭하면 오브젝트/관절 이름이 코드에 들어가고, **Ctrl+Shift+J** 는 지금 관절 값을 `{"joints": {...}}` 로 넣는다.
 - **F5**: 저장하고 프로젝트의 `.venv`(없으면 지금 python)로 `main.py` 를 돌려 결과를 아래에 보여 준다.
 - 새 프로젝트는 URDF 와 그것이 쓰는 mesh 만 `models/<이름>/` 으로 복사한다.
 
