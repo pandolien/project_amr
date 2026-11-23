@@ -978,7 +978,7 @@ public:
         QAction* t = objDock_->toggleViewAction();
         t->setText(QString::fromUtf8("오브젝트 / 관절 값"));
         t->setShortcut(Qt::CTRL + Qt::Key_J);
-        if (fileMenu_) menuBar()->addAction(t);
+        if (fileMenu_) fileMenu_->addAction(t);
         if (o.objPanel) objDock_->show();
     }
 
