@@ -26,7 +26,8 @@ public:
     CodeEdit* CurrentEditor() const;
     void OpenFile(const QString& path);
     bool SaveAll();
-    void RunMain(bool window);
+    enum RunMode { InEditor, Window, Headless };   // 에디터의 3D View 에 보인다 / python 의 별도 3D 창 / 창 없이 (5 초)
+    void RunMain(RunMode mode);
     void StopMain();
     PyConsole* Console() const { return console_; }
     QPlainTextEdit* Log() const { return log_; }
@@ -39,9 +40,11 @@ private slots:
     void onNewProject();
     void onOpenProject();
     void onAddUrdf();
+    void onCreateVenv();
     void onSave();
     void onCloseTab(int index);
     void reloadModels();
+    void applyFeed(const QString& json);
 
 private:
     void buildMenus();
@@ -58,6 +61,8 @@ private:
     QPlainTextEdit* log_;
     QProcess* proc_;
     QString project_;
+    QStringList modelNames_;   // 3D View 의 모델 순서 (오브젝트 이름 = URDF 파일 이름)
+    QByteArray runBuf_;
 };
 
 #endif

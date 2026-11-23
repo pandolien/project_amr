@@ -28,7 +28,9 @@ bool NeedsUpgrade(const QString& dir);
 bool UpgradeProject(const QString& dir, QString* error, QStringList* log);
 bool CreateProject(const QString& dir, const QStringList& urdfs, QString* error, QStringList* log);
 // 이 프로젝트가 쓸 python 실행 파일(과 앞에 붙일 인자). 못 찾으면 program 이 빈 문자열.
-void FindPython(QString* program, QStringList* args);
+// projectDir 에 venv/ 가 있으면 그 python 을 돌려준다
+void FindPython(QString* program, QStringList* args, const QString& projectDir = QString());
+QString VenvPython(const QString& projectDir);   // 프로젝트 venv 의 python (없으면 빈 문자열)
 // python 에 줄 환경 (SIMUL_LIB = 프로젝트의 simul 폴더)
 QStringList ProjectModels(const QString& dir);   // OBJECT/ 아래의 .urdf 전체 경로
 

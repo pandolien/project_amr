@@ -2,7 +2,8 @@
 
 각 폴더가 하나의 프로젝트이다 (main.py / OBJECT/ / Code/ / Simul/).
 `Simul/` 의 Simul.py 와 DLL(so)은 저장소에 두지 않는다. 에디터(`simul_editor`)로 폴더를 열면 "Simul/ 을 채울까요?" 하고 물으니 "예" 를 누른다
-(명령줄은 `simul_editor --upgrade 예제폴더`). 그 뒤 `python main.py` (창 없이는 `--no-window`) 로 돌려도 된다.
+(명령줄은 `simul_editor --upgrade 예제폴더`). 그 뒤 폴더의 `run.bat` (Windows) / `./run.sh` (Linux) 로 돌려도 된다 (창 없이는 `--no-window`). 처음 실행하면 이 폴더에 `venv/` 를 만들고 `requirements.txt` 의 패키지를 설치한 뒤 main.py 를 돌린다.
+에디터에서는 F5 가 3D View 에서 보여 주고, 프로젝트에 `venv/` 가 있으면 그 python 을 쓴다 (실행 > venv 만들기).
 
 | 폴더 | 내용 |
 |---|---|

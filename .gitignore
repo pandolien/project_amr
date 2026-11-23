@@ -27,3 +27,4 @@ __pycache__/
 # 예제 프로젝트의 Simul/ 은 에디터가 채운다 (DLL, Simul.py 복사본)
 Data/example/*/Simul/
 __pycache__/
+Data/example/*/venv/

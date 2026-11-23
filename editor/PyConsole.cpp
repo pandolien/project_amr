@@ -37,7 +37,7 @@ void PyConsole::Start(const QString& projectDir) {
     Stop();
     QString program;
     QStringList args;
-    projecttools::FindPython(&program, &args);
+    projecttools::FindPython(&program, &args, projectDir);
     if (program.isEmpty()) { append(QString::fromUtf8("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.\n")); return; }
     if (!QFileInfo(projectDir + QStringLiteral("/Simul/Simul.py")).isFile()) { append(QString::fromUtf8("Simul/Simul.py 가 없는 프로젝트입니다.\n")); return; }
     proc_ = new QProcess(this);
@@ -47,11 +47,13 @@ void PyConsole::Start(const QString& projectDir) {
     env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
     env.insert(QStringLiteral("SIMUL_LIB"), projectDir + QStringLiteral("/Simul"));
+    env.insert(QStringLiteral("SIMUL_FEED"), QStringLiteral("1"));   // sim.step 의 결과를 에디터 3D View 로 보낸다
     proc_->setProcessEnvironment(env);
     connect(proc_, &QProcess::readyRead, this, &PyConsole::readOutput);
     connect(proc_, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this,
             [this](int code, QProcess::ExitStatus) { append(QString::fromUtf8("\n--- python 끝 (종료 코드 %1) ---\n").arg(code)); });
     out_->clear();
+    pending_.clear();
     // sim 을 만들고 OBJECT/ 의 URDF 를 올린 상태로 시작한다. 오브젝트 이름(arm 등)이 그대로 변수가 된다.
     const QString init = QString::fromUtf8(
         "import sys, os, glob\n"
@@ -61,7 +63,12 @@ void PyConsole::Start(const QString& projectDir) {
         "for _f in sorted(glob.glob('OBJECT/*.urdf')): sim.add_model(_f)\n"
         "for _n in sim.objects:\n"
         "    if _n.isidentifier(): globals()[_n] = sim.objects[_n]\n"
-        "print('sim, 오브젝트: ' + ', '.join(sorted(sim.objects)) + '   (sim.show() 로 3D 창)')\n");
+        "class _Prompt(object):\n"
+        "    def __init__(self, t): self.t = t\n"
+        "    def __str__(self):\n"
+        "        sim.flush_feed(); return self.t\n"
+        "sys.ps1 = _Prompt('>>> '); sys.ps2 = _Prompt('... ')\n"
+        "print('sim, 오브젝트: ' + ', '.join(sorted(sim.objects)) + '   (움직이면 위의 3D View 가 따라 움직입니다)')\n");
     args << QStringLiteral("-i") << QStringLiteral("-u") << QStringLiteral("-c") << init;
     proc_->start(program, args);
     if (!proc_->waitForStarted(3000)) append(QString::fromUtf8("python 을 시작하지 못했습니다: ") + program + QLatin1Char('\n'));
@@ -76,7 +83,20 @@ void PyConsole::Stop() {
 }
 
 void PyConsole::readOutput() {
-    if (proc_) append(QString::fromUtf8(proc_->readAll()));
+    if (!proc_) return;
+    pending_ += proc_->readAll();
+    QString text;
+    for (;;) {
+        const int nl = pending_.indexOf('\n');
+        if (nl < 0) break;
+        const QByteArray line = pending_.left(nl);
+        pending_.remove(0, nl + 1);
+        if (line.startsWith("@@SIMUL ")) emit feed(QString::fromUtf8(line.mid(8)));
+        else text += QString::fromUtf8(line) + QLatin1Char('\n');
+    }
+    // 줄 끝이 없는 나머지는 프롬프트(>>> )일 수 있으니 바로 보여 준다
+    if (!pending_.isEmpty() && !pending_.startsWith("@@")) { text += QString::fromUtf8(pending_); pending_.clear(); }
+    if (!text.isEmpty()) append(text);
 }
 
 void PyConsole::submit() {

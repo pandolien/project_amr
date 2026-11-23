@@ -23,6 +23,7 @@
 """
 import atexit as _atexit
 import ctypes
+import json as _json
 import math
 import os
 import sys
@@ -506,6 +507,9 @@ class Simulation(object):
             raise SimulError("시뮬레이션을 만들 수 없습니다")
         self._sent = {}
         self._gui = None
+        self._feed = os.environ.get("SIMUL_FEED") == "1"     # 에디터가 3D View 로 상태를 받아 갈 때 (환경 변수 SIMUL_FEED=1)
+        self._feed_t = 0.0
+        self._feed_dirty = False
         _live.add(self)
 
     def close(self):
@@ -626,6 +630,34 @@ class Simulation(object):
         if not (dt > 0 and math.isfinite(dt)):
             raise ValueError("dt 는 0 보다 큰 유한한 수여야 합니다")
         self._ok(self._lib.simul_step(self._h, dt))
+        if self._feed:
+            self._emit_feed(False)
+
+    def _emit_feed(self, force):
+        """에디터에 오브젝트 상태를 한 줄(@@SIMUL {json})로 보낸다. 초당 30 번까지만 (force 면 바로)."""
+        now = _time.time()
+        if not force and now - self._feed_t < 1.0 / 30.0:
+            self._feed_dirty = True
+            return
+        self._feed_t, self._feed_dirty = now, False
+        lib, h = self._lib, self._h
+        objs = {}
+        for i in range(lib.simul_object_count(h)):
+            pose = (ctypes.c_double * 7)()
+            lib.simul_object_pose(h, i, pose)
+            joints = {}
+            for j in range(lib.simul_joint_count(h, i)):
+                arr = (ctypes.c_double * 6)()
+                lib.simul_joint_info(h, i, j, arr)
+                joints[_s(lib.simul_joint_name(h, i, j))] = arr[0]
+            objs[_s(lib.simul_object_name(h, i))] = {"p": list(pose), "j": joints}
+        sys.stdout.write("@@SIMUL " + _json.dumps({"t": self.time, "o": objs}) + "\n")
+        sys.stdout.flush()
+
+    def flush_feed(self):
+        """밀린 마지막 상태를 에디터에 보낸다 (python CMD 의 프롬프트 앞과 run 이 끝날 때 불린다)."""
+        if self._feed and self._feed_dirty:
+            self._emit_feed(True)
 
     def events(self):
         """마지막으로 꺼낸 뒤에 쌓인 이벤트 [Event]."""
@@ -686,12 +718,15 @@ class Simulation(object):
         창이 열려 있으면 매 step 뒤에 자동으로 갱신하고 (update_window), 사용자가 창을 닫으면 끝낸다.
         """
         t_end = None if duration is None else self.time + duration
+        if self._feed:
+            self._emit_feed(True)                # 시작 상태
         wall0, sim0 = _time.time(), self.time
         while True:
             info = self.info(dt)
             if until is not None and until(info):
                 return info
             if t_end is not None and self.time >= t_end - 1e-12:
+                self.flush_feed()
                 return info
             self.apply(update(info))
             self.step(dt)

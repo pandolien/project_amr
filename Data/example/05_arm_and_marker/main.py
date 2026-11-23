@@ -17,8 +17,9 @@ class Main(object):
     DT = 0.02                                       # 한 스텝 (s)
     DURATION = None                                 # 돌 시간 (s). None 이면 창을 닫을 때까지 (창이 없으면 5 초)
 
-    def __init__(self, window=True):
+    def __init__(self, window=True, editor=False):
         self.window = window                        # 3D 창 (simul_gui, Qt 필요)
+        self.editor = editor                        # 에디터가 3D View 로 보여 준다 (창 없이, 닫을 때까지 실시간으로 돈다)
         self.sim = Simul.Simulation()               # simul_core DLL 위의 시뮬레이션
         self.load_objects()
         self.controllers = Simul.Behaviors(os.path.join(HERE, "Code"), self.sim)   # Code/<오브젝트>.py 의 Controller 들
@@ -31,10 +32,12 @@ class Main(object):
         if self.window:
             self.sim.show(self.TITLE)
         try:
-            self.sim.run(self.controllers, dt=self.DT, duration=self.DURATION if self.window else (self.DURATION or 5.0), realtime=self.window)
+            live = self.window or self.editor
+            self.sim.run(self.controllers, dt=self.DT, duration=self.DURATION if live else (self.DURATION or 5.0), realtime=live)
         finally:
             self.controllers.stop()
 
 
 if __name__ == "__main__":
-    Main(window="--no-window" not in sys.argv).run()
+    editor = "--editor" in sys.argv
+    Main(window="--no-window" not in sys.argv and not editor, editor=editor).run()

@@ -7,6 +7,9 @@
 #include <QFileInfo>
 #include <QFileSystemModel>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -16,6 +19,9 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+#include <cstring>
+
+#include "3d/dhPose.h"
 #include "CodeEdit.h"
 #include "ProjectTools.h"
 #include "PyConsole.h"
@@ -55,6 +61,7 @@ EditorWindow::EditorWindow(const QString& projectDir) : QMainWindow(), proc_(nul
 
     // Python CMD / 실행 결과
     console_ = new PyConsole;
+    connect(console_, &PyConsole::feed, this, &EditorWindow::applyFeed);
     log_ = new QPlainTextEdit;
     log_->setReadOnly(true);
     log_->setMaximumBlockCount(5000);
@@ -110,16 +117,20 @@ void EditorWindow::buildMenus() {
     connect(a, &QAction::triggered, this, &QWidget::close);
 
     QMenu* run = menuBar()->addMenu(K("실행"));
-    a = run->addAction(K("main.py 실행 (python 의 3D 창)"));
+    a = run->addAction(K("main.py 실행 (3D View 에서 보기)"));
     a->setShortcut(Qt::Key_F5);
-    connect(a, &QAction::triggered, this, [this]() { RunMain(true); });
-    a = run->addAction(K("main.py 실행 (창 없이)"));
+    connect(a, &QAction::triggered, this, [this]() { RunMain(InEditor); });
+    a = run->addAction(K("main.py 실행 (python 의 별도 3D 창)"));
     a->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_F5));
-    connect(a, &QAction::triggered, this, [this]() { RunMain(false); });
+    connect(a, &QAction::triggered, this, [this]() { RunMain(Window); });
+    a = run->addAction(K("main.py 실행 (창 없이, 5 초)"));
+    connect(a, &QAction::triggered, this, [this]() { RunMain(Headless); });
     a = run->addAction(K("정지"));
     a->setShortcut(QKeySequence(Qt::SHIFT + Qt::Key_F5));
     connect(a, &QAction::triggered, this, [this]() { StopMain(); });
     run->addSeparator();
+    a = run->addAction(K("venv 만들기 (프로젝트의 python 환경)"));
+    connect(a, &QAction::triggered, this, &EditorWindow::onCreateVenv);
     a = run->addAction(K("Python CMD 다시 시작"));
     connect(a, &QAction::triggered, this, [this]() { if (!project_.isEmpty()) console_->Start(project_); });
 
@@ -231,11 +242,39 @@ bool EditorWindow::OpenProject(const QString& dirIn) {
 void EditorWindow::reloadModels() {
     if (project_.isEmpty()) return;
     view_->viewer()->CloseAll();
+    modelNames_.clear();
     const QStringList urdfs = projecttools::ProjectModels(project_);
     for (int i = 0; i < urdfs.size(); i++) {
         QString err;
-        if (!view_->viewer()->AddFile(urdfs[i], &err)) log(QStringLiteral("[") + QFileInfo(urdfs[i]).fileName() + QStringLiteral("] ") + err);
+        if (view_->viewer()->AddFile(urdfs[i], &err)) modelNames_ << QFileInfo(urdfs[i]).completeBaseName();
+        else log(QStringLiteral("[") + QFileInfo(urdfs[i]).fileName() + QStringLiteral("] ") + err);
     }
+}
+
+// python(시뮬레이션)이 보낸 오브젝트 상태 {"o": {이름: {"p": [x,y,z,qx,qy,qz,qw], "j": {관절: 값}}}} 를 3D View 에 그대로 옮긴다
+void EditorWindow::applyFeed(const QString& json) {
+    const QJsonObject objs = QJsonDocument::fromJson(json.toUtf8()).object().value(QStringLiteral("o")).toObject();
+    simul::urdf::JointValues q = view_->viewer()->CurrentJointValues();
+    for (QJsonObject::const_iterator it = objs.begin(); it != objs.end(); ++it) {
+        const int index = modelNames_.indexOf(it.key());
+        if (index < 0) continue;
+        const QJsonObject o = it.value().toObject();
+        const QJsonArray p = o.value(QStringLiteral("p")).toArray();
+        if (p.size() == 7) {
+            dhPose pose;
+            pose.position = dhVector(static_cast<float>(p[0].toDouble()), static_cast<float>(p[1].toDouble()), static_cast<float>(p[2].toDouble()));
+            pose.orientation.x = static_cast<float>(p[3].toDouble());
+            pose.orientation.y = static_cast<float>(p[4].toDouble());
+            pose.orientation.z = static_cast<float>(p[5].toDouble());
+            pose.orientation.w = static_cast<float>(p[6].toDouble());
+            const dhMat m = pose.Normalized().ToMat();
+            const dhMat cur = view_->viewer()->ModelPose(index);
+            if (std::memcmp(cur.v, m.v, sizeof(m.v)) != 0) view_->viewer()->SetModelPose(index, m);
+        }
+        const QJsonObject js = o.value(QStringLiteral("j")).toObject();
+        for (QJsonObject::const_iterator j = js.begin(); j != js.end(); ++j) q[simul::String(j.key().toUtf8().constData())] = static_cast<float>(j.value().toDouble());
+    }
+    view_->viewer()->SetJointValues(q);
 }
 
 void EditorWindow::OpenFile(const QString& path) {
@@ -299,13 +338,14 @@ void EditorWindow::closeEvent(QCloseEvent* e) {
     e->accept();
 }
 
-void EditorWindow::RunMain(bool window) {
+void EditorWindow::RunMain(RunMode mode) {
     if (project_.isEmpty()) return;
     StopMain();
     SaveAll();
+    if (mode == InEditor) reloadModels();   // 처음 자세에서 시작
     QString program;
     QStringList args;
-    projecttools::FindPython(&program, &args);
+    projecttools::FindPython(&program, &args, project_);
     if (program.isEmpty()) { log(K("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.")); bottom_->setCurrentWidget(log_); return; }
     proc_ = new QProcess(this);
     proc_->setWorkingDirectory(project_);
@@ -314,15 +354,72 @@ void EditorWindow::RunMain(bool window) {
     env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
     env.insert(QStringLiteral("SIMUL_LIB"), project_ + QStringLiteral("/Simul"));
+    if (mode == InEditor) env.insert(QStringLiteral("SIMUL_FEED"), QStringLiteral("1"));   // 오브젝트 상태를 한 줄씩 에디터로 보낸다
     proc_->setProcessEnvironment(env);
-    connect(proc_, &QProcess::readyRead, this, [this]() { if (proc_) log_->appendPlainText(QString::fromUtf8(proc_->readAll()).trimmed()); });
+    runBuf_.clear();
+    connect(proc_, &QProcess::readyRead, this, [this]() {
+        if (!proc_) return;
+        runBuf_ += proc_->readAll();
+        for (;;) {
+            const int nl = runBuf_.indexOf('\n');
+            if (nl < 0) break;
+            const QByteArray line = runBuf_.left(nl).trimmed();
+            runBuf_.remove(0, nl + 1);
+            if (line.startsWith("@@SIMUL ")) applyFeed(QString::fromUtf8(line.mid(8)));
+            else if (!line.isEmpty()) log_->appendPlainText(QString::fromUtf8(line));
+        }
+    });
     connect(proc_, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this,
             [this](int code, QProcess::ExitStatus) { log(K("--- main.py 끝 (종료 코드 %1) ---").arg(code)); });
     args << QStringLiteral("main.py");
-    if (!window) args << QStringLiteral("--no-window");
+    if (mode == InEditor) args << QStringLiteral("--editor");
+    else if (mode == Headless) args << QStringLiteral("--no-window");
     bottom_->setCurrentWidget(log_);
     log(K("--- main.py 실행: ") + program + QLatin1Char(' ') + args.join(QLatin1Char(' ')) + QStringLiteral(" ---"));
     proc_->start(program, args);
+}
+
+// 프로젝트 폴더에 venv 를 만들고(python -m venv), requirements.txt 에 패키지가 있으면 설치한다. 만들면 F5 와 Python CMD 가 그 python 을 쓴다.
+void EditorWindow::onCreateVenv() {
+    if (project_.isEmpty()) { QMessageBox::information(this, K("venv"), K("먼저 프로젝트를 만들거나 여세요")); return; }
+    if (!projecttools::VenvPython(project_).isEmpty()) {
+        if (QMessageBox::question(this, K("venv"), K("이미 venv 가 있습니다. requirements.txt 만 다시 설치할까요?")) != QMessageBox::Yes) return;
+    }
+    QString program;
+    QStringList args;
+    projecttools::FindPython(&program, &args);   // 시스템 python
+    if (program.isEmpty()) { log(K("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.")); bottom_->setCurrentWidget(log_); return; }
+    bottom_->setCurrentWidget(log_);
+    const bool had = !projecttools::VenvPython(project_).isEmpty();
+    QProcess* p = new QProcess(this);
+    p->setWorkingDirectory(project_);
+    p->setProcessChannelMode(QProcess::MergedChannels);
+    connect(p, &QProcess::readyRead, this, [this, p]() { log_->appendPlainText(QString::fromUtf8(p->readAll()).trimmed()); });
+    auto finish = [this, p](int code) {
+        log(K("--- venv 끝 (종료 코드 %1) ---").arg(code));
+        p->deleteLater();
+        if (code == 0 && !project_.isEmpty()) console_->Start(project_);   // 새 python 으로 다시 시작
+    };
+    auto install = [this, p, finish]() {
+        const QString vpy = projecttools::VenvPython(project_);
+        QFile rf(project_ + QStringLiteral("/requirements.txt"));
+        bool any = false;
+        if (rf.open(QIODevice::ReadOnly)) {
+            const QStringList lines = QString::fromUtf8(rf.readAll()).split(QLatin1Char('\n'));
+            for (int i = 0; i < lines.size(); i++) if (!lines[i].trimmed().isEmpty() && !lines[i].trimmed().startsWith(QLatin1Char('#'))) any = true;
+        }
+        if (vpy.isEmpty()) { finish(1); return; }
+        if (!any) { finish(0); return; }
+        log(K("pip install -r requirements.txt"));
+        disconnect(p, nullptr, this, nullptr);
+        connect(p, &QProcess::readyRead, this, [this, p]() { log_->appendPlainText(QString::fromUtf8(p->readAll()).trimmed()); });
+        connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this, [finish](int code, QProcess::ExitStatus) { finish(code); });
+        p->start(vpy, QStringList() << QStringLiteral("-m") << QStringLiteral("pip") << QStringLiteral("install") << QStringLiteral("-r") << QStringLiteral("requirements.txt"));
+    };
+    if (had) { install(); return; }
+    log(K("--- venv 만들기: ") + program + QLatin1Char(' ') + (args + QStringList() << QStringLiteral("-m") << QStringLiteral("venv") << QStringLiteral("venv")).join(QLatin1Char(' ')) + QStringLiteral(" ---"));
+    connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this, [install, finish](int code, QProcess::ExitStatus) { if (code != 0) finish(code); else install(); });
+    p->start(program, args + QStringList() << QStringLiteral("-m") << QStringLiteral("venv") << QStringLiteral("venv"));
 }
 
 void EditorWindow::StopMain() {

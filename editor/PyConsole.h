@@ -16,6 +16,8 @@ public:
     void Start(const QString& projectDir);   // 이미 돌고 있으면 다시 시작
     void Stop();
     bool IsRunning() const { return proc_ && proc_->state() != QProcess::NotRunning; }
+signals:
+    void feed(const QString& json);          // python 이 보낸 오브젝트 상태 한 줄 (@@SIMUL ...)
 private slots:
     void submit();
     void readOutput();
@@ -26,6 +28,7 @@ private:
     QProcess* proc_;
     QStringList history_;
     int hpos_;
+    QByteArray pending_;
 protected:
     bool eventFilter(QObject* obj, QEvent* e) override;
 };

@@ -227,8 +227,9 @@ class Main(object):
     DT = 0.02                                       # 한 스텝 (s)
     DURATION = None                                 # 돌 시간 (s). None 이면 창을 닫을 때까지 (창이 없으면 5 초)
 
-    def __init__(self, window=True):
+    def __init__(self, window=True, editor=False):
         self.window = window                        # 3D 창 (simul_gui, Qt 필요)
+        self.editor = editor                        # 에디터가 3D View 로 보여 준다 (창 없이, 닫을 때까지 실시간으로 돈다)
         self.sim = Simul.Simulation()               # simul_core DLL 위의 시뮬레이션
         self.load_objects()
         self.controllers = Simul.Behaviors(os.path.join(HERE, "Code"), self.sim)   # Code/<오브젝트>.py 의 Controller 들
@@ -241,14 +242,63 @@ class Main(object):
         if self.window:
             self.sim.show(self.TITLE)
         try:
-            self.sim.run(self.controllers, dt=self.DT, duration=self.DURATION if self.window else (self.DURATION or 5.0), realtime=self.window)
+            live = self.window or self.editor
+            self.sim.run(self.controllers, dt=self.DT, duration=self.DURATION if live else (self.DURATION or 5.0), realtime=live)
         finally:
             self.controllers.stop()
 
 
 if __name__ == "__main__":
-    Main(window="--no-window" not in sys.argv).run()
+    editor = "--editor" in sys.argv
+    Main(window="--no-window" not in sys.argv and not editor, editor=editor).run()
 )PY";
+
+const char* kRunBat = R"BAT(@echo off
+rem Project run script: creates the venv (first time), installs requirements.txt, runs main.py.
+rem   run.bat                 3D window
+rem   run.bat --no-window     no window (5 seconds)
+setlocal
+cd /d "%~dp0"
+set "SIMUL_LIB=%~dp0Simul"
+if not exist "venv\Scripts\python.exe" (
+    echo [venv] creating venv ...
+    where py >nul 2>nul
+    if not errorlevel 1 (py -3 -m venv venv) else (python -m venv venv)
+    if errorlevel 1 (
+        echo [venv] failed. Install Python 3 and try again.
+        exit /b 1
+    )
+)
+if exist requirements.txt "venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt
+"venv\Scripts\python.exe" main.py %*
+exit /b %errorlevel%
+)BAT";
+
+const char* kRunSh = R"SH(#!/usr/bin/env bash
+# Project run script: creates the venv (first time), installs requirements.txt, runs main.py.
+#   ./run.sh                 3D window
+#   ./run.sh --no-window     no window (5 seconds)
+cd "$(dirname "$0")" || exit 1
+export SIMUL_LIB="$PWD/Simul"
+if [ ! -x venv/bin/python ]; then
+    echo "[venv] creating venv ..."
+    python3 -m venv venv || { echo "[venv] failed. Install python3-venv (Ubuntu: sudo apt install python3-venv) and try again."; exit 1; }
+fi
+[ -f requirements.txt ] && venv/bin/python -m pip install -q --disable-pip-version-check -r requirements.txt
+exec venv/bin/python main.py "$@"
+)SH";
+
+const char* kRequirements = "# python packages this project needs (pip install -r). Simul itself needs none.\n";
+
+bool WriteRunFiles(const QString& dir, QString* error) {
+    if (!QFileInfo(dir + QStringLiteral("/run.bat")).isFile() && !WriteText(dir + QStringLiteral("/run.bat"), QString::fromUtf8(kRunBat).replace(QStringLiteral("\n"), QStringLiteral("\r\n")), error)) return false;
+    if (!QFileInfo(dir + QStringLiteral("/run.sh")).isFile()) {
+        if (!WriteText(dir + QStringLiteral("/run.sh"), QString::fromUtf8(kRunSh), error)) return false;
+        QFile::setPermissions(dir + QStringLiteral("/run.sh"), QFile::permissions(dir + QStringLiteral("/run.sh")) | QFileDevice::ExeOwner | QFileDevice::ExeGroup | QFileDevice::ExeOther | QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    }
+    if (!QFileInfo(dir + QStringLiteral("/requirements.txt")).isFile() && !WriteText(dir + QStringLiteral("/requirements.txt"), QString::fromUtf8(kRequirements), error)) return false;
+    return true;
+}
 
 const char* kTemplate = R"PY(# -*- coding: utf-8 -*-
 """오브젝트 제어 class 의 견본. 이 파일을 복사해 <오브젝트 이름>.py 로 바꾸면 그 오브젝트의 코드가 된다 (오브젝트 이름 = OBJECT/ 의 URDF 파일 이름).
@@ -379,6 +429,8 @@ bool CreateProject(const QString& dirIn, const QStringList& urdfs, QString* erro
 
     if (!WriteText(dir + QStringLiteral("/Code/object.py"), QString::fromUtf8(kTemplate), error)) return false;
     if (!WriteText(dir + QStringLiteral("/main.py"), QString::fromUtf8(kMain).arg(QFileInfo(dir).fileName()), error)) return false;
+    if (!WriteRunFiles(dir, error)) return false;
+    if (log) *log << Utf8("run.bat / run.sh / requirements.txt 생성 (실행하면 venv 를 만들어 main.py 를 돌립니다)");
     if (!AddModels(dir, urdfs, error, log)) return false;
     if (log) *log << Utf8("만들었습니다: ") + dir;
     return true;
@@ -391,12 +443,20 @@ bool HasCoreLib(const QString& dir) {
 }
 }  // namespace
 
+bool MainIsOld(const QString& dir) {
+    QFile f(dir + QStringLiteral("/main.py"));
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const QString text = QString::fromUtf8(f.readAll());
+    return !text.contains(QStringLiteral("class Main")) || !text.contains(QStringLiteral("--editor"));
+}
+
 // main.py 가 예전 구조이거나, Simul/ 에 Simul.py 나 DLL 이 없는 프로젝트 (예제 프로젝트를 처음 열 때 등)
 bool NeedsUpgrade(const QString& dir) {
     QFile f(dir + QStringLiteral("/main.py"));
     if (!f.open(QIODevice::ReadOnly)) return false;
-    if (!QString::fromUtf8(f.readAll()).contains(QStringLiteral("class Main"))) return true;
-    return !QFileInfo(dir + QStringLiteral("/Simul/Simul.py")).isFile() || !HasCoreLib(dir);
+    const QString text = QString::fromUtf8(f.readAll());
+    if (!text.contains(QStringLiteral("class Main")) || !text.contains(QStringLiteral("--editor"))) return true;
+    return !QFileInfo(dir + QStringLiteral("/Simul/Simul.py")).isFile() || !HasCoreLib(dir) || !QFileInfo(dir + QStringLiteral("/run.sh")).isFile();
 }
 
 // 예전 구조(함수형)의 프로젝트를 class 구조로 바꾼다. 바꾸는 파일은 .bak 으로 남긴다.
@@ -424,7 +484,11 @@ bool UpgradeProject(const QString& dirIn, QString* error, QStringList* log) {
         QFile::copy(found[0], to);
         if (log) *log << Utf8("DLL 복사: ") + QFileInfo(found[0]).fileName();
     }
-    if (NeedsUpgrade(dir)) {
+    if (!QFileInfo(dir + QStringLiteral("/run.sh")).isFile() || !QFileInfo(dir + QStringLiteral("/run.bat")).isFile()) {
+        if (!WriteRunFiles(dir, error)) return false;
+        if (log) *log << Utf8("run.bat / run.sh / requirements.txt 생성");
+    }
+    if (MainIsOld(dir)) {
         backup(dir + QStringLiteral("/main.py"));
         if (!WriteText(dir + QStringLiteral("/main.py"), QString::fromUtf8(kMain).arg(QFileInfo(dir).fileName()), error)) return false;
         if (log) *log << Utf8("main.py 를 Main class 로 바꿈 (예전 것은 main.py.bak)");
@@ -465,7 +529,20 @@ bool UpgradeProject(const QString& dirIn, QString* error, QStringList* log) {
     return true;
 }
 
-void FindPython(QString* program, QStringList* args) {
+QString VenvPython(const QString& projectDir) {
+#ifdef _WIN32
+    const QString p = projectDir + QStringLiteral("/venv/Scripts/python.exe");
+#else
+    const QString p = projectDir + QStringLiteral("/venv/bin/python");
+#endif
+    return QFileInfo(p).isFile() ? p : QString();
+}
+
+void FindPython(QString* program, QStringList* args, const QString& projectDir) {
+    if (!projectDir.isEmpty()) {
+        const QString v = VenvPython(projectDir);
+        if (!v.isEmpty() && qgetenv("SIMUL_PYTHON").isEmpty()) { args->clear(); *program = v; return; }   // 프로젝트의 venv 가 있으면 그것
+    }
     args->clear();
     program->clear();
     const QByteArray envPy = qgetenv("SIMUL_PYTHON");
