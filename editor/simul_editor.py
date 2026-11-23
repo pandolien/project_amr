@@ -3,7 +3,7 @@
 """Project Simul Editor (python + PyQt5).
 
 프로젝트 폴더(main.py, objects/*.py, models/...)를 열어 python 코드를 고치고, 오른쪽에서 오브젝트와 관절 값을 보고,
-오브젝트의 관절 슬라이더로 URDF 를 움직여 보고(F3: 3D 창), 그 값을 코드로 넣고, F5 로 main.py 를 돌린다 (시뮬레이션은 simul 라이브러리가 DLL 로 돌린다).
+오브젝트의 관절 슬라이더로 URDF 를 움직여 보고(왼쪽 위 3D 화면), 그 값을 코드로 넣고, F5 로 main.py 를 돌린다 (시뮬레이션은 simul 라이브러리가 DLL 로 돌린다).
 
 실행:  python3 editor/simul_editor.py [프로젝트 폴더]       (필요: PyQt5, 새 프로젝트 만들기에는 빌드한 DLL: 환경 변수 SIMUL_LIB)
 """
@@ -20,7 +20,7 @@ from PyQt5.QtCore import QTimer, QProcess, QProcessEnvironment, QRegExp, Qt, QDi
 from PyQt5.QtGui import QColor, QFont, QKeySequence, QSyntaxHighlighter, QTextCharFormat
 from PyQt5.QtWidgets import (QAction, QApplication, QDockWidget, QFileDialog, QFileSystemModel, QInputDialog, QMainWindow,
                              QDoubleSpinBox, QMessageBox, QPlainTextEdit, QSlider, QTabWidget, QTreeView, QTreeWidget, QTreeWidgetItem,
-                             QWidget, QHBoxLayout)
+                             QWidget, QHBoxLayout, QLabel, QSplitter, QVBoxLayout)
 
 
 class PyHighlighter(QSyntaxHighlighter):
@@ -97,7 +97,15 @@ class Editor(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.setCentralWidget(self.tabs)
+        self.view_holder = QWidget()
+        self.view_layout = QVBoxLayout(self.view_holder)
+        self.view_layout.setContentsMargins(0, 0, 0, 0)
+        self.view_layout.addWidget(QLabel("3D 화면: 프로젝트를 열면 여기에 나옵니다"))
+        split = QSplitter(Qt.Vertical)
+        split.addWidget(self.view_holder)
+        split.addWidget(self.tabs)
+        split.setSizes([420, 380])
+        self.setCentralWidget(split)
 
         self.fs = QFileSystemModel()
         self.tree = QTreeView()
@@ -128,7 +136,7 @@ class Editor(QMainWindow):
         self.act(m, "정지", self.stop_project, "Shift+F5")
         self.act(m, "오브젝트 정보 새로고침", self.refresh_objects, "F6")
         m = self.menuBar().addMenu("보기")
-        self.act(m, "3D 창 열기", self.show_3d, "F3")
+        self.act(m, "3D 화면 전체 보기", self.show_3d, "F3")
         self.act(m, "관절을 0 으로", self.zero_joints)
         self.act(m, "지금 관절 값을 코드로 넣기", self.insert_pose, "Ctrl+Shift+J")
         self.resizeDocks([d for d in self.findChildren(QDockWidget) if d.windowTitle().startswith("오브젝트")], [430], Qt.Horizontal)
@@ -231,8 +239,23 @@ class Editor(QMainWindow):
                 self.objects.resizeColumnToContents(c)
             self.objects.setColumnWidth(1, 220)
             self.timer.start(30)
+            self.embed_3d()
         except Exception as e:
             self.log.appendPlainText("오브젝트 정보를 읽지 못했습니다: %s" % e)
+
+    def embed_3d(self):
+        """3D 화면을 에디터 안(왼쪽 위)에 넣는다. simul_gui 와 같은 Qt 의 PyQt5 가 필요하다."""
+        while self.view_layout.count():
+            it = self.view_layout.takeAt(0)
+            if it.widget() is not None:
+                it.widget().setParent(None)
+        try:
+            self.view3d = self.sim.embed_widget()
+            self.view_layout.addWidget(self.view3d)
+            self.view3d.show()
+            self.sim.fit_view()
+        except Exception as e:
+            self.view_layout.addWidget(QLabel("3D 화면을 만들 수 없습니다 (simul_gui 와 Qt 5.12 PyQt5 필요):\n%s" % e))
 
     def joint_widget(self, obj, jn, j):
         lo, hi = j.lower, j.upper
@@ -288,12 +311,9 @@ class Editor(QMainWindow):
             self.log.appendPlainText("시뮬레이션 오류: %s" % e)
 
     def show_3d(self):
-        if self.sim is None:
-            self.refresh_objects()
-        try:
-            self.sim.show("Simul Editor 3D")
-        except Exception as e:
-            QMessageBox.warning(self, "3D 창", "3D 창을 열 수 없습니다 (simul_gui 와 Qt 필요):\n%s" % e)
+        """카메라를 모델 전체에 맞춘다 (3D 화면은 에디터 안에 있다)."""
+        if self.sim is not None:
+            self.sim.fit_view()
 
     def zero_joints(self):
         if self.sim is None:

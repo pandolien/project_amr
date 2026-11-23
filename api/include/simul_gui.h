@@ -29,6 +29,10 @@ SIMUL_GUI_API int simul_gui_api_version(void);
 /* 창을 열고 보여 준다. 이미 열려 있으면 1. 열지 못하면 0 (이유는 simul_gui_last_error). */
 SIMUL_GUI_API int simul_window_open(simul_sim* sim, const char* title, int width, int height);
 /* 장면을 맞추고(모델이 바뀌었으면 다시 올림) 창의 이벤트를 처리한다. 창이 열려 있으면 1, 닫혔으면 0. */
+/* 별도 창을 띄우지 않고 3D 위젯만 만든다 (python PyQt5 같은 호출자가 자기 창 안에 넣는다).
+ * simul_window_widget 은 QWidget* 를 돌려주고, 부모를 정해 주면 Qt 가 소유한다 (그 뒤 simul_window_close 는 안전하다). */
+SIMUL_GUI_API int simul_window_create_embedded(simul_sim* sim);
+SIMUL_GUI_API void* simul_window_widget(simul_sim* sim);
 SIMUL_GUI_API int simul_window_update(simul_sim* sim);
 SIMUL_GUI_API int simul_window_is_open(simul_sim* sim);
 SIMUL_GUI_API void simul_window_close(simul_sim* sim);

@@ -114,6 +114,8 @@ def load_gui():
 
     f("simul_gui_api_version", I)
     f("simul_window_open", I, P, S, I, I)
+    f("simul_window_create_embedded", I, P)
+    f("simul_window_widget", P, P)
     f("simul_window_update", I, P)
     f("simul_window_is_open", I, P)
     f("simul_window_close", None, P)

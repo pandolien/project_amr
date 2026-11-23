@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QPointer>
 #include <QImage>
 #include <QString>
 #include <QVector>
@@ -16,11 +17,12 @@
 namespace {
 
 struct Window {
-    ModelViewer* viewer;
+    QPointer<ModelViewer> viewer;
     std::vector<std::string> paths;     // 지금 viewer 에 올라 있는 모델 (simul_core 의 오브젝트 순서)
     std::vector<std::string> names;
     std::vector<double> lastPose;       // 오브젝트마다 7 개: 마지막으로 viewer 에 준 자세
-    Window() : viewer(nullptr) {}
+    bool embedded;                      // 호출한 쪽(python Qt)이 위젯을 소유하고 배치한다
+    Window() : viewer(nullptr), embedded(false) {}
 };
 
 std::map<simul_sim*, Window*>& Windows() {
@@ -142,10 +144,34 @@ int simul_window_open(simul_sim* sim, const char* title, int width, int height) 
     return 1;
 }
 
+int simul_window_create_embedded(simul_sim* sim) {
+    if (!sim) return Fail("simul_sim 이 NULL 입니다") ? 1 : 0;
+    if (Find(sim)) return 1;
+    if (!EnsureApp()) return Fail("Qt 응용 프로그램을 만들 수 없습니다") ? 1 : 0;
+    Window* w = new Window();
+    w->viewer = new ModelViewer();
+    w->embedded = true;
+    Windows()[sim] = w;
+    if (!SyncModels(sim, w)) {
+        delete w->viewer;
+        delete w;
+        Windows().erase(sim);
+        return 0;
+    }
+    SyncState(sim, w);
+    return 1;
+}
+
+void* simul_window_widget(simul_sim* sim) {
+    Window* w = Find(sim);
+    return w ? static_cast<void*>(static_cast<QWidget*>(w->viewer.data())) : nullptr;
+}
+
 int simul_window_update(simul_sim* sim) {
     Window* w = Find(sim);
     if (!w) return 0;
-    if (!w->viewer->isVisible()) return 0;
+    if (!w->viewer) return 0;
+    if (!w->viewer->isVisible()) return w->embedded ? 1 : 0;
     if (!SyncModels(sim, w)) return 1;   // 못 올린 이유는 simul_gui_last_error
     SyncState(sim, w);
     w->viewer->update();
@@ -155,7 +181,7 @@ int simul_window_update(simul_sim* sim) {
 
 int simul_window_is_open(simul_sim* sim) {
     Window* w = Find(sim);
-    return w && w->viewer->isVisible() ? 1 : 0;
+    return w && w->viewer && (w->embedded || w->viewer->isVisible()) ? 1 : 0;
 }
 
 void simul_window_close(simul_sim* sim) {
@@ -169,7 +195,7 @@ void simul_window_close(simul_sim* sim) {
 
 int simul_window_save_image(simul_sim* sim, const char* path) {
     Window* w = Find(sim);
-    if (!w || !path) return Fail("열린 창이 없거나 path 가 NULL 입니다") ? 1 : 0;
+    if (!w || !w->viewer || !path) return Fail("열린 창이 없거나 path 가 NULL 입니다") ? 1 : 0;
     SyncModels(sim, w);
     SyncState(sim, w);
     w->viewer->update();
@@ -181,7 +207,7 @@ int simul_window_save_image(simul_sim* sim, const char* path) {
 
 int simul_window_fit_view(simul_sim* sim) {
     Window* w = Find(sim);
-    if (!w) return 0;
+    if (!w || !w->viewer) return 0;
     w->viewer->FitView();
     return 1;
 }

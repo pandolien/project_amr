@@ -256,6 +256,20 @@ class Simulation(object):
         if not self._gui.simul_window_open(self._h, _b(title), width, height):
             raise SimulError(_s(self._gui.simul_gui_last_error()))
 
+    def embed_widget(self):
+        """3D 보기를 별도 창이 아니라 PyQt5 QWidget 으로 돌려준다 (자기 창 안의 레이아웃에 넣는다). PyQt5 가 필요하다."""
+        if self._gui is None:
+            self._gui = _lib.load_gui()
+            global _exit_registered
+            if not _exit_registered:
+                _atexit.register(_close_all)
+                _exit_registered = True
+        if not self._gui.simul_window_create_embedded(self._h):
+            raise SimulError(_s(self._gui.simul_gui_last_error()))
+        ptr = self._gui.simul_window_widget(self._h)
+        from PyQt5 import QtWidgets, sip
+        return sip.wrapinstance(ptr, QtWidgets.QWidget)
+
     @property
     def window_open(self):
         return self._gui is not None and bool(self._gui.simul_window_is_open(self._h))
