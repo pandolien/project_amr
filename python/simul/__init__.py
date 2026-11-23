@@ -29,6 +29,8 @@ _EVENT_NAMES = {0: "added", 1: "removed", 2: "arrived", 3: "joint_reached", 4: "
 _KIND_NAMES = {1: "revolute", 2: "prismatic", 3: "continuous"}
 
 
+from .behaviors import Behaviors  # noqa: E402,F401
+
 class SimulError(Exception):
     """명령이나 모델 읽기가 거부되었다 (메시지에 이유)."""
 
