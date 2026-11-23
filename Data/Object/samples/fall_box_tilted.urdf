@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- 회전 낙하 시험 1: 0.4 m 정육면체를 기울여(roll 0.6, pitch 0.4 rad) 1.5 m 위에서 놓는다. 모서리로 닿아 구르다 한 면에 선다.
+     뷰어에서 열면 위(z=1.5 m 근처)에서 시작해 중력으로 떨어진다. 기울어진 채 닿으면 모서리로 구르다 한 면에 서서 멈춘다. 단위 m, rad. -->
+<robot name="fall_box_tilted">
+  <material name="body"><color rgba="0.9 0.45 0.2 1"/></material>
+  <link name="fall_box_tilted_link">
+    <inertial><origin xyz="0 0 1.5"/><mass value="1.0"/><inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/></inertial>
+    <visual>
+      <origin xyz="0 0 1.5" rpy="0.6 0.4 0.3"/>
+      <geometry><box size="0.4 0.4 0.4"/></geometry>
+      <material name="body"/>
+    </visual>
+  </link>
+</robot>

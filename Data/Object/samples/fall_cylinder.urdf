@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- 회전 낙하 시험 5: 원통(반지름 0.12 m, 높이 0.3 m)을 기울여 놓는다. 모서리로 닿아 구르다 멈춘다 (원통은 꼭짓점 근사라 각지게 구른다).
+     뷰어에서 열면 위(z=1.5 m 근처)에서 시작해 중력으로 떨어진다. 기울어진 채 닿으면 모서리로 구르다 한 면에 서서 멈춘다. 단위 m, rad. -->
+<robot name="fall_cylinder">
+  <material name="body"><color rgba="0.7 0.4 0.8 1"/></material>
+  <link name="fall_cylinder_link">
+    <inertial><origin xyz="0 0 1.5"/><mass value="1.0"/><inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/></inertial>
+    <visual>
+      <origin xyz="0 0 1.5" rpy="0.9 0.2 0"/>
+      <geometry><cylinder radius="0.12" length="0.3"/></geometry>
+      <material name="body"/>
+    </visual>
+  </link>
+</robot>
