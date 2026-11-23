@@ -6,6 +6,8 @@
     <폴더>/simul/                   <- DLL 과 연결하는 python 파일 (python/simul 복사본) + simul_core / simul_gui DLL
     <폴더>/models/<이름>/...        <- URDF 와 그 mesh (원본 폴더째 복사)
     <폴더>/objects/<이름>.py        <- 그 오브젝트의 python 코드 (update(info))
+    <폴더>/requirements.txt         <- PyQt5==5.12.3 (3D 창용 Qt 5.12 를 venv 에 설치)
+    <폴더>/setup_env.sh / .bat      <- .venv 를 만들고 설치  /  run.sh / .bat: .venv 로 main.py 실행
 """
 import os
 import shutil
@@ -33,6 +35,17 @@ if WINDOW:
     sim.show("{name}")
 sim.run(behaviors, dt=0.02, duration=DURATION if WINDOW else (DURATION or 5.0), realtime=WINDOW)
 '''
+
+SETUP_SH = """#!/bin/sh
+# 3D 창용 Qt 5.12(PyQt5)를 이 프로젝트의 .venv 에 설치한다 (창 없이만 쓰면 필요 없다)
+cd "$(dirname "$0")" && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+"""
+RUN_SH = """#!/bin/sh
+cd "$(dirname "$0")"
+if [ -x .venv/bin/python ]; then exec .venv/bin/python main.py "$@"; else exec python3 main.py "$@"; fi
+"""
+SETUP_BAT = "@echo off\r\ncd /d %~dp0\r\npy -3 -m venv .venv && .venv\\Scripts\\pip install -r requirements.txt\r\n"
+RUN_BAT = "@echo off\r\ncd /d %~dp0\r\nif exist .venv\\Scripts\\python.exe (.venv\\Scripts\\python main.py %*) else (py -3 main.py %*)\r\n"
 
 OBJ = '''# -*- coding: utf-8 -*-
 """오브젝트 "{obj}" 의 python 코드. 매 스텝 update(info) 가 불리고, 이 오브젝트의 움직임을 돌려준다.
@@ -100,6 +113,12 @@ def main():
         print("오브젝트 %s: 관절 %s" % (obj.name, joints))
     with open(os.path.join(dest, "main.py"), "w", encoding="utf-8") as f:
         f.write(MAIN.format(home=ROOT, lib=lib, models="\n".join(lines), name=os.path.basename(dest)))
+    with open(os.path.join(dest, "requirements.txt"), "w") as f:
+        f.write("PyQt5==5.12.3\n")
+    for fn, txt, mode in (("setup_env.sh", SETUP_SH, 0o755), ("run.sh", RUN_SH, 0o755), ("setup_env.bat", SETUP_BAT, 0o644), ("run.bat", RUN_BAT, 0o644)):
+        with open(os.path.join(dest, fn), "w", newline="\n" if fn.endswith(".sh") else None) as f:
+            f.write(txt)
+        os.chmod(os.path.join(dest, fn), mode)
     print("만들었습니다: " + dest)
     return 0
 

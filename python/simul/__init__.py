@@ -31,6 +31,22 @@ _KIND_NAMES = {1: "revolute", 2: "prismatic", 3: "continuous"}
 
 from .behaviors import Behaviors  # noqa: E402,F401
 
+import atexit as _atexit
+import weakref as _weakref
+
+_live = _weakref.WeakSet()
+_exit_registered = False
+
+
+def _close_all():
+    """프로세스가 끝나기 전에 창과 시뮬레이션을 먼저 닫는다 (PyQt5 가 QApplication 을 지운 뒤에는 창을 닫을 수 없다)."""
+    for sim in list(_live):
+        try:
+            sim.close()
+        except Exception:
+            pass
+
+
 class SimulError(Exception):
     """명령이나 모델 읽기가 거부되었다 (메시지에 이유)."""
 
@@ -200,6 +216,7 @@ class Simulation(object):
             raise SimulError("시뮬레이션을 만들 수 없습니다")
         self._sent = {}
         self._gui = None
+        _live.add(self)
 
     def close(self):
         if getattr(self, "_h", None):
@@ -232,6 +249,10 @@ class Simulation(object):
         """3D 창을 연다. 창은 보기 전용이고, update_window() 나 run() 이 시뮬레이션의 현재 상태를 그린다."""
         if self._gui is None:
             self._gui = _lib.load_gui()
+            global _exit_registered
+            if not _exit_registered:       # PyQt5 를 올린 뒤에 등록해야 (atexit 는 나중에 등록한 것이 먼저 돈다) 그 정리보다 먼저 창을 닫는다
+                _atexit.register(_close_all)
+                _exit_registered = True
         if not self._gui.simul_window_open(self._h, _b(title), width, height):
             raise SimulError(_s(self._gui.simul_gui_last_error()))
 

@@ -412,6 +412,7 @@ my_project/
 - 만들기: `python3 tools/new_project.py my_project Data/Object/samples/arm.urdf --lib build/lib` (모델마다 `objects/<이름>.py` 틀과 main.py 가 생긴다. 틀에 그 오브젝트의 관절 이름이 적혀 있다).
 - `objects/<오브젝트 이름>.py` 의 `update(info)` 는 매 스텝 불리고, 그 오브젝트의 움직임(`{"joints": {...}, "position": ..., "speed": ...}`)만 돌려준다. `on_start(sim)` 은 선택. 어떤 파일에서 예외가 나면 그 오브젝트의 코드만 멈추고 나머지는 계속 돈다.
 - main.py 는 `simul.Behaviors(폴더, sim)` 로 오브젝트 파일들을 읽어 `sim.run(behaviors, ...)` 에 넘긴다. 직접 고쳐 쓰면 된다 (모델 위치, 시간 간격, 창 여부).
+- **3D 창의 Qt 를 python venv 로 맞추기**: 프로젝트에 `requirements.txt`(`PyQt5==5.12.3`), `setup_env.sh/.bat`(`.venv` 만들고 설치), `run.sh/.bat`(`.venv` 로 main.py 실행)이 같이 생긴다. `simul` 은 `show()` 때 venv 에 PyQt5 가 있으면 그것을 먼저 불러 QApplication 을 만들고, `simul_gui` 는 이미 올라온 그 Qt 5.12 라이브러리를 그대로 쓴다 (Qt 가 한 벌만 돈다, 시스템에 Qt 를 따로 안 깔아도 된다). 주의: `simul_gui` 는 PyQt5 와 같은 Qt 5.12 계열로 빌드해야 한다 (더 새 Qt 로 빌드했으면 `version Qt_5.15 not found` 로 못 올라온다). PyQt5 가 없으면 시스템 Qt 를 쓰고, `SIMUL_NO_PYQT=1` 이면 PyQt5 를 건드리지 않는다.
 - `simul_core`(와 있으면 `simul_gui`) DLL 도 `simul/` 안에 복사된다. 그래서 폴더째 다른 PC(같은 OS)로 옮겨도 그대로 돈다. 다만 3D 창은 Qt 5 DLL 이 그 PC 에 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이(`--no-window`)는 Qt 없이 돈다. 다른 DLL 을 쓰려면 환경 변수 `SIMUL_LIB`.
 
 ## 프로젝트 파일 (project.simul)
