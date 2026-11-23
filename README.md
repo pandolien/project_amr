@@ -397,6 +397,22 @@ sim.run(update, dt=0.02, duration=5.0, realtime=True)     # 창이 열려 있으
 - 창은 simul_core 의 상태를 그리는 보기 전용이다. 시뮬레이션은 창 없이도 돌고, 창은 `update_window()` 를 부르는 스레드에서만 다룬다.
 - C 에서 직접 쓰려면 `api/include/simul_api.h` 를 본다 (예: `tests/test_capi.cpp`). 예제: `python/examples/arm_swing.py`, 시험: `tests/test_python_api.py`.
 
+### 프로젝트 만들기 (main.py + URDF + 오브젝트별 python)
+
+프로젝트는 폴더 하나다: **main.py**(DLL 을 불러 시뮬레이션을 돌리는 시작 파일), 작업에 쓰는 **URDF 오브젝트 파일**, 오브젝트마다 하나씩인 **python 코드**.
+
+```
+my_project/
+  main.py                 <- python main.py 로 실행 (--no-window 면 창 없이)
+  models/arm/arm.urdf     <- URDF 와 mesh (원본 폴더째 복사)
+  objects/arm.py          <- 오브젝트 arm 의 코드: def update(info): return {"joints": {...}}
+```
+
+- 만들기: `python3 tools/new_project.py my_project Data/Object/samples/arm.urdf --lib build/lib` (모델마다 `objects/<이름>.py` 틀과 main.py 가 생긴다. 틀에 그 오브젝트의 관절 이름이 적혀 있다).
+- `objects/<오브젝트 이름>.py` 의 `update(info)` 는 매 스텝 불리고, 그 오브젝트의 움직임(`{"joints": {...}, "position": ..., "speed": ...}`)만 돌려준다. `on_start(sim)` 은 선택. 어떤 파일에서 예외가 나면 그 오브젝트의 코드만 멈추고 나머지는 계속 돈다.
+- main.py 는 `simul.Behaviors(폴더, sim)` 로 오브젝트 파일들을 읽어 `sim.run(behaviors, ...)` 에 넘긴다. 직접 고쳐 쓰면 된다 (모델 위치, 시간 간격, 창 여부).
+- 라이브러리 위치는 환경 변수 `SIMUL_LIB`, 저장소 위치는 `SIMUL_HOME` 으로 바꿀 수 있다 (main.py 에 만든 PC 의 값이 기본으로 들어간다).
+
 ## 프로젝트 파일 (project.simul)
 
 장면(모델과 배치)을 폴더 하나로 묶어 `simul_main --project my_project/project.simul` 로 연다.
