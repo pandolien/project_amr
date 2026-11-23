@@ -6,7 +6,7 @@
     <폴더>/simul/                   <- DLL 과 연결하는 python 파일 (python/simul 복사본) + simul_core / simul_gui DLL
     <폴더>/models/<이름>/...        <- URDF 와 그 mesh (원본 폴더째 복사)
     <폴더>/objects/<이름>.py        <- 그 오브젝트의 python 코드 (update(info))
-    <폴더>/requirements.txt         <- PyQt5==5.12.3 (3D 창용 Qt 5.12 를 venv 에 설치)
+    <폴더>/requirements.txt         <- PyQt5>=5.12,<5.16 (3D 창용 Qt 5.12 를 venv 에 설치)
     <폴더>/setup_env.sh / .bat      <- .venv 를 만들고 설치  /  run.sh / .bat: .venv 로 main.py 실행
 """
 import os
@@ -128,7 +128,7 @@ def create_project(dest, urdfs, lib, log=print):
     with open(os.path.join(dest, "main.py"), "w", encoding="utf-8") as f:
         f.write(MAIN.format(home=ROOT, lib=lib, models="\n".join(lines), name=os.path.basename(dest)))
     with open(os.path.join(dest, "requirements.txt"), "w") as f:
-        f.write("PyQt5==5.12.3\n")
+        f.write("PyQt5>=5.12,<5.16\n")
     for fn, txt, mode in (("setup_env.sh", SETUP_SH, 0o755), ("run.sh", RUN_SH, 0o755), ("setup_env.bat", SETUP_BAT, 0o644), ("run.bat", RUN_BAT, 0o644)):
         with open(os.path.join(dest, fn), "w", newline="\n" if fn.endswith(".sh") else None) as f:
             f.write(txt)

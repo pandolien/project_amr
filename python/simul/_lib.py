@@ -77,7 +77,7 @@ _qapp = None
 def _prepare_qt():
     """python 환경(venv)에 PyQt5 가 있으면 그 Qt 를 먼저 올리고 QApplication 도 거기서 만든다.
     simul_gui 는 이미 올라온 같은 이름의 Qt 라이브러리와 이미 있는 QApplication 을 그대로 쓰므로 Qt 가 한 벌만 돈다.
-    (PyQt5 와 simul_gui 의 Qt 는 같은 5.12 계열이어야 한다. 쓰지 않으려면 환경 변수 SIMUL_NO_PYQT=1)"""
+    (PyQt5 의 Qt 는 simul_gui 를 빌드한 Qt 와 같거나 더 새 5.x 여야 한다: 5.12 로 빌드했으면 PyQt5 5.12~5.15 모두 된다. 쓰지 않으려면 환경 변수 SIMUL_NO_PYQT=1)"""
     global _qapp
     if _qapp is not None or os.environ.get("SIMUL_NO_PYQT"):
         return
@@ -87,8 +87,8 @@ def _prepare_qt():
         return
     _qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1] or ["simul"])
     qt = QtCore.QT_VERSION_STR
-    if not qt.startswith("5.12."):
-        sys.stderr.write("[simul] 경고: PyQt5 의 Qt 가 %s 입니다. simul_gui 는 Qt 5.12 로 만들었으니 5.12 PyQt5 (pip install PyQt5==5.12.3) 를 쓰세요.\n" % qt)
+    if tuple(int(x) for x in qt.split(".")[:2]) < (5, 12):
+        sys.stderr.write("[simul] 경고: PyQt5 의 Qt 가 %s 입니다. simul_gui 는 Qt 5.12 이상이 필요합니다.\n" % qt)
 
 
 def load_gui():
