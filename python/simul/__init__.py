@@ -39,7 +39,7 @@ _exit_registered = False
 
 
 def _close_all():
-    """프로세스가 끝나기 전에 창과 시뮬레이션을 먼저 닫는다 (PyQt5 가 QApplication 을 지운 뒤에는 창을 닫을 수 없다)."""
+    """프로세스가 끝나기 전에 창과 시뮬레이션을 먼저 닫는다."""
     for sim in list(_live):
         try:
             sim.close()
@@ -250,25 +250,11 @@ class Simulation(object):
         if self._gui is None:
             self._gui = _lib.load_gui()
             global _exit_registered
-            if not _exit_registered:       # PyQt5 를 올린 뒤에 등록해야 (atexit 는 나중에 등록한 것이 먼저 돈다) 그 정리보다 먼저 창을 닫는다
+            if not _exit_registered:
                 _atexit.register(_close_all)
                 _exit_registered = True
         if not self._gui.simul_window_open(self._h, _b(title), width, height):
             raise SimulError(_s(self._gui.simul_gui_last_error()))
-
-    def embed_widget(self):
-        """3D 보기를 별도 창이 아니라 PyQt5 QWidget 으로 돌려준다 (자기 창 안의 레이아웃에 넣는다). PyQt5 가 필요하다."""
-        if self._gui is None:
-            self._gui = _lib.load_gui()
-            global _exit_registered
-            if not _exit_registered:
-                _atexit.register(_close_all)
-                _exit_registered = True
-        if not self._gui.simul_window_create_embedded(self._h):
-            raise SimulError(_s(self._gui.simul_gui_last_error()))
-        ptr = self._gui.simul_window_widget(self._h)
-        from PyQt5 import QtWidgets, sip
-        return sip.wrapinstance(ptr, QtWidgets.QWidget)
 
     @property
     def window_open(self):

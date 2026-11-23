@@ -2,9 +2,9 @@
 rem ============================================================================
 rem  Install missing tools, build, and run (Windows 10/11, Visual Studio + vcpkg).
 rem
-rem  Default: build, then start the python editor (editor\simul_editor.py, PyQt5 in .venv).
+rem  Default: build, then start the editor (simul_editor.exe, C++/Qt). Python is only used to run object motion.
 rem  Usage: run.bat [options] [-- arguments for the editor / simul_main]
-rem    --viewer      run the old C++ viewer (simul_main.exe) instead of the python editor
+rem    --viewer      run the 3D viewer (simul_main.exe) instead of the editor
 rem    --test        run the tests (ctest) instead of the program
 rem    --no-qt       do not build the 3D window (console mode only, no Qt needed)
 rem    --no-install  never install anything; only report what is missing
@@ -49,7 +49,7 @@ goto collect
 
 :usage
 echo Usage: run.bat [options] [-- arguments for simul_main]
-echo   --viewer      run the old C++ viewer ^(simul_main.exe^) instead of the python editor
+echo   --viewer      run the 3D viewer ^(simul_main.exe^) instead of the editor
 echo   --test        run the tests (ctest) instead of the program
 echo   --no-qt       do not build the 3D window ^(console mode only, no Qt needed^)
 echo   --no-install  never install anything; only report what is missing
@@ -160,8 +160,13 @@ rem ---- 5. Run ----------------------------------------------------------------
 if "%DO_TEST%"=="1" goto runtests
 
 if "%DO_VIEWER%"=="1" goto runviewer
-call :run_editor
-exit /b !errorlevel!
+set "APP=build\bin\%BUILD_TYPE%\simul_editor.exe"
+if exist "%APP%" (
+    echo [run.bat] Running %APP%%APP_ARGS%
+    "%APP%"%APP_ARGS%
+    exit /b !errorlevel!
+)
+echo [run.bat] simul_editor was not built ^(it needs Qt^).
 
 :runviewer
 set "APP=build\bin\%BUILD_TYPE%\simul_main.exe"
@@ -178,26 +183,6 @@ ctest -C %BUILD_TYPE% --output-on-failure
 set "RC=!errorlevel!"
 popd
 exit /b !RC!
-
-rem ---- helper: python editor (.venv + PyQt5; the DLLs just built are found through SIMUL_LIB) ----
-:run_editor
-if not exist "build\bin\%BUILD_TYPE%\simul_core.dll" (echo [run.bat] simul_core.dll was not built & exit /b 1)
-set "SIMUL_LIB=%CD%\build\bin\%BUILD_TYPE%"
-if not exist ".venv\Scripts\python.exe" (
-    where py >nul 2>nul
-    if errorlevel 1 (echo [run.bat] Python 3 was not found. Install it ^(winget install Python.Python.3.12^), open a new terminal, and run again. & exit /b 1)
-    py -3 -m venv .venv
-    if errorlevel 1 (echo [run.bat] could not create .venv & exit /b 1)
-)
-.venv\Scripts\python -c "import PyQt5" 2>nul
-if errorlevel 1 (
-    echo [run.bat] Installing PyQt5 into .venv
-    .venv\Scripts\python -m pip install "PyQt5>=5.12,<5.16"
-    if errorlevel 1 (echo [run.bat] pip install PyQt5 failed & exit /b 1)
-)
-echo [run.bat] Editor: SIMUL_LIB=%SIMUL_LIB%
-.venv\Scripts\python editor\simul_editor.py%APP_ARGS%
-exit /b !errorlevel!
 
 rem ---- helper: make sure a command exists, installing it with winget if allowed ----
 :need_tool

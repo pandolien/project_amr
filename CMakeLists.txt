@@ -82,8 +82,9 @@ if(SIMUL_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# 다른 Qt 프로그램이 3D 뷰(SimulView)를 붙이는 최소 예
+# 다른 Qt 프로그램이 3D 뷰(SimulView)를 붙이는 최소 예, 그리고 에디터
 if(SIMUL_BUILD_QT)
+    add_subdirectory(editor)
     add_executable(embed_host examples/embed_host.cpp)
     target_link_libraries(embed_host PRIVATE CoreQt)
     simul_set_warnings(embed_host)

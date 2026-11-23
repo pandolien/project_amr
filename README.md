@@ -397,41 +397,38 @@ sim.run(update, dt=0.02, duration=5.0, realtime=True)     # 창이 열려 있으
 - 창은 simul_core 의 상태를 그리는 보기 전용이다. 시뮬레이션은 창 없이도 돌고, 창은 `update_window()` 를 부르는 스레드에서만 다룬다.
 - C 에서 직접 쓰려면 `api/include/simul_api.h` 를 본다 (예: `tests/test_capi.cpp`). 예제: `python/examples/arm_swing.py`, 시험: `tests/test_python_api.py`.
 
-### 프로젝트 만들기 (main.py + URDF + 오브젝트별 python)
+## 에디터 (editor/, C++ + Qt: simul_editor)
 
-프로젝트는 폴더 하나다: **main.py**(DLL 을 불러 시뮬레이션을 돌리는 시작 파일), 작업에 쓰는 **URDF 오브젝트 파일**, 오브젝트마다 하나씩인 **python 코드**.
+프로젝트(main.py + URDF + 오브젝트별 python)를 만들고, 고치고, 돌려 보는 프로그램. 에디터 자체는 C++ 이고, python 은 오브젝트를 움직일 때만 쓴다 (python 이 `simul_core` DLL 을 불러서 움직인다).
+
+```
+run.bat [-- 프로젝트 폴더]      # Windows: 빌드 후 에디터 실행
+./run.sh [-- 프로젝트 폴더]     # Linux
+build/bin/simul_editor 폴더 | --new 폴더 모델.urdf ...      # 직접 실행 / 명령줄로 새 프로젝트
+run.bat --viewer               # 에디터 대신 3D 뷰어(simul_main)
+```
+
+화면 (메뉴 / 왼쪽 솔루션 / 가운데 3D View + Python CMD / 오른쪽 Python Editor):
+- **솔루션**: 프로젝트 폴더의 파일 트리. 더블클릭하면 Python Editor 에 열린다.
+- **3D View**: `models/` 의 URDF 를 보여 준다 (Main 의 3D 뷰 부품 `SimulView`). 클릭한 물체의 정보와 관절 슬라이더, 마우스 이동/회전이 그대로 된다. F6: 모델 다시 읽기.
+- **Python CMD**: 프로젝트 폴더에서 `python -i startup.py` 를 돌린다. `sim` 과 오브젝트 이름(`arm` 등)을 바로 쓴다. 예) `arm.set_joint("base_yaw", 1.0)`, `sim.step(0.5)`, `sim.show()`(python 의 3D 창). ↑↓ 로 이전 명령. 탭 "실행 결과" 는 main.py 실행 로그.
+- **Python Editor**: 문법 색과 자동 들여쓰기가 있는 편집기 (Ctrl+S 저장). main.py 와 `objects/<오브젝트>.py` 를 고친다.
+- 실행: **F5** main.py (python 이 자기 3D 창을 띄움), **Ctrl+F5** 창 없이, **Shift+F5** 정지.
+
+프로젝트 폴더 구조 (파일 > 새 프로젝트 가 만든다. URDF 와 그것이 쓰는 mesh 만 `models/<이름>/` 으로 복사):
 
 ```
 my_project/
-  main.py                 <- python main.py 로 실행 (--no-window 면 창 없이)
-  simul/                  <- DLL 과 연결하는 python 파일 (python/simul 복사본) + simul_core / simul_gui DLL
-  models/arm/arm.urdf     <- URDF 와 mesh (원본 폴더째 복사)
+  main.py                 <- python main.py [--no-window]
+  startup.py              <- Python CMD 시작 파일
+  simul/                  <- DLL 을 부르는 python 파일(python/simul 복사본) + simul_core / simul_gui DLL
+  models/arm/arm.urdf
   objects/arm.py          <- 오브젝트 arm 의 코드: def update(info): return {"joints": {...}}
 ```
 
-- 만들기: `python3 tools/new_project.py my_project Data/Object/samples/arm.urdf --lib build/lib` (모델마다 `objects/<이름>.py` 틀과 main.py 가 생긴다. 틀에 그 오브젝트의 관절 이름이 적혀 있다).
-- `objects/<오브젝트 이름>.py` 의 `update(info)` 는 매 스텝 불리고, 그 오브젝트의 움직임(`{"joints": {...}, "position": ..., "speed": ...}`)만 돌려준다. `on_start(sim)` 은 선택. 어떤 파일에서 예외가 나면 그 오브젝트의 코드만 멈추고 나머지는 계속 돈다.
-- main.py 는 `simul.Behaviors(폴더, sim)` 로 오브젝트 파일들을 읽어 `sim.run(behaviors, ...)` 에 넘긴다. 직접 고쳐 쓰면 된다 (모델 위치, 시간 간격, 창 여부).
-- **3D 창의 Qt 를 python venv 로 맞추기**: 프로젝트에 `requirements.txt`(`PyQt5>=5.12,<5.16`), `setup_env.sh/.bat`(`.venv` 만들고 설치), `run.sh/.bat`(`.venv` 로 main.py 실행)이 같이 생긴다. `simul` 은 `show()` 때 venv 에 PyQt5 가 있으면 그것을 먼저 불러 QApplication 을 만들고, `simul_gui` 는 이미 올라온 그 Qt 5.12 라이브러리를 그대로 쓴다 (Qt 가 한 벌만 돈다, 시스템에 Qt 를 따로 안 깔아도 된다). 주의: PyQt5 의 Qt 는 `simul_gui` 를 빌드한 Qt 와 같거나 더 새 것이어야 한다 (5.12 로 빌드했으면 PyQt5 5.12~5.15 모두 되고, 더 새 Qt 로 빌드했으면 `version Qt_5.15 not found` 로 못 올라온다). 새 python 은 PyQt5 5.12 휠이 없어 5.14/5.15 가 깔리는데 그래도 된다. PyQt5 가 없으면 시스템 Qt 를 쓰고, `SIMUL_NO_PYQT=1` 이면 PyQt5 를 건드리지 않는다.
-- `simul_core`(와 있으면 `simul_gui`) DLL 도 `simul/` 안에 복사된다. 그래서 폴더째 다른 PC(같은 OS)로 옮겨도 그대로 돈다. 다만 3D 창은 Qt 5 DLL 이 그 PC 에 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이(`--no-window`)는 Qt 없이 돈다. 다른 DLL 을 쓰려면 환경 변수 `SIMUL_LIB`.
-
-## 에디터 (editor/simul_editor.py, python + PyQt5)
-
-우리 라이브러리(simul)를 연동해 쓰는 python 기반 에디터. 프로젝트 폴더를 열어 python 을 고치고, 불러온 URDF 를 움직여 본다.
-
-```
-run.bat [-- 프로젝트 폴더]      # Windows: 빌드 후 에디터 실행 (처음 한 번 .venv + PyQt5 설치)
-./run.sh [-- 프로젝트 폴더]     # Linux
-run.bat --viewer               # 예전 C++ 뷰어(simul_main)를 실행하려면
-```
-
-주의: `simul_main`(Project Simul 창, 메뉴 파일/보기/물리/센서)은 C++ 뷰어이고 에디터가 아니다. 에디터는 `run.bat`/`run.sh` 가 python 으로 실행한다 (기본 동작). 직접 실행: `.venv\Scripts\python editor\simul_editor.py` (DLL 위치는 환경 변수 `SIMUL_LIB`).
-
-- 화면 배치: **왼쪽 솔루션 탭**(프로젝트 파일 트리 + 오브젝트/관절), **가운데 위 3D View**, **가운데 아래 Python Command**(탭: 실행 결과), **오른쪽 Editor**(python 편집기: 문법 색, 자동 들여쓰기, Ctrl+S).
-- **Python Command**: 대화형 python. `sim`, 오브젝트 이름(`arm` 등), `step(n, dt)`, `simul` 을 바로 쓴다. 예) `arm.set_joint("base_yaw", 1.0)`, `step(100)`, `arm.joints["base_yaw"].value`. ↑↓ 로 이전 명령.
-- 왼쪽 관절 **슬라이더·값 입력**으로 `models/` 의 URDF 를 움직여 본다 (한계 안에서만). 에디터 왼쪽 위의 **3D 화면**에 바로 반영된다 (F3: 카메라를 모델 전체에 맞춤; 별도 창은 python 에서 `sim.show()`). 더블클릭하면 오브젝트/관절 이름이 코드에 들어가고, **Ctrl+Shift+J** 는 지금 관절 값을 `{"joints": {...}}` 로 넣는다.
-- **F5**: 저장하고 프로젝트의 `.venv`(없으면 지금 python)로 `main.py` 를 돌려 결과를 아래에 보여 준다.
-- 새 프로젝트는 URDF 와 그것이 쓰는 mesh 만 `models/<이름>/` 으로 복사한다.
+- 폴더째 다른 PC(같은 OS, python 3 설치)로 옮겨도 그대로 돈다: DLL 이 `simul/` 안에 있다. python 의 3D 창(`sim.show()`)에는 그 PC 에 Qt 5 DLL 이 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이는 Qt 가 필요 없다.
+- `objects/<이름>.py` 의 `update(info)` 는 매 스텝 불리고 그 오브젝트의 움직임만 돌려준다: `{"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}`. 오브젝트 이름은 URDF 파일 이름(확장자 제외)이다. 한 파일에서 예외가 나면 그 오브젝트의 코드만 멈춘다.
+- python 은 환경 변수 `SIMUL_PYTHON`(없으면 `python3`, `python`, `py -3` 순서)으로 찾는다.
 
 ## 프로젝트 파일 (project.simul)
 
