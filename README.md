@@ -353,99 +353,69 @@ simul_main --make-marker charuco,4x4,5,7,0.04,0.03 --marker-dir Data/Object/mark
 - 기본 제공: `Data/Object/markers/` (ArUco 4x4~7x7 id 0, 4x4 id 20, ChArUco 4x4 / 5x5 5x7 보드), 장면 예제 `Data/Object/samples/marker_scene.urdf` (`--camera-save` 로 찍으면 OpenCV `ArucoDetector` / `CharucoDetector` 가 18개 마커와 보드 코너 24개를 모두 찾는다).
 - 마커 칸이 몇 픽셀은 되어야 읽히므로 카메라 해상도와 거리를 맞춘다 (예제는 1280x960, 가로 시야각 40도, 약 1.5 m).
 
-## 시뮬레이션 루프와 내장 Python (CSimul, CorePy)
+## 시뮬레이션 루프 (CSimul)
 
-```
-Simul(C++ 엔진, 틱 루프) -> Python 인터프리터(내장) -> Main.py -> 등록된 외부 python 파일의 클래스
-```
-
-- **엔진 (`Core/include/CSimul/Engine.h`, Qt/Python 무관)**: 오브젝트 등록부(이름 -> 핸들, 지워졌다 다시 생겨도 옛 핸들은 거부), 명령 큐, 시간(틱), `move_to`/`move_joint`(속도로 이동), 이벤트(`added removed arrived joint_reached command_failed`). 한 틱 순서: 등록부 맞춤 -> 큐의 명령 적용 -> 이동 진행 -> 시간 증가 -> 이벤트/`on_tick` 전달. 스크립트가 낸 명령은 다음 틱에 적용되므로 스크립트가 느려도 결과는 같다(lockstep). 오브젝트 = 3D 화면에 올린 모델 하나 (`ViewerBackend`), 관절/자세/이름을 읽고 쓴다.
-- **내장 Python (`Core/Python`, 선택 빌드)**: Ubuntu 는 `sudo apt install python3-dev` 가 있으면 자동으로 켜진다 (`-DSIMUL_BUILD_PYTHON=OFF` 로 끌 수 있다). 인터프리터는 `simul` 모듈 (`objects()`, `find(이름)`, `on_tick` 등)로 엔진과 통신한다.
-- **Main.py (`Data/Python/Main.py`)**: 시작할 때 먼저 올라가서 모든 오브젝트 데이터를 쥐고(틱마다 스냅샷), 외부 파일의 클래스를 등록받아 시뮬레이션이 시작되면 실행한다. 클래스마다 **움직일 수 있는 오브젝트**(권한)를 정한다. 읽기는 모두 되고, 권한 밖의 오브젝트에 명령하면 `PermissionError` (약속이지 보안 장치는 아니다). 클래스에서 예외가 나면 그 클래스만 멈춘다. 틱 안의 콜백이 0.1 초 넘게 걸리면 경고한다 (같은 스레드라 화면이 멈춘다).
-- **외부 파일 쓰는 법** (`Data/Python/examples/demo_arm.py`):
-
-```python
-from Main import Behavior, register
-
-class SwingArm(Behavior):
-    objects = ["arm"]                         # 움직일 수 있는 오브젝트
-    def on_start(self):
-        self.objects["arm"].move_joint("base_yaw", 1.0)      # 속도를 안 주면 관절 최대 속도
-    def on_tick(self, t, dt): ...             # 매 틱 (period 로 간격을 늘릴 수 있다)
-    def on_event(self, ev):                   # ev.type, ev.name, ev.joint
-        if ev.type == "joint_reached": print("도착", ev.joint)
-    def on_stop(self): ...
-
-register(SwingArm)
-```
-
-  오브젝트 명령: `set_pose(x,y,z,qx,qy,qz,qw)`, `set_position(x,y,z)`, `set_joint(이름, 값)`, `move_to(x,y,z,속도)`, `move_joint(이름, 목표[, 속도])`, `stop()`, `command("이름", ...)`. 읽기: `name kind position quaternion joints moving info()`. 단위 m, rad, s.
-- **실행**: `simul_main arm.urdf --python-script Data/Python/examples/demo_arm.py:arm --python-run` (`파일:오브젝트,오브젝트` 로 그 파일 클래스의 권한을 정한다). 메뉴 **Python**: 시작(F5) / 정지 / 한 틱(F10) / 스크립트 등록 / 현황 보기. `--python`(인터프리터만), `--python-hz`(틱 수), `--python-steps N`(N 틱 바로 돌리고 멈춤, 확인용), `--python-main`(다른 Main.py). print 와 오류는 로그 창에 나온다.
-- **Python 편집기 (오른쪽 도크, 메뉴 Python > Python 편집기, Ctrl+E, `--python-editor`)**: 줄 번호, 문법 색, Tab 들여쓰기, 자동 들여쓰기가 있는 편집기. 새 파일은 Behavior 틀로 시작하고, 위쪽 버튼으로 열기/저장, 아래 `저장 후 등록` 은 저장하고 Main.py 에 등록한다 (같은 파일을 다시 누르면 이전 클래스를 `on_stop` 으로 내리고 새로 읽는다. 시뮬레이션이 돌고 있어도 바로 바뀐다). 맨 아래 입력줄은 한 줄 실행 (`simul.find("arm").joints`). 새 파일 기본 저장 위치는 `Data/Python/user/`. 결과와 오류는 로그 창.
-- 지금은 인터프리터와 클래스 등록까지다. 스크립트를 파일 이름으로 오브젝트에 자동으로 붙이는 것, 제어기 DLL(모터 토크 입력 경로)은 다음 단계.
-
-### 정보를 받고 움직임을 돌려주는 방식 (update 함수)
-
-Main 이 매 틱 정보 묶음(`info`)을 python 프로그램(함수) 하나에 넘기고, 함수가 오브젝트 움직임 정보를 돌려주면 Main 이 그것을 장면에 적용한다. 클래스 등록과 오브젝트별 권한이 필요 없다.
-
-```
-Main  --(오브젝트 정보, 시간, 충돌)-->  update(info)
-Main  <--(오브젝트 움직임 정보)--------  update(info)
-```
-
-```python
-from Main import register
-
-def update(info):
-    arm = info.objects["arm"]                 # .name .kind .position .quaternion .joints["joint_1"].value / .lower / .upper
-    hit = info.collided("arm")                # 지금 arm 이 들어 있는 충돌 쌍 [Contact]: .a .b .link_a .link_b .same
-    if hit:
-        return {"arm": {"joints": {"joint_1": (arm.joints["joint_1"].value, 1.0)}}}   # 지금 값에 머문다
-    return {"arm": {"joints": {"joint_1": 1.57}}}                                     # 목표 rad (또는 (목표, 속도 rad/s))
-
-register(update)                              # register(update, period=0.05) 처럼 부르는 간격도 줄 수 있다
-```
-
-- `info`: `time`, `dt`, `objects` (이름 -> 상태), `collisions` (지금 겹친 쌍 전부), `collided(이름)`. 한 틱 안에서는 모두 같은 값(스냅샷)이다.
-- 돌려주는 값: `{오브젝트 이름: {"joints": {관절: 목표}, "position": (x, y, z), "speed": m/s}}`. 같은 목표는 다시 내지 않고, 바뀔 때만 명령으로 낸다. `None` 이나 `{}` 이면 아무것도 하지 않는다.
-- 충돌은 OBB 까지 겹친 링크 쌍이고, 같은 오브젝트 안의 링크끼리면 `same` 이 True 이다 (자기충돌). python 에서는 `simul.collisions()` 로도 읽을 수 있다.
-- 기존의 `Behavior` 클래스 방식도 그대로 쓸 수 있고, 한 파일에 둘을 섞어도 된다. 예제: `Data/Python/examples/demo_update.py`.
+- **엔진 (`Core/include/CSimul/Engine.h`, Qt 무관)**: 오브젝트 등록부(이름 -> 핸들, 지워졌다 다시 생겨도 옛 핸들은 거부), 명령 큐, 시간(틱), `move_to`/`move_joint`(속도로 이동), 이벤트(`added removed arrived joint_reached command_failed`). 한 틱 순서: 등록부 맞춤 -> 큐의 명령 적용 -> 이동 진행 -> 시간 증가 -> 이벤트 전달. 낸 명령은 다음 틱에 적용되므로 호출하는 쪽이 느려도 결과는 같다(lockstep).
+- 엔진은 `Backend` 인터페이스(오브젝트 읽기/쓰기, 충돌 읽기)로 장면을 다룬다. 3D 창 뒤의 `ViewerBackend`(Qt)와 창 없는 `HeadlessScene`(`CSimul/Headless.h`)이 있고, 후자를 공유 라이브러리로 내보낸 것이 아래의 `simul_core` 이다.
+- **python 은 앱 안에 내장하지 않는다.** python 이 `simul_core` 를 불러 시뮬레이션을 직접 돌린다 (다음 절).
 
 ### 오브젝트 / 관절 값 패널
 
-메뉴 Python > "오브젝트 / 관절 값" (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. 시뮬레이션이 도는 동안 값이 0.1 초마다 갱신된다. 이름이나 관절 행을 더블클릭하면 Python 편집기 커서 위치에 `"elbow_pitch"` 처럼 따옴표 붙은 이름이 들어간다.
+3D 창의 "오브젝트 / 관절 값" 도크 (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. python 코드에 쓸 이름과 관절 값을 확인하는 용도다.
 
-## 프로젝트와 하나의 실행 파일 (project.simul, --pack)
+## python 에서 불러 쓰기 (simul_core / simul_gui, python/simul)
 
-장면(모델), python 파일과 권한, 실행 설정을 프로젝트 폴더 하나로 묶고, 그것을 **실행 파일 하나**로 만들 수 있다. 받은 사람은 그 실행 파일만 실행하면 3D 화면이 뜨고 python 코드가 뒤에서 돌면서 시뮬레이션이 그대로 움직인다.
+시뮬레이션 코어가 공유 라이브러리(C 인터페이스)로 나와 있고, python 은 그것을 `ctypes` 로 불러 시뮬레이션을 직접 돌린다 (python 이 주인이다).
+
+| 라이브러리 | 내용 | 의존 |
+|---|---|---|
+| `simul_core` (`libsimul_core.so` / `simul_core.dll`) | 모델 올리기, 오브젝트·관절 상태, 충돌, 명령, 시간 진행, 이벤트. `api/include/simul_api.h` | Qt 없음 |
+| `simul_gui` (`libsimul_gui.so` / `simul_gui.dll`) | 3D 창 (보기 전용). `api/include/simul_gui.h` | Qt 5 (선택) |
+
+빌드하면 `build/lib` (Windows 는 `build/bin`)에 생긴다. python 쪽은 `python/simul` 패키지다 (설치 필요 없음: `PYTHONPATH=python` 또는 `sys.path` 에 넣는다). 라이브러리는 환경 변수 `SIMUL_LIB` (파일 또는 폴더)로 알려 준다.
+
+```python
+import math, simul
+
+sim = simul.Simulation()
+arm = sim.add_model("Data/Object/samples/arm.urdf", position=(0, 0, 0), rpy=(0, 0, 0))
+sim.show()                                   # 선택: 3D 창 (Qt 가 있어야 함)
+
+arm.move_joint("shoulder_pitch", 0.5, speed=1.0)   # 명령은 다음 step 시작에 적용된다
+for _ in range(100):
+    sim.step(0.01)
+print(arm.joints["shoulder_pitch"].value, sim.time, sim.collisions(), sim.events())
+
+def update(info):                            # 정보 묶음(시간, 오브젝트, 충돌)을 받고 움직임을 돌려준다
+    return {"arm": {"joints": {"base_yaw": 0.8 * math.sin(info.time)}}}
+sim.run(update, dt=0.02, duration=5.0, realtime=True)     # 창이 열려 있으면 매 step 갱신, 창을 닫으면 끝
+```
+
+- 단위: 길이 m, 각도 rad, 시간 s, 자세 쿼터니언 (x, y, z, w). 명령(`set_pose`, `set_joint`, `move_to`, `move_joint`, `stop`)은 큐에 들어가 다음 `step` 시작에 적용된다. 한계를 넘는 값이나 없는 관절은 `SimulError`.
+- `info`: `time`, `dt`, `objects[이름]` (`position`, `quaternion`, `joints[이름].value/.lower/.upper`), `collisions` (`Contact`: `a`, `b`, `link_a`, `link_b`, `same`), `collided(이름)`. 돌려주는 움직임: `{오브젝트: {"joints": {관절: 목표 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}}`. 같은 목표는 다시 내지 않는다.
+- 충돌은 OBB 까지 겹친 링크 쌍이다 (`same` 이 True 면 같은 오브젝트 안의 자기충돌).
+- 창은 simul_core 의 상태를 그리는 보기 전용이다. 시뮬레이션은 창 없이도 돌고, 창은 `update_window()` 를 부르는 스레드에서만 다룬다.
+- C 에서 직접 쓰려면 `api/include/simul_api.h` 를 본다 (예: `tests/test_capi.cpp`). 예제: `python/examples/arm_swing.py`, 시험: `tests/test_python_api.py`.
+
+## 프로젝트 파일 (project.simul)
+
+장면(모델과 배치)을 폴더 하나로 묶어 `simul_main --project my_project/project.simul` 로 연다.
 
 ```
 my_project/
   project.simul          <- 설명 파일 (XML)
   models/arm.urdf ...    <- 장면에 올릴 모델 (mesh 파일 포함, 상대 경로)
-  scripts/swing.py ...   <- 등록할 python 파일
 ```
 
 ```xml
 <simul_project version="1" name="arm_demo">
   <model file="models/arm.urdf" x="0" y="0" z="0" roll="0" pitch="0" yaw="0"/>   <!-- 위치 m, 자세 rad (생략하면 0) -->
-  <script file="scripts/swing.py" objects="arm"/>     <!-- 이 파일의 클래스가 움직일 수 있는 오브젝트 (비우면 파일 안의 objects) -->
-  <python hz="60" autostart="true" editor="false" main=""/>   <!-- 틱 수, 열자마자 시작, 편집기 도크, 다른 Main.py -->
 </simul_project>
 ```
 
-- 열기: `simul_main --project my_project/project.simul` (모델 배치, python 등록, 자동 시작까지). 예제: `Data/Projects/arm_demo/`.
-- 하나의 실행 파일로: `simul_main --pack my_project/project.simul -o MySystem` (Windows 는 `MySystem.exe`). 프로젝트 폴더 전체(모델, 메시, python 파일)와 기본 Main.py 를 압축해서 이 프로그램의 실행 파일 뒤에 붙인다. 만들어진 실행 파일을 실행하면 시작할 때 자기 안의 프로젝트를 임시 폴더(`simul_pkg_<체크섬>`, 같은 패키지는 한 번만)에 풀어서 연다. 개발용 `Data` 폴더가 없는 PC 에서도 돈다.
-- 알아 둘 것: **Qt DLL 과 Python(Windows 는 python3xx.dll)은 실행 파일 안에 들어가지 않는다.** Qt 는 LGPL 규칙상 동적 링크여야 하므로 정적으로 합칠 수 없다. 그래서 묶은 실행 파일은 이 프로그램을 배포할 때 쓰는 DLL 폴더(windeployqt 결과 + Python DLL) 안에 두고 실행한다. 프로젝트 쪽(모델, python, 설정)이 하나의 파일이 되는 것이다.
-- 프로젝트 안의 파일은 프로젝트 폴더 밖을 가리킬 수 없다 (`..`, 절대 경로 거부). 모델이 다른 폴더의 mesh 를 쓰면 프로젝트 폴더 안으로 복사해서 쓴다.
-
-### 화면에서 프로젝트 저장 / 열기 / 내보내기
-
-메뉴 파일 아래에 세 항목이 있다 (python 이 켜진 빌드).
-- **프로젝트로 저장...**: 폴더를 고르면 그 안에 `project.simul`, `models/<모델이름>/<모델이름>.urdf` (+ `obj/` 메시), `scripts/*.py` 를 만든다. 지금 장면의 모델(위치와 자세 포함)과 등록한 python 파일(권한 포함), 틱 수가 담긴다. 편집기에서 고친 python 도 저장해서 담는다. 다른 모델에 연결해 둔 모델은 연결 관계 대신 월드 자세로 저장한다 (로그에 경고).
-- **프로젝트 열기...**: `project.simul` 을 고르면 지금 장면을 닫고 모델을 올리고 배치하고 python 을 등록한 뒤 설정대로 시작한다 (`--project` 와 같음).
-- **실행 파일로 내보내기...**: 프로젝트를 실행 파일 하나로 묶는다 (`--pack` 과 같음). 프로젝트로 저장하지 않았으면 먼저 저장한다. 이미 프로젝트가 있으면 장면을 다시 저장하고 내보낼지 묻는다.
-- 명령줄: `simul_main 모델.urdf --python-script 파일.py:오브젝트 --save-project 폴더` 로 저장만 하고 끝낼 수도 있다.
+- 예제: `Data/Projects/arm_demo/`. 파일 안의 경로는 프로젝트 폴더 밖을 가리킬 수 없다 (`..`, 절대 경로 거부).
+- 화면 메뉴 파일 > "프로젝트로 저장..." 은 지금 장면의 모델마다 폴더(URDF + 메시)와 배치를 저장하고, 명령줄은 `simul_main 모델.urdf --save-project 폴더` 로 저장만 하고 끝낸다. 다른 모델에 연결한 모델은 월드 자세로 저장한다 (로그에 경고).
+- 이전의 "python 등록, 프로젝트 저장, 하나의 실행 파일로 내보내기(`--pack`)"는 내장 python 과 함께 없앴다. python 쪽은 `python/simul` 로 시뮬레이션을 직접 구성하므로 프로젝트 파일에 담을 필요가 없다 (예: `python/examples/arm_swing.py`).
 
 ## 서드파티 라이선스
 
@@ -499,68 +469,6 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 
 `viewer()` 로 모델 추가/제거(`AddFile`, `RemoveModel`, `CloseAll`), 위치/자세(`SetModelPlacement6`, `SetModelPose`), 관절 값(`SetJointValues`), 선택, 카메라, 표시 옵션(격자, 충돌 박스, 조명 방식, 라이다)을 모두 다룰 수 있습니다. 호스트가 받는 시그널: `robotChanged`, `selectionChanged`/`selectionPicked`, `jointValuesChanged`, `modelDragFinished`, `collisionsChanged`, `lidarScanned`, `structureChanged` 와 `SimulView::jointEdited`. 최소 예제는 `examples/embed_host.cpp`(빌드하면 `embed_host`), 동작 확인은 `tests/test_simulview.cpp`(창 없이, `QT_QPA_PLATFORM=offscreen`)입니다. 지금의 `simul_main` 도 같은 `SimulView` 를 쓰는 호스트 하나입니다.
 
-## URDF 합치기 (장면 내보내기)
-
-여러 URDF(AMR, 팔, 환경 등)를 한 장면에 올려 배치한 뒤, **하나의 URDF 파일**로 저장한다. 큰 시스템을 한 파일로 정리하는 용도다.
-
-- 앱: 파일 > **장면을 URDF 로 저장...**, 명령행 `--export-urdf out.urdf` (예: `simul_main arm.urdf lidar_room.urdf --place lidar_room=3,0,0 --export-urdf scene.urdf`)
-- 구조: 가상 링크 `world` 아래에 모델마다 고정 관절 `<모델이름>_attach` 로 매달리고, 그 관절의 `origin` 이 모델의 위치/회전이다. 이름이 겹치면 뒤에 온 모델에 `<모델>/` 가 붙는다.
-- 담기는 것: 링크, 관절(회전/직동/고정, 축, limit, 감쇠/마찰, mimic), 질량/관성, visual/collision(도형, 메시, scale, 색), 라이다 센서. 현재 관절 값(자세)은 URDF 에 없으므로 담기지 않는다.
-- 간결하게: 기본값과 같은 요소는 생략하고, 같은 재질은 `<robot>` 아래에 한 번만 정의해 이름으로 부른다. 메시 경로는 저장하는 파일 기준 상대 경로로 쓴다.
-- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result, WriteOptions(), FolderOptions)` (`FolderOptions::glbToStl`), 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings, glbToStl)`. 쓰기는 `CMesh/MeshWriter.h` 의 `SaveObj` / `SaveStl` / `StlBytes`.
-- 검증: 쓴 파일을 다시 읽어 링크/관절/질량·관성/형상/색이 같은지 `test_curdf_write` 가 확인한다 (회전 rpy 변환은 짐벌 락 근처 포함).
-
-### 폴더로 저장 / 폴더 열기
-
-```
-내폴더/
-├─ 내폴더.urdf        <mesh filename="obj/..."> 처럼 폴더 안의 상대 경로만 쓴다
-└─ obj/               메시와 부속 파일
-```
-
-- 앱: 파일 > **장면을 폴더로 저장...** (위치 선택 후 폴더 이름 입력, 이미 있으면 덮어쓸지 묻는다), 파일 > **폴더 열기 (추가)...**. 명령행 `--export-dir 폴더` (예: `simul_main arm.urdf --export-dir out/myscene`), 폴더 경로를 그냥 열 파일로 줘도 된다 (`simul_main out/myscene`, 폴더 끌어다 놓기도 같다).
-- **GLB/glTF 는 기본으로 OBJ + MTL 로 바꿔 `obj/이름/이름.obj` 에 넣는다.** 색(Kd), 여러 재질, 반투명(d), 텍스처 이미지(GLB 안에 든 이미지는 파일로 꺼내 `map_Kd`), 정점 색(`v x y z r g b`)이 유지된다. 금속성/거칠기는 OBJ 에 없어 버려진다. URDF 의 scale 과 Y-up→Z-up 회전은 정점에 미리 적용하고 scale 은 1 로 쓰므로 화면에 보이던 모양 그대로다. 색은 mtl 이 가지며, 재질이 한 색뿐(텍스처/정점 색 없음)이면 mtl 을 무시하는 도구를 위해 URDF `<material>` 에도 같은 색을 쓴다. 여러 색/텍스처/정점 색이면 URDF 에 쓰지 않는다 (URDF 색이 재질보다 우선해 덮어쓰기 때문).
-- **GLB 그대로 복사**: 저장 대화상자에서 고르거나 `--export-mesh glb`. 변환 없이 `obj/이름.glb` 로 복사하므로 용량이 가장 작고(OBJ 는 GLB 의 약 3배, STL 은 약 2배로 커질 수 있다) 색/텍스처가 그대로이며, scale 도 URDF 에 남는다. 단 GLB 를 읽지 못하는 URDF 도구에서는 안 보인다. (`.gltf` 는 외부 파일이 있어 변환한다.)
-- **STL 선택**: 저장할 때 형식으로 STL 을 고르면(메뉴 대화상자, 또는 `--export-mesh stl`) 바이너리 STL `obj/이름.stl` 로 넣는다. 호환은 가장 좋지만 STL 자체에는 색이 없다. 그래서 재질 색이 하나면 URDF `<material>` 로 옮기고, **색이 여러 개면 색마다 STL 을 나눠(`이름_1.stl`, `이름_2.stl`…) 각각을 별도 `<visual>` 과 `<material><color>` 로 저장**한다 (모양은 그대로, 색 구분 유지). 텍스처와 정점 색은 STL 로 표현할 수 없어 버려지고 경고(로그 창)로 남는다.
-- STL 은 그대로 복사, OBJ/DAE 는 `obj/이름/` 폴더에 부속 파일(mtl, 텍스처)과 함께 복사한다. `<material><texture>` 이미지는 `obj/` 로 복사한다. 박스/원통/구는 파일이 필요 없다.
-- 같은 원본은 한 번만 만들고, 이름이 겹치면 `_2`, `_3` 을 붙인다. 폴더째 옮기거나 압축해서 보내도 열린다.
-- 라이브러리: `CURDF/UrdfWriter.h` 의 `SaveUrdfFolder(robot, dir, loadOptions, &err, &result, WriteOptions(), FolderOptions)` (`FolderOptions::glbToStl`), 뷰어는 `ModelViewer::SaveUrdfFolder(dir, &err, &warnings, glbToStl)`. 쓰기는 `CMesh/MeshWriter.h` 의 `SaveObj` / `SaveStl` / `StlBytes`.
-- 검증: `test_curdf_write` 의 폴더 테스트가 OBJ/MTL 색 유지, 상대 경로, 다시 읽었을 때 모양(경계 상자)·삼각형 수·색 일치와 STL 모드(크기 84 + 50×삼각형, 색 이전)를, `test_cmesh_formats` 가 SaveObj→LoadObj 왕복(재질, 알파, 텍스처 파일, uv, 정점 색, 법선)을 확인한다.
-
-## 관절로 연결하기 (모델 조립)
-
-여러 모델(GLB/STL/OBJ/DAE 메시, 기본 도형, URDF 로봇)을 올린 뒤, 한 모델을 다른 모델의 링크에 **관절로 붙여** 하나의 로봇으로 조립한다. 부품 메시를 엮어 URDF 를 만드는 흐름이다.
-
-- 앱: 구조 트리(또는 3D 화면)에서 모델의 **루트 링크**를 오른쪽 클릭 → **관절로 연결...** 대화상자에서 부모 링크(다른 모델의 링크), 관절 종류(fixed / revolute / continuous / prismatic), 축, 관절 위치, 한계(회전은 도, 이동은 m), 이름을 정한다. 연결한 모델은 오른쪽 클릭 → **연결 끊기** 로 world 에 되돌린다 (제자리 유지).
-- 관절 위치 기본값은 **지금 자리 그대로**: 연결해도 모델이 움직이지 않도록 관절 origin 을 자동 계산한다 (관절 값 0). 직접 입력하면 "부모 링크 -> 모델 루트 링크" origin 으로 쓴다.
-- 명령행: `--connect 자식=부모링크[:종류[:x,y,z[:최소,최대]]]` (예: `simul_main arm.urdf --add-box crate=0.2,0.2,0.2@1,0.5,0.3 --connect crate=tool:revolute:0,0,1:-90,90`). 여러 번 쓸 수 있고, 도형 추가 뒤에 적용된다.
-- 연결된 모델은 부모 링크를 따라 움직이고, 선택하면 관절 슬라이더에 연결 관절이 나와 움직일 수 있다 (revolute/prismatic/continuous). 3D 화면에서 직접 끌어 옮기지 못한다 (이동은 부모, 위치 지정은 부모 링크 기준 관절 origin).
-- 낙하/바닥: 연결된 모델은 혼자 떨어지지 않고, 맨 위 모델과 그 자손을 한 덩어리로 바닥까지 거리를 계산한다. 부모를 제거하면 자식은 제자리에서 world 로 풀린다.
-- 거부: 자기 모델의 링크, world 링크, 순환(부모가 이 모델에 매달려 있음), 축 0, 한계 없는 revolute/prismatic, 지원하지 않는 종류.
-- URDF: `<joint>` 가 부모 링크에 매달린 형태로 저장되고(저장/폴더 저장/URDF 내용 탭 모두), 다시 열면 같은 구조다.
-- 라이브러리: `World::SetAttach/ClearAttach` (`AttachSpec`, 두 단계 Build), `ModelViewer::ConnectModel/DisconnectModel/ModelConnected/ModelParent/ModelWorldPose`, 대화상자는 `CoreQt/JointDialog.h`.
-- 검증: `test_cworld`(연결, 기구학, 거부, 부모 제거, 부모가 뒤에 있는 순서), `test_simulview`(제자리 유지, 부모 따라감, 낙하 제외, 대화상자), `test_curdf_write`(저장/재로드).
-
-## 화면 구성, 폴더 탐색기, URDF 내용 보기
-
-```
-┌ 메뉴 ─────────────────────────────────────────┐
-├ 3D 화면 (구조 트리 오버레이) ┬ 폴더 | URDF 내용 | 속성 ┤
-├ 로그 ─────────────────────────────────────────┘
-```
-
-오른쪽 자리에 탭 세 개가 겹쳐 있다. 보기 메뉴에서 폴더(E), URDF 내용 보기(U), 속성(P), 로그(L)로 켜고 끈다. 모두 **엔진 밖의 독립 위젯**이고 엔진의 공개 함수와 신호만 쓴다.
-
-- **폴더** (`CoreQt/FolderView.h`): 디스크 탐색기. 폴더로 저장한 구성(`이름/ 이름.urdf, obj/ ...`)을 포함해 디스크의 폴더를 탐색한다. URDF 와 메시/재질/텍스처 파일만 보이고(폴더는 모두), 열 수 있는 파일(`.urdf .glb .gltf .stl .obj .dae`)을 더블클릭하면 장면에 추가한다. 폴더를 오른쪽 클릭하면 `이름.urdf` 가 있는 폴더는 "폴더 열기", 그리고 "이 폴더를 맨 위로". 위쪽 경로 칸에 경로를 쓰고 Enter, "위로", "폴더..." 로 이동한다. 장면을 폴더로 저장하거나 폴더를 열면 그 폴더가 탐색기에 선택되어 보인다. 시작 위치는 실행한 폴더다. 위젯은 파일을 직접 열지 않고 `openRequested(path)` 신호만 낸다.
-- **URDF 내용** (`CoreQt/UrdfView.h`): 지금 장면을 URDF 로 저장하면 나올 내용을 읽기 전용으로 실시간 보여 준다 (XML 색칠). 모델 추가/제거, 이동, 크기, 도형 추가가 있으면 0.15초 모아 한 번 갱신하고 보던 위치는 유지한다. 3D 에서 링크를 고르면 그 `<link>` 블록이 강조되고 그 줄로 이동한다. 텍스트에서 `<link>` 블록을 클릭하면 그 링크가, `<joint>` 블록을 클릭하면 그 관절의 자식 링크가 3D 에서 선택된다. 엔진 쪽은 `ModelViewer::UrdfText()`.
-- 도크는 떼어 내거나 숨길 수 있고, 3D 화면만 보기(F11)에서는 함께 숨는다.
-
-## 엔진 밖에서 제어하는 위젯 (PropertiesPanel)
-
-3D 화면(엔진)은 그리기와 조작만 맡고, 속성 같은 입력 UI 는 엔진 밖에 호스트가 둔다. `PropertiesPanel(ModelViewer*)` 는 그 예다.
-엔진의 공개 함수와 신호만 쓰고 3D 화면 안에는 들어가지 않는다: 선택(`SelectedLink`, `selectionChanged` 등)을 따라가 모델의 이름과 위치/회전을 보여 주고,
-숫자를 고치면 `SetModelPlacement6` 로 엔진을 제어한다. 도크, 사이드 패널, 별도 창 어디에든 놓을 수 있다 (`simul_main` 은 오른쪽 도크, P 키).
-
 ## 단위와 카메라 (m, radian, 쿼터니언)
 
 엔진 안쪽은 길이 m, 각도 radian, 방향 쿼터니언(x, y, z, w)이고, degree 는 사람이 보는 화면과 입력에서만 쓴다 (`3d/Units.h`, `3d/dhPose.h`).
@@ -578,14 +486,6 @@ connect(view, &SimulView::featuresChanged, ...);   // 창의 ✕ 로 닫혀도 �
 - 명령행: `--scale 모델=배율` (모델 이름은 파일 이름, 예: `--scale arm=0.5`)
 - 함수: `ModelViewer::SetModelScale(index, s, massScales = true)`, `ModelScale(index)`. 질량을 그대로 두려면 `massScales=false`. 엔진 밖 코드는 `urdf::ScaleRobot(robot, s, massScales, &out)` 를 쓴다.
 - 파일 단위(mm, inch)만 맞추는 `SetModelUnitScale` 은 메시만 곱한다 (URDF 의 숫자는 그대로 m 인 경우).
-
-## 기본 도형 추가 (박스, 원통, 구)
-
-파일 없이 기본 도형을 장면에 모델로 올린다. 색과 질량(관성은 공식으로 계산)을 주고, 올라간 도형은 다른 모델처럼 옮기고 돌리고 중력으로 떨어지고 충돌하며, URDF 로 내보내면 함께 저장된다.
-
-- 앱(마우스): 메뉴 **추가 > 박스... / 원통... / 구...** 를 누르면 이름, 크기, 위치, 질량, 색을 입력하는 창(`ShapeDialog`)이 뜨고 **추가**를 누르면 올라간다. 3D 화면의 빈 곳을 **오른쪽 클릭**(끌지 않고)하면 "여기에 박스 추가..." 메뉴가 떠서 누른 바닥 자리에 올릴 수 있다. 오른쪽 클릭을 호스트가 직접 처리하려면 `SimulView::viewContextMenuRequested(globalPos, x, y)` 를 받으면 된다(받는 쪽이 있으면 기본 메뉴는 뜨지 않는다). 창만 따로 쓰려면 `ShapeDialog::Apply(viewer)`. 묻지 않고 기본 크기로 바로 올리는 건 **추가 > 빠른 추가**.
-- 앱(명령행): `--add-box 이름=가로,세로,높이[@x,y,z]`, `--add-cylinder 이름=반지름,길이[@x,y,z]`, `--add-sphere 이름=반지름[@x,y,z]` (여러 번 가능, 파일 없이도 된다)
-- 라이브러리: `ModelViewer::AddBox / AddCylinder / AddSphere(이름, 크기, pose6, 색, 질량)` (모델 번호를 돌려주고 실패하면 -1), `SimulView::NewAddMenu(parent)` 로 같은 메뉴를 호스트 메뉴줄에 끼울 수 있다. 화면 없이는 `urdf::MakePrimitiveRobot` + `World::AddRobot`.
 
 ## 화면 구성 (도크, 메뉴 숨기기, 3D 화면만)
 
