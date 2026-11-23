@@ -427,12 +427,12 @@ my_project/
     arm.urdf
   Code/
     object.py             <- 견본 (복사해서 <오브젝트 이름>.py 로)
-    arm.py                <- 오브젝트 arm 의 python 코드: def update(info): return {"joints": {...}}
+    arm.py                <- 오브젝트 arm 의 제어 class: class Arm(Simul.Controller) (start / update(info) / stop)
   main.py                 <- python main.py [--no-window]
 ```
 
 - 폴더째 다른 PC(같은 OS, python 3 설치)로 옮겨도 그대로 돈다: DLL 이 `Simul/` 안에 있다. python 의 3D 창(`sim.show()`)에는 그 PC 에 Qt 5 DLL 이 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이는 Qt 가 필요 없다.
-- `Code/<이름>.py` 의 `update(info)` 는 매 스텝 불리고 그 오브젝트의 움직임만 돌려준다: `{"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}`. 오브젝트 이름은 URDF 파일 이름(확장자 제외)이다. 한 파일에서 예외가 나면 그 오브젝트의 코드만 멈춘다.
+- `Code/<이름>.py` 에는 `Simul.Controller` 를 이어받은 class 를 만든다. `main.py` 의 `Main` class 가 오브젝트마다 하나씩 만들어(`self.sim`, `self.obj`, `self.name`) `start()` 를 한 번, 매 스텝 `update(info)` 를, 끝날 때 `stop()` 을 부른다. `update` 는 그 오브젝트의 움직임만 돌려준다: `{"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}`. class 가 없으면 파일의 `update(info)` 함수를 쓴다. 오브젝트 이름은 URDF 파일 이름(확장자 제외)이다. 한 파일에서 예외가 나면 그 오브젝트의 코드만 멈춘다.
 - python 은 환경 변수 `SIMUL_PYTHON`(없으면 `python3`, `python`, `py -3` 순서)으로 찾는다.
 
 ## 프로젝트 파일 (project.simul)

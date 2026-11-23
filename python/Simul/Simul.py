@@ -9,7 +9,8 @@
         sim.step(0.01)                                  # 0.01 s 진행
     print(arm.joints["joint_1"].value, sim.time)
 
-update 방식으로 돌리려면 (정보를 받고 움직임을 돌려주는 함수):
+오브젝트마다 Code/<이름>.py 에 Simul.Controller 를 이어받은 class 를 만들고 Simul.Behaviors(폴더, sim) 로 묶어 sim.run(...) 에 넘기는 방식을 권한다.
+함수 하나로 돌리려면 (정보를 받고 움직임을 돌려주는 함수):
 
     def update(info):                                   # info.time, info.dt, info.objects, info.collisions
         return {"arm": {"joints": {"joint_1": 1.57}}}
@@ -209,12 +210,44 @@ def _load(path, name):
     return mod
 
 
+class Controller(object):
+    """오브젝트 하나를 제어하는 class 의 바탕. Code/<오브젝트 이름>.py 안에 이 class 를 이어받은 class 를 만든다.
+
+        class Arm(Simul.Controller):
+            def start(self):                    # 시작할 때 한 번
+                self.base = self.obj.joints["joint_1"]
+            def update(self, info):             # 매 스텝. 움직임 정보를 돌려준다 (없으면 None)
+                return {"joints": {"joint_1": 1.0}}
+            def stop(self):                     # 끝날 때 한 번
+                pass
+
+    self.sim: Simulation, self.obj: 이 오브젝트(Object), self.name: 오브젝트 이름.
+    update(info) 가 돌려주는 값은 {"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}  (이 오브젝트의 것만)
+    """
+
+    def __init__(self, sim, obj):
+        self.sim = sim
+        self.obj = obj
+        self.name = obj.name
+
+    def start(self):
+        pass
+
+    def update(self, info):
+        return None
+
+    def stop(self):
+        pass
+
+
 class Behaviors(object):
-    """폴더의 오브젝트별 파일을 읽어 둔다. 객체 자체를 sim.run(...) 의 update 로 쓸 수 있다."""
+    """폴더의 오브젝트별 파일(Code/<오브젝트 이름>.py)을 읽어 둔다. 파일 안의 Controller class 를 오브젝트마다 하나씩 만들어 쓴다
+    (class 가 없으면 파일 안의 update(info) 함수를 쓴다). 객체 자체를 sim.run(...) 의 update 로 쓸 수 있다."""
 
     def __init__(self, folder, sim=None):
         self.folder = folder
         self.modules = {}
+        self.controllers = {}        # 오브젝트 이름 -> Controller 객체
         self.failed = {}
         if not os.path.isdir(folder):
             raise OSError("오브젝트 python 폴더가 없습니다: " + folder)
@@ -233,11 +266,32 @@ class Behaviors(object):
                     print("[경고] %s.py 와 같은 이름의 오브젝트가 없습니다 (오브젝트: %s)" % (stem, ", ".join(sorted(sim.objects))))
             self.start(sim)
 
+    @staticmethod
+    def _controller_class(mod):
+        found = [v for v in vars(mod).values()
+                 if isinstance(v, type) and issubclass(v, Controller) and v is not Controller and v.__module__ == mod.__name__]
+        return found[0] if found else None
+
     def start(self, sim):
         for stem, mod in list(self.modules.items()):
-            f = getattr(mod, "on_start", None)
-            if f is not None:
-                self._call(stem, f, sim)
+            cls = self._controller_class(mod)
+            if cls is not None:
+                if stem not in sim.objects:
+                    continue
+                obj = self._call(stem, lambda: cls(sim, sim[stem]))
+                if obj is None:
+                    continue
+                self.controllers[stem] = obj
+                self._call(stem, obj.start)
+            else:
+                f = getattr(mod, "on_start", None)
+                if f is not None:
+                    self._call(stem, f, sim)
+
+    def stop(self):
+        for stem, c in list(self.controllers.items()):
+            self._call(stem, c.stop)
+        self.controllers.clear()
 
     def _call(self, stem, f, *args):
         try:
@@ -245,14 +299,17 @@ class Behaviors(object):
         except Exception:
             print("[%s.py] 오류로 이 오브젝트의 코드를 멈춥니다:\n%s" % (stem, traceback.format_exc()))
             self.modules.pop(stem, None)
+            self.controllers.pop(stem, None)
             self.failed[stem] = "error"
             return None
 
     def __call__(self, info):
         out = {}
         for stem, mod in list(self.modules.items()):
-            f = getattr(mod, "update", None)
-            if f is None or stem not in info.objects:
+            if stem not in info.objects:
+                continue
+            f = self.controllers[stem].update if stem in self.controllers else getattr(mod, "update", None)
+            if f is None:
                 continue
             r = self._call(stem, f, info)
             if r:
@@ -260,7 +317,7 @@ class Behaviors(object):
         return out
 
 # ---------------------------------------------------------------- 시뮬레이션
-__all__ = ["Simulation", "SimulError", "Object", "Joint", "Contact", "Event", "Info", "ObjectState", "JointState"]
+__all__ = ["Simulation", "Controller", "Behaviors", "SimulError", "Object", "Joint", "Contact", "Event", "Info", "ObjectState", "JointState"]
 
 _EVENT_NAMES = {0: "added", 1: "removed", 2: "arrived", 3: "joint_reached", 4: "command_failed"}
 _KIND_NAMES = {1: "revolute", 2: "prismatic", 3: "continuous"}
