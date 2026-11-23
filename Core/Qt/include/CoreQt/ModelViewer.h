@@ -27,6 +27,7 @@
 #include "3d/dhMat.h"
 #include "3d/dhPose.h"
 #include "CCollision/RobotCollision.h"
+#include "CDynamics/RigidFall.h"
 #include "CMesh/Mesh.h"
 #include "CCollision/Bvh.h"
 #include "CEnv/Sun.h"
@@ -224,13 +225,19 @@ public:
 
     // 낙하: 켜져 있으면(기본) 물체(정적 모델 전체 또는 로봇 전체)가 바닥(z = 0 인 격자 평면)보다 높이 있을 때 중력으로 떨어진다.
     // 이동으로 들어 올린 물체를 놓으면 떨어지고, 바닥에 닿으면 조금 튕기다 멈춘다. 가장 낮은 점은 보이는 모양(visual)의 꼭짓점으로 잡는다.
-    // 중력은 수직(z) 성분만 쓰고(위로 향하거나 0 이면 떨어지지 않는다), 회전과 수평 이동은 없다. 이미 바닥 아래에 있는 물체는 건드리지 않는다.
+    // 중력은 수직(z) 성분만 쓴다(위로 향하거나 0 이면 떨어지지 않는다). 이미 바닥 아래에 있는 물체는 건드리지 않는다.
+    // 회전: 둘 이상 올렸거나 회전시킨 모델(world 아래에 올린 모델)은 강체로 떨어진다 (CDynamics/RigidFall). 기울어진 채 떨어지면 모서리로 닿아
+    // 구르고, 던져 준 속도와 회전(SetModelMotion)이 이어지다가 마찰로 한 면에 서서 멈춘다. 질량 중심과 관성은 모양의 범위(균일한 상자)로 잡는다.
+    // 바닥 모델(SetFloorModel)을 지정한 장면은 회전 없이 수직으로만 떨어진다.
     void SetFallEnabled(bool enabled);
     bool FallEnabled() const { return fallEnabled_; }
     void SetGravity(double gx, double gy, double gz);  // 월드 기준 중력 가속도 (m/s^2). 낙하에는 gz 만 쓴다
     bool StepFall(double dt);                          // dt 초만큼 낙하를 진행한다. 아직 움직이는 중이면 true (타이머가 부르고, 확인용으로 직접 불러도 된다)
     double SimulateFall(double maxSeconds);            // 멈출 때까지 (또는 maxSeconds 까지) 1/240 초씩 진행하고 걸린 시간(초)을 돌려준다
     float ObjectBottom() const;                        // 오브젝트의 가장 낮은 점의 월드 높이 (m)
+    // 모델에 속도를 준다 (던지기/돌리기): linear 는 질량 중심의 속도 (m/s), angular 는 각속도 (rad/s), 둘 다 월드 기준. 떨어지는 동안 이어진다.
+    void SetModelMotion(int model, const double linear[3], const double angular[3]);
+    bool ModelAtRest(int model) const;                 // 낙하(회전 포함)가 끝나 멈춰 있는가
 
     // 바닥으로 지정한 모델: 둘 이상 올렸을 때, 다른 모델들이 z=0 평면 대신 이 모델의 윗면 위로 떨어져 멈춘다.
     // 물체의 꼭짓점마다 바로 아래에 있는 바닥 모델의 윗면(위를 향한 삼각형) 높이를 찾아, 어느 한 점이라도 닿으면 멈춘다.
@@ -434,6 +441,16 @@ private:
     void modelSignature(size_t model, simul::Array<float>* sig) const;
     void syncModelCaches() const;
     bool stepFallModels(double dt);           // 모델 하나하나를 바닥(z=0)까지 떨어뜨린다
+    struct FallBodyState {
+        simul::dynamics::RigidFall body;
+        bool valid;                           // body 가 지금 모델의 모양과 자세로 만든 것이다
+        bool rigid;                           // 회전하며 떨어뜨린다 (꼭짓점이 너무 많으면 false: 수직으로만 떨어진다)
+        simul::Array<float> sig;              // 우리가 마지막으로 둔 모델의 링크 변환들 (바뀌었으면 밖에서 움직인 것이다)
+        FallBodyState() : valid(false), rigid(false) {}
+    };
+    mutable simul::Array<FallBodyState> modelBodies_;
+    bool buildFallBody(int model) const;      // 모델의 지금 모양과 자세로 강체를 만든다
+    bool stepRigidModel(int model, double dt, bool* moving);   // 강체로 한 스텝. 이 모델을 강체로 다루지 않으면 false
     simul::Scene scene_;
     bool hasScene_;
     QStringList warnings_;

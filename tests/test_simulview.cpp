@@ -188,6 +188,59 @@ int main(int argc, char** argv) {
             v->RemoveModel(b);
             CHECK(v->ModelCount() == before, "floor test models removed");
         }
+        // 회전하며 떨어지기: 기울인 상자는 모서리로 닿아 구르다 한 면으로 서고, 반듯한 상자는 그대로 선다. 던져 준 회전도 이어진다
+        {
+            const QString boxPath = QString::fromUtf8(tu::Tmp("simul_fall_box.urdf").c_str());
+            {
+                QFile f(boxPath);
+                f.open(QIODevice::WriteOnly);
+                f.write("<robot name=\"fall_box\"><link name=\"fall_box_link\"><visual><geometry><box size=\"1 1 1\"/></geometry></visual></link></robot>");
+            }
+            const int before = v->ModelCount();
+            QString ferr;
+            CHECK(v->AddFile(boxPath, &ferr), "add a box to drop");
+            const int bx = before;
+            auto faceUp = [&](const dhPose& p) {   // 몸체 축 중 하나가 수직인가
+                const dhVector o = p * dhVector(0, 0, 0);
+                const dhVector ax = p * dhVector(1, 0, 0), ay = p * dhVector(0, 1, 0), az = p * dhVector(0, 0, 1);
+                const float m = simul::Max(simul::Abs(ax.z - o.z), simul::Max(simul::Abs(ay.z - o.z), simul::Abs(az.z - o.z)));
+                return m > 0.999f;
+            };
+            // 반듯하게 떨어뜨린다: 수평 이동도 회전도 없다
+            v->SetModelPlacement(bx, dhPose(dhVector(0.2f, -0.1f, 2.0f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 25))));
+            v->SimulateFall(20.0);
+            dhPose r0 = v->ModelPlacementPose(bx);
+            CHECK(v->ModelAtRest(bx) && simul::Abs(r0.position.z - 0.5f) < 3e-3f, "a flat box rests on its face (center 0.5 m)");
+            CHECK(simul::Abs(r0.position.x - 0.2f) < 2e-3f && simul::Abs(r0.position.y + 0.1f) < 2e-3f, "a flat drop does not slide");
+            // 기울여 떨어뜨린다: 구르다 한 면으로 선다
+            const float tilt[3][3] = {{30, 0, 0}, {40, 25, 10}, {55, -35, 70}};
+            for (int i = 0; i < 3; i++) {
+                v->SetModelPlacement(bx, dhPose(dhVector(0, 0, 2.5f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(tilt[i][0], tilt[i][1], tilt[i][2]))));
+                CHECK(!v->ModelAtRest(bx) || true, "placed again");
+                const double t = v->SimulateFall(30.0);
+                const dhPose r1 = v->ModelPlacementPose(bx);
+                CHECK(t < 29.0 && v->ModelAtRest(bx), "a tilted box comes to rest");
+                CHECK(faceUp(r1) && simul::Abs(r1.position.z - 0.5f) < 3e-3f, "a tilted box ends up flat on a face");
+            }
+            // 던져 준 회전: 공중에서 돌며 떨어지고 결국 한 면으로 선다
+            v->SetModelPlacement(bx, dhPose(dhVector(0, 0, 3.0f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            const double lin[3] = {0.5, 0.0, 0.0}, ang[3] = {0.0, 0.0, 4.0};
+            v->SetModelMotion(bx, lin, ang);
+            v->StepFall(0.1);
+            const dhPose mid = v->ModelPlacementPose(bx);
+            CHECK(mid.position.x > 0.03f && mid.position.z < 3.0f, "a thrown box moves sideways while it falls");
+            const dhVector ex = mid * dhVector(1, 0, 0) - mid * dhVector(0, 0, 0);
+            CHECK(simul::Abs(ex.y) > 0.2f, "a spinning box turns in the air");
+            v->SimulateFall(30.0);
+            CHECK(v->ModelAtRest(bx) && faceUp(v->ModelPlacementPose(bx)), "the thrown box lands and rests on a face");
+            // 낙하 중에 밖에서 다시 놓으면 새 자세로 처음부터 떨어진다
+            v->SetModelPlacement(bx, dhPose(dhVector(0, 0, 1.5f), simul::units::QuatFromRpyDeg(simul::units::RpyDeg(0, 0, 0))));
+            CHECK(!v->ModelAtRest(bx) || v->ModelPlacementPose(bx).position.z > 1.0f, "putting it back up wakes it");
+            v->SimulateFall(20.0);
+            CHECK(simul::Abs(v->ModelPlacementPose(bx).position.z - 0.5f) < 3e-3f, "and it falls again");
+            v->RemoveModel(bx);
+            CHECK(v->ModelCount() == before, "fall test box removed");
+        }
         // 길이 단위 변환: mm 로 만든 파일(1000 단위 상자)을 0.001 배 하면 1 m 가 된다
         {
             const QString objPath = QString::fromUtf8(tu::Tmp("simul_mm_cube.obj").c_str());

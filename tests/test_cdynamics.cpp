@@ -9,6 +9,7 @@
 #include "CURDF/World.h"
 #include "3d/dhMat.h"
 #include "CDynamics/FreeFall.h"
+#include "CDynamics/RigidFall.h"
 #include "CDynamics/Gravity.h"
 #include "CURDF/Urdf.h"
 
@@ -350,6 +351,167 @@ void testContributions() {
             if (!loads[i].movable) continue;
             check(nearly(sumOf(GravityContributions(t, q, loads[i].name, g)), loads[i].torque, 1e-9), "sum of link contributions == joint torque");
         }
+    }
+}
+
+
+// ---- 바닥 위 강체 낙하 (회전)
+namespace {
+// 1 m 정육면체의 꼭짓점 (몸체 원점 = 중심)
+simul::Array<double> unitCube(double sx = 1.0, double sy = 1.0, double sz = 1.0) {
+    simul::Array<double> p;
+    for (int x = -1; x <= 1; x += 2)
+        for (int y = -1; y <= 1; y += 2)
+            for (int z = -1; z <= 1; z += 2) {
+                p.push_back(0.5 * sx * x);
+                p.push_back(0.5 * sy * y);
+                p.push_back(0.5 * sz * z);
+            }
+    return p;
+}
+void rotX(double a, double r[9]) {
+    const double c = simul::Cos(a), s = simul::Sin(a);
+    const double m[9] = {1, 0, 0, 0, c, -s, 0, s, c};
+    for (int i = 0; i < 9; i++) r[i] = m[i];
+}
+void rotXY(double ax, double ay, double r[9]) {
+    double a[9], b[9];
+    rotX(ax, a);
+    const double c = simul::Cos(ay), s = simul::Sin(ay);
+    const double m[9] = {c, 0, s, 0, 1, 0, -s, 0, c};
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) b[i * 3 + j] = m[i * 3] * a[j] + m[i * 3 + 1] * a[3 + j] + m[i * 3 + 2] * a[6 + j];
+    for (int i = 0; i < 9; i++) r[i] = b[i];
+}
+bool faceDown(const simul::dynamics::RigidFall& b, double tol = 1e-3) {   // 몸체의 한 축이 수직이다 (면이 바닥에 놓였다)
+    return simul::Max(simul::Abs(b.rot[6]), simul::Max(simul::Abs(b.rot[7]), simul::Abs(b.rot[8]))) > 1.0 - tol;   // 월드 z 가 몸체 한 축과 나란하다
+}
+double run(simul::dynamics::RigidFall& b, double maxSeconds) {
+    double t = 0;
+    const double dt = 1.0 / 240.0;
+    while (t < maxSeconds && b.Step(dt, -9.80665)) t += dt;
+    return t;
+}
+}  // namespace
+
+void testRigidFall() {
+    using simul::dynamics::RigidFall;
+    // 바닥에 반듯하게 떨어뜨린 상자: 회전 없이 면으로 선다 (x, y 도 그대로)
+    {
+        RigidFall b;
+        b.SetShape(unitCube());
+        const double p[3] = {0.3, -0.2, 1.5};
+        double r[9];
+        rotX(0.0, r);
+        b.SetPose(p, r);
+        const double t = run(b, 20.0);
+        check(b.AtRest() && t < 19.0, "flat box comes to rest");
+        check(nearly(b.pos[2], 0.5, 2e-3), "flat box rests on its face (center 0.5 m up)");
+        check(nearly(b.pos[0], 0.3, 1e-3) && nearly(b.pos[1], -0.2, 1e-3), "flat drop does not slide sideways");
+        check(faceDown(b, 1e-4), "flat drop does not rotate");
+    }
+    // 기울여 떨어뜨리면 모서리로 닿아 구르다 한 면으로 선다
+    {
+        const double tilts[4][2] = {{0.5, 0.0}, {0.6, 0.4}, {0.78, 0.6}, {1.2, -0.7}};
+        for (int k = 0; k < 4; k++) {
+            RigidFall b;
+            b.SetShape(unitCube());
+            const double p[3] = {0.0, 0.0, 1.5};
+            double r[9];
+            rotXY(tilts[k][0], tilts[k][1], r);
+            b.SetPose(p, r);
+            const double t = run(b, 30.0);
+            check(b.AtRest() && t < 29.0, "tilted box comes to rest");
+            check(faceDown(b, 2e-3), "tilted box ends up on a face");
+            check(nearly(b.LowestPointZ(), 0.0, 1e-3), "resting box touches the floor, not above it or inside");
+            check(b.ContactCount(1e-3) >= 4, "resting on a face touches with four corners");
+        }
+    }
+    // 모서리로 선 상자는 그대로 서 있지 못하고 쓰러진다 (옛 낙하 계산은 기운 채 멈췄다)
+    {
+        RigidFall b;
+        b.SetShape(unitCube());
+        double r[9];
+        rotXY(0.7853981634, 0.6154797087, r);   // 한 꼭짓점이 바로 아래 (대각선이 수직)
+        r[0] = r[0];
+        const double p[3] = {0.0, 0.0, 0.9};
+        b.SetPose(p, r);
+        run(b, 30.0);
+        check(b.AtRest() && faceDown(b, 2e-3), "a box balanced near a corner topples onto a face");
+    }
+    // 공중의 회전: 각속도가 일정하면 회전각이 w t 이고 (감쇠 0) 에너지가 같다
+    {
+        RigidFall b;
+        b.SetShape(unitCube(1.0, 1.0, 1.0));
+        b.angularDamping = 0.0;
+        const double p[3] = {0.0, 0.0, 100.0};
+        double r[9];
+        rotX(0.0, r);
+        b.SetPose(p, r);
+        const double v[3] = {0.0, 0.0, 0.0}, w[3] = {0.0, 0.0, 2.0};
+        b.SetVelocity(v, w);
+        for (int i = 0; i < 240; i++) b.Step(1.0 / 240.0, -9.80665);   // 1 s
+        check(nearly(b.rot[0], simul::Cos(2.0), 1e-4) && nearly(b.rot[3], simul::Sin(2.0), 1e-4), "free spin about z turns by w t");
+        check(nearly(b.omega[2], 2.0, 1e-9), "spin about a symmetry axis is constant");
+        check(nearly(b.vel[2], -9.80665, 1e-6), "falling speed is g t while spinning");
+    }
+    // 튕김: 완전 탄성, 마찰 없음, 평평한 낙하는 거의 같은 높이까지 올라온다 (에너지가 늘지 않는다)
+    {
+        RigidFall b;
+        b.SetShape(unitCube());
+        b.restitution = 1.0;
+        b.friction = 0.0;
+        b.angularDamping = 0.0;
+        const double p[3] = {0.0, 0.0, 2.0};
+        double r[9];
+        rotX(0.0, r);
+        b.SetPose(p, r);
+        double peak = 0.0;
+        bool bounced = false;
+        for (int i = 0; i < 240 * 3; i++) {
+            b.Step(1.0 / 240.0, -9.80665);
+            if (b.vel[2] > 0.1) bounced = true;
+            if (bounced) peak = simul::Max(peak, b.pos[2]);
+        }
+        check(bounced && peak > 1.8 && peak < 2.05, "elastic flat drop returns to about the starting height and not above");
+    }
+    // 던진 상자(옆 속도 + 회전)도 결국 멈추고, 멈춘 뒤에는 움직이지 않는다
+    {
+        RigidFall b;
+        b.SetShape(unitCube(0.4, 0.2, 0.1));
+        const double p[3] = {0.0, 0.0, 1.0};
+        double r[9];
+        rotX(0.3, r);
+        b.SetPose(p, r);
+        const double v[3] = {1.0, 0.5, 0.0}, w[3] = {3.0, -2.0, 4.0};
+        b.SetVelocity(v, w);
+        const double t = run(b, 60.0);
+        check(b.AtRest() && t < 59.0, "a thrown, spinning plate comes to rest");
+        check(faceDown(b, 2e-3) && nearly(b.LowestPointZ(), 0.0, 1e-3), "the plate lies flat on the floor");
+        const double z = b.pos[2];
+        b.Step(0.5, -9.80665);
+        check(b.pos[2] == z, "a resting body stays put");
+    }
+    // 접촉 후보 점 고르기: 많은 꼭짓점에서도 바운딩 상자의 꼭짓점은 남는다
+    {
+        simul::Array<double> pts;
+        for (int i = 0; i < 2000; i++) {
+            const double a = 0.0031 * i, c = 1.0 + 0.0007 * i;
+            pts.push_back(c * simul::Cos(a));
+            pts.push_back(c * simul::Sin(a));
+            pts.push_back(((i % 7) - 3) * 0.1);
+        }
+        for (int s = 0; s < 8; s++) {   // 상자 꼭짓점
+            pts.push_back((s & 1 ? 1 : -1) * 3.0);
+            pts.push_back((s & 2 ? 1 : -1) * 2.0);
+            pts.push_back((s & 4 ? 1 : -1) * 1.0);
+        }
+        simul::Array<double> sel;
+        simul::dynamics::SelectContactPoints(&pts[0], pts.size() / 3, &sel);
+        int corners = 0;
+        for (size_t i = 0; i + 2 < sel.size(); i += 3)
+            if (simul::Abs(simul::Abs(sel[i]) - 3.0) < 1e-9 && simul::Abs(simul::Abs(sel[i + 1]) - 2.0) < 1e-9 && simul::Abs(simul::Abs(sel[i + 2]) - 1.0) < 1e-9) corners++;
+        check(sel.size() / 3 <= 76 && sel.size() / 3 >= 8 && corners == 8, "contact point selection keeps the extreme corners and stays small");
     }
 }
 
@@ -739,6 +901,7 @@ int main() {
     testGravityFollowsModelRotation();
     testJointLimitImpact();
     testFreeFall();
+    testRigidFall();
     testRneaAndMass();
     testCoriolisAgainstMassDerivative();
     testSimulator();
