@@ -23,8 +23,46 @@ bool WriteText(const QString& path, const QString& text, QString* error) {
     return true;
 }
 
+// URDF 의 mesh 경로(상대, 절대, package://, file://)를 실제 파일로 찾는다.
+// package:// 나 ../ 는 URDF 위쪽 폴더들에서도 찾고, 그래도 없으면 위쪽 폴더 밑에서 같은 끝 경로를 가진 파일을 찾는다.
+QString ResolveMesh(const QString& urdfDir, const QString& ref) {
+    QString clean = ref.trimmed();
+    QString pkgRest;
+    QRegularExpressionMatch pm = QRegularExpression(QStringLiteral("^package://[^/]*/(.*)$")).match(clean);
+    if (pm.hasMatch()) { pkgRest = pm.captured(1); clean = pkgRest; }
+    clean.remove(QRegularExpression(QStringLiteral("^file://")));
+    if (QDir::isAbsolutePath(clean) && QFileInfo(clean).isFile()) return QFileInfo(clean).canonicalFilePath();
+    // 1) URDF 폴더와 그 위쪽 폴더들에서 같은 상대 경로
+    QDir d(urdfDir);
+    for (int up = 0; up < 8; up++) {
+        const QString p = d.absoluteFilePath(clean);
+        if (QFileInfo(p).isFile()) return QFileInfo(p).canonicalFilePath();
+        if (!d.cdUp()) break;
+    }
+    // 2) ../ 를 뗀 끝 경로를 위쪽 폴더 밑에서 찾는다 (긴 경로부터)
+    QStringList parts = clean.split(QLatin1Char('/'));
+    parts.removeAll(QString());
+    while (!parts.isEmpty() && (parts.first() == QStringLiteral("..") || parts.first() == QStringLiteral("."))) parts.removeFirst();
+    if (parts.isEmpty()) return QString();
+    const QString fileName = parts.last();
+    QDir top(urdfDir);
+    for (int up = 0; up < 3 && top.cdUp(); up++) {}    // 위로 3 단계까지 올라가서 그 밑을 찾는다
+    QString best;
+    int bestScore = -1, seen = 0;
+    QDirIterator it(top.absolutePath(), QStringList() << fileName, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext() && seen < 20000) {
+        const QString p = it.next();
+        seen++;
+        const QStringList pp = p.split(QLatin1Char('/'));
+        int score = 0;
+        for (int a = parts.size() - 1, b = pp.size() - 1; a >= 0 && b >= 0 && parts[a] == pp[b]; a--, b--) score++;
+        if (score > bestScore) { bestScore = score; best = p; }
+    }
+    return best.isEmpty() ? QString() : QFileInfo(best).canonicalFilePath();
+}
+
 // URDF 를 OBJECT/<이름>.urdf 로 쓰고, 그것이 참조하는 mesh/텍스처를 OBJECT/OBJ/ 로 모은다 (URDF 안의 경로는 OBJ/<파일> 로 고쳐 쓴다)
-bool CopyModel(const QString& urdf, const QString& objectDir, QMap<QString, QString>* used, QString* error) {
+bool CopyModel(const QString& urdf, const QString& objectDir, QMap<QString, QString>* used, QString* error, QStringList* log) {
     const QFileInfo ui(urdf);
     const QString objDir = objectDir + QStringLiteral("/OBJ");
     QDir().mkpath(objDir);
@@ -33,40 +71,84 @@ bool CopyModel(const QString& urdf, const QString& objectDir, QMap<QString, QStr
     QString text = QString::fromUtf8(f.readAll());
     f.close();
 
-    auto putFile = [&](const QString& src) -> QString {   // OBJ/ 안의 이름을 돌려준다
+    // src 를 OBJ/<rel> 로 복사한다 (rel 은 하위 폴더 포함 가능). 이미 같은 이름이 다른 파일이면 번호를 붙인다.
+    auto copyInto = [&](const QString& src, const QString& rel, bool uniq) -> QString {
         const QString key = QFileInfo(src).canonicalFilePath();
-        if (used->contains(key)) return (*used)[key];
-        QString base = QFileInfo(src).fileName();
-        QString name = base;
-        for (int n = 2; QFileInfo(objDir + QLatin1Char('/') + name).exists(); n++) {
-            const int dot = base.lastIndexOf(QLatin1Char('.'));
-            name = (dot > 0 ? base.left(dot) : base) + QLatin1Char('_') + QString::number(n) + (dot > 0 ? base.mid(dot) : QString());
+        if (uniq && used->contains(key)) return (*used)[key];
+        QString name = rel;
+        if (uniq) {
+            const QString base = QFileInfo(rel).fileName();
+            name = base;
+            for (int n = 2; QFileInfo(objDir + QLatin1Char('/') + name).exists(); n++) {
+                const int dot = base.lastIndexOf(QLatin1Char('.'));
+                name = (dot > 0 ? base.left(dot) : base) + QLatin1Char('_') + QString::number(n) + (dot > 0 ? base.mid(dot) : QString());
+            }
         }
-        QFile::copy(src, objDir + QLatin1Char('/') + name);
-        used->insert(key, name);
-        // .obj 의 .mtl, .mtl 의 텍스처는 옆에 같이 둔다
-        if (name.endsWith(QStringLiteral(".obj"), Qt::CaseInsensitive)) {
-            const QString mtl = src.left(src.size() - 4) + QStringLiteral(".mtl");
-            if (QFileInfo(mtl).isFile()) {
-                const QString mname = name.left(name.size() - 4) + QStringLiteral(".mtl");
-                QFile::remove(objDir + QLatin1Char('/') + mname);
-                QFile::copy(mtl, objDir + QLatin1Char('/') + mname);
-                QFile mf(mtl);
-                if (mf.open(QIODevice::ReadOnly)) {
-                    const QStringList lines = QString::fromUtf8(mf.readAll()).split(QLatin1Char('\n'));
-                    for (int i = 0; i < lines.size(); i++) {
-                        const QString l = lines[i].trimmed();
-                        if (l.startsWith(QStringLiteral("map_"))) {
-                            const QString tex = l.section(QLatin1Char(' '), -1);
-                            const QString tp = QFileInfo(mtl).absolutePath() + QLatin1Char('/') + tex;
-                            if (QFileInfo(tp).isFile()) {
-                                const QString to = objDir + QLatin1Char('/') + QFileInfo(tex).fileName();
-                                QDir().mkpath(QFileInfo(to).absolutePath());
-                                QFile::remove(to);
-                                QFile::copy(tp, to);
+        const QString to = objDir + QLatin1Char('/') + name;
+        QDir().mkpath(QFileInfo(to).absolutePath());
+        QFile::remove(to);
+        if (!QFile::copy(src, to)) { if (log) *log << Utf8("[경고] 복사 실패: ") + src; return name; }
+        if (uniq) used->insert(key, name);
+        return name;
+    };
+    // 참조 파일(.mtl, 텍스처)을 원래 상대 경로 그대로 mesh 옆에 둔다
+    auto copyRef = [&](const QString& fromDir, const QString& meshName, const QString& ref) {
+        const QString r = ref.trimmed().replace(QLatin1Char('\\'), QLatin1Char('/'));
+        if (r.isEmpty() || r.startsWith(QStringLiteral("data:"))) return;
+        QString src = QDir::isAbsolutePath(r) ? r : fromDir + QLatin1Char('/') + r;
+        if (!QFileInfo(src).isFile()) {
+            const QString alt = fromDir + QLatin1Char('/') + QFileInfo(r).fileName();
+            if (QFileInfo(alt).isFile()) src = alt;
+            else { if (log) *log << Utf8("[경고] 참조 파일을 찾지 못했습니다: ") + r + QStringLiteral("  (") + meshName + QLatin1Char(')'); return; }
+        }
+        const QString rel = QDir::isAbsolutePath(r) ? QFileInfo(r).fileName() : QDir::cleanPath(QFileInfo(meshName).path() + QLatin1Char('/') + r);
+        if (rel.startsWith(QStringLiteral(".."))) { copyInto(src, QFileInfo(r).fileName(), false); return; }
+        copyInto(src, rel, false);
+    };
+
+    auto putFile = [&](const QString& src) -> QString {   // OBJ/ 안의 이름을 돌려준다
+        const bool had = used->contains(QFileInfo(src).canonicalFilePath());
+        const QString name = copyInto(src, QFileInfo(src).fileName(), true);
+        if (had) return name;
+        const QString srcDir = QFileInfo(src).absolutePath();
+        const QString lower = name.toLower();
+        QFile sf(src);
+        if (lower.endsWith(QStringLiteral(".obj")) && sf.open(QIODevice::ReadOnly)) {
+            const QStringList lines = QString::fromUtf8(sf.readAll()).split(QLatin1Char('\n'));
+            bool anyMtl = false;
+            for (int i = 0; i < lines.size(); i++) {
+                const QString l = lines[i].trimmed();
+                if (l.startsWith(QStringLiteral("mtllib "))) {
+                    anyMtl = true;
+                    const QString mref = l.mid(7).trimmed();
+                    copyRef(srcDir, name, mref);
+                    // mtl 안의 텍스처
+                    QString msrc = QDir::isAbsolutePath(mref) ? mref : srcDir + QLatin1Char('/') + mref;
+                    QFile mf(msrc);
+                    if (mf.open(QIODevice::ReadOnly)) {
+                        const QStringList ml = QString::fromUtf8(mf.readAll()).split(QLatin1Char('\n'));
+                        for (int k = 0; k < ml.size(); k++) {
+                            const QString t = ml[k].trimmed();
+                            if (t.startsWith(QStringLiteral("map_")) || t.startsWith(QStringLiteral("bump ")) || t.startsWith(QStringLiteral("disp ")) || t.startsWith(QStringLiteral("decal "))) {
+                                const QString tex = t.section(QLatin1Char(' '), -1);
+                                copyRef(QFileInfo(msrc).absolutePath(), QFileInfo(mref).isRelative() ? QFileInfo(name).path() + QLatin1Char('/') + mref : name, tex);
                             }
                         }
                     }
+                }
+            }
+            if (!anyMtl) {   // mtllib 줄이 없어도 같은 이름의 .mtl 이 옆에 있으면 같이 둔다
+                const QString mtl = src.left(src.size() - 4) + QStringLiteral(".mtl");
+                if (QFileInfo(mtl).isFile()) copyInto(mtl, name.left(name.size() - 4) + QStringLiteral(".mtl"), false);
+            }
+        } else if (lower.endsWith(QStringLiteral(".dae"))) {   // collada 의 텍스처 (<init_from>파일</init_from>)
+            if (sf.open(QIODevice::ReadOnly)) {
+                const QString dae = QString::fromUtf8(sf.readAll());
+                QRegularExpressionMatchIterator im = QRegularExpression(QStringLiteral("<init_from>\\s*([^<\\s]+\\.(?:png|jpg|jpeg|bmp|tga|tif|tiff))\\s*</init_from>"), QRegularExpression::CaseInsensitiveOption).globalMatch(dae);
+                while (im.hasNext()) {
+                    QString tex = im.next().captured(1);
+                    tex.remove(QRegularExpression(QStringLiteral("^file://")));
+                    copyRef(srcDir, name, tex);
                 }
             }
         }
@@ -75,21 +157,24 @@ bool CopyModel(const QString& urdf, const QString& objectDir, QMap<QString, QStr
 
     QRegularExpression re(QStringLiteral("filename\\s*=\\s*\"([^\"]+)\""));
     QString out;
-    int last = 0;
+    int last = 0, copied = 0, missing = 0;
     QRegularExpressionMatchIterator m = re.globalMatch(text);
     while (m.hasNext()) {
         const QRegularExpressionMatch mm = m.next();
-        QString rel = mm.captured(1);
-        QString clean = rel;
-        clean.remove(QRegularExpression(QStringLiteral("^(package://[^/]*/|file://)")));
-        const QString sp = QDir::isAbsolutePath(clean) ? clean : ui.absolutePath() + QLatin1Char('/') + clean;
-        if (clean.split(QLatin1Char('/')).contains(QStringLiteral("..")) && !QFileInfo(sp).isFile()) continue;
-        if (!QFileInfo(sp).isFile()) continue;
+        const QString ref = mm.captured(1);
+        const QString sp = ResolveMesh(ui.absolutePath(), ref);
+        if (sp.isEmpty()) {
+            missing++;
+            if (log) *log << Utf8("[경고] mesh 를 찾지 못했습니다: ") + ref + QStringLiteral("  (") + ui.fileName() + QLatin1Char(')');
+            continue;
+        }
         out += text.mid(last, mm.capturedStart(1) - last);
         out += QStringLiteral("OBJ/") + putFile(sp);
         last = mm.capturedEnd(1);
+        copied++;
     }
     out += text.mid(last);
+    if (log) *log << ui.fileName() + Utf8(": mesh ") + QString::number(copied) + Utf8("개 복사") + (missing ? Utf8(", 못 찾은 것 ") + QString::number(missing) + Utf8("개") : QString());
     return WriteText(objectDir + QLatin1Char('/') + ui.fileName(), out, error);
 }
 
@@ -201,7 +286,7 @@ bool AddModels(const QString& dirIn, const QStringList& urdfs, QString* error, Q
     QMap<QString, QString> usedMeshes;
     for (int i = 0; i < urdfs.size(); i++) {
         const QFileInfo ui(urdfs[i]);
-        if (!CopyModel(ui.absoluteFilePath(), objectDir, &usedMeshes, error)) return false;
+        if (!CopyModel(ui.absoluteFilePath(), objectDir, &usedMeshes, error, log)) return false;
         const ModelInfo mi = ReadModelInfo(ui.absoluteFilePath());
         const QString py = dir + QStringLiteral("/Code/") + mi.object + QStringLiteral(".py");
         if (!QFileInfo(py).exists()) {
