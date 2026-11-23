@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- 회전 낙하 시험 2: 정육면체를 꼭짓점이 거의 바로 아래로 오게 세워(대각선이 거의 수직) 놓는다. 한 점으로 서 있지 못하고 쓰러진다.
+     뷰어에서 열면 위(z=1.5 m 근처)에서 시작해 중력으로 떨어진다. 기울어진 채 닿으면 모서리로 구르다 한 면에 서서 멈춘다. 단위 m, rad. -->
+<robot name="fall_box_corner">
+  <material name="body"><color rgba="0.3 0.6 0.9 1"/></material>
+  <link name="fall_box_corner_link">
+    <inertial><origin xyz="0 0 1.2"/><mass value="1.0"/><inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/></inertial>
+    <visual>
+      <origin xyz="0 0 1.2" rpy="0.72 0.58 0"/>
+      <geometry><box size="0.4 0.4 0.4"/></geometry>
+      <material name="body"/>
+    </visual>
+  </link>
+</robot>

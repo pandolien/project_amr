@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- 회전 낙하 시험 3: 얇은 판(0.5 x 0.3 x 0.03 m)을 크게 기울여 놓는다. 튕기며 돌다가 넓은 면으로 눕는다.
+     뷰어에서 열면 위(z=1.5 m 근처)에서 시작해 중력으로 떨어진다. 기울어진 채 닿으면 모서리로 구르다 한 면에 서서 멈춘다. 단위 m, rad. -->
+<robot name="fall_plate">
+  <material name="body"><color rgba="0.35 0.7 0.4 1"/></material>
+  <link name="fall_plate_link">
+    <inertial><origin xyz="0 0 1.5"/><mass value="1.0"/><inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/></inertial>
+    <visual>
+      <origin xyz="0 0 1.5" rpy="1.0 -0.6 0.5"/>
+      <geometry><box size="0.5 0.3 0.03"/></geometry>
+      <material name="body"/>
+    </visual>
+  </link>
+</robot>
