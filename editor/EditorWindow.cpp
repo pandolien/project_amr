@@ -162,8 +162,21 @@ void EditorWindow::onAddUrdf() {
     const QStringList urdfs = QFileDialog::getOpenFileNames(this, K("OBJECT 에 넣을 URDF (여러 개 가능)"), QString::fromUtf8(SIMUL_SOURCE_DIR) + QStringLiteral("/Data/Object"), K("URDF (*.urdf)"));
     if (urdfs.isEmpty()) return;
     QString err;
-    QStringList lines;
-    if (!projecttools::AddModels(project_, urdfs, &err, &lines)) { log(err); QMessageBox::warning(this, K("URDF 추가"), err); return; }
+    QStringList lines, meshDirs;
+    int missing = 0;
+    for (;;) {
+        lines.clear();
+        if (!projecttools::AddModels(project_, urdfs, &err, &lines, meshDirs, &missing)) { log(err); QMessageBox::warning(this, K("URDF 추가"), err); return; }
+        if (missing == 0) break;
+        QStringList warn;
+        for (int i = 0; i < lines.size(); i++) if (lines[i].startsWith(K("[경고]"))) warn << lines[i];
+        if (warn.size() > 8) { const int n = warn.size(); warn = warn.mid(0, 8); warn << QStringLiteral("... (") + QString::number(n) + K("개)"); }
+        const QString dirStart = QFileInfo(urdfs[0]).absolutePath();
+        if (QMessageBox::question(this, K("mesh 를 찾지 못했습니다"), warn.join(QLatin1Char('\n')) + K("\n\nmesh 파일이 들어 있는 폴더를 직접 고르시겠습니까?")) != QMessageBox::Yes) break;
+        const QString d = QFileDialog::getExistingDirectory(this, K("mesh 가 있는 폴더 (이 폴더 아래를 모두 찾습니다)"), dirStart);
+        if (d.isEmpty()) break;
+        meshDirs << d;
+    }
     bottom_->setCurrentWidget(log_);
     log(lines.join(QLatin1Char('\n')));
     reloadModels();
