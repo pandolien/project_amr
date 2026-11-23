@@ -118,6 +118,7 @@ QStringList FindLibs(const QString& base) {
 const char* kMain = R"PY(# -*- coding: utf-8 -*-
 """프로젝트 시작 파일.  python main.py [--no-window]
 오브젝트는 Code/<오브젝트 이름>.py 의 update(info) 가 움직인다. DLL(simul_core)은 Simul/ 폴더에 들어 있다."""
+import glob
 import os
 import sys
 
@@ -129,11 +130,25 @@ WINDOW = "--no-window" not in sys.argv              # 3D 창 (simul_gui, Qt 필�
 DURATION = None                                     # 초. None 이면 창을 닫을 때까지 (창이 없으면 5 초)
 
 sim = Simul.Simulation()
-%1
+for f in sorted(glob.glob(os.path.join(HERE, "OBJECT", "*.urdf"))):   # OBJECT/ 의 URDF 를 모두 올린다 (추가하려면 파일만 넣으면 된다)
+    sim.add_model(f)
 behaviors = Simul.Behaviors(os.path.join(HERE, "Code"), sim)
 if WINDOW:
-    sim.show("%2")
+    sim.show("%1")
 sim.run(behaviors, dt=0.02, duration=DURATION if WINDOW else (DURATION or 5.0), realtime=WINDOW)
+)PY";
+
+const char* kTemplate = R"PY(# -*- coding: utf-8 -*-
+"""오브젝트 python 코드의 견본. 이 파일을 복사해 <오브젝트 이름>.py 로 바꾸면 그 오브젝트의 코드가 된다 (오브젝트 이름 = OBJECT/ 의 URDF 파일 이름).
+매 스텝 update(info) 가 불리고, 이 오브젝트의 움직임을 돌려준다.
+
+info.time, info.dt, info.objects["이름"] (.position .quaternion .joints[관절].value/.lower/.upper), info.collided("이름")
+돌려주는 값: {"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}   (없으면 None)
+"""
+
+
+def update(info):
+    return None
 )PY";
 
 const char* kObject = R"PY(# -*- coding: utf-8 -*-
@@ -178,16 +193,35 @@ QStringList ProjectModels(const QString& dir) {
     return out;
 }
 
+bool AddModels(const QString& dirIn, const QStringList& urdfs, QString* error, QStringList* log) {
+    const QString dir = QDir::cleanPath(QFileInfo(dirIn).absoluteFilePath());
+    const QString objectDir = dir + QStringLiteral("/OBJECT");
+    QDir().mkpath(objectDir + QStringLiteral("/OBJ"));
+    QDir().mkpath(dir + QStringLiteral("/Code"));
+    QMap<QString, QString> usedMeshes;
+    for (int i = 0; i < urdfs.size(); i++) {
+        const QFileInfo ui(urdfs[i]);
+        if (!CopyModel(ui.absoluteFilePath(), objectDir, &usedMeshes, error)) return false;
+        const ModelInfo mi = ReadModelInfo(ui.absoluteFilePath());
+        const QString py = dir + QStringLiteral("/Code/") + mi.object + QStringLiteral(".py");
+        if (!QFileInfo(py).exists()) {
+            const QString joints = mi.joints.isEmpty() ? Utf8("(없음)") : mi.joints.join(QStringLiteral(", "));
+            if (!WriteText(py, QString::fromUtf8(kObject).arg(mi.object, joints), error)) return false;
+        }
+        if (log) *log << Utf8("오브젝트 ") + mi.object + Utf8(": 관절 ") + mi.joints.join(QStringLiteral(", "));
+    }
+    return true;
+}
+
 bool CreateProject(const QString& dirIn, const QStringList& urdfs, QString* error, QStringList* log) {
     const QString dir = QDir::cleanPath(QFileInfo(dirIn).absoluteFilePath());
-    if (urdfs.isEmpty()) { if (error) *error = Utf8("URDF 를 하나 이상 고르세요"); return false; }
     const QStringList cores = FindLibs(QStringLiteral("simul_core"));
     if (cores.isEmpty()) { if (error) *error = Utf8("simul_core 라이브러리를 찾지 못했습니다 (에디터와 같이 빌드되어야 합니다. 환경 변수 SIMUL_LIB 로 폴더를 알려 줄 수도 있습니다)"); return false; }
     const QString pySrc = QString::fromUtf8(SIMUL_SOURCE_DIR) + QStringLiteral("/python/Simul/Simul.py");
     if (!QFileInfo(pySrc).isFile()) { if (error) *error = Utf8("python/Simul/Simul.py 를 찾지 못했습니다: ") + pySrc; return false; }
+    if (QFileInfo(dir + QStringLiteral("/main.py")).exists()) { if (error) *error = Utf8("이미 프로젝트입니다: ") + dir; return false; }
     const QString simulDir = dir + QStringLiteral("/Simul");
-    const QString objectDir = dir + QStringLiteral("/OBJECT");
-    if (!QDir().mkpath(simulDir) || !QDir().mkpath(objectDir + QStringLiteral("/OBJ")) || !QDir().mkpath(dir + QStringLiteral("/Code"))) { if (error) *error = Utf8("폴더를 만들 수 없습니다: ") + dir; return false; }
+    if (!QDir().mkpath(simulDir) || !QDir().mkpath(dir + QStringLiteral("/OBJECT/OBJ")) || !QDir().mkpath(dir + QStringLiteral("/Code"))) { if (error) *error = Utf8("폴더를 만들 수 없습니다: ") + dir; return false; }
 
     QFile::remove(simulDir + QStringLiteral("/Simul.py"));
     QFile::copy(pySrc, simulDir + QStringLiteral("/Simul.py"));
@@ -201,22 +235,9 @@ bool CreateProject(const QString& dirIn, const QStringList& urdfs, QString* erro
         if (log) *log << Utf8("DLL 복사: ") + QFileInfo(guis[0]).fileName();
     } else if (log) *log << Utf8("[알림] simul_gui(3D 창)가 없어 python 은 창 없이 돕니다");
 
-    QString addLines;
-    QMap<QString, QString> usedMeshes;
-    for (int i = 0; i < urdfs.size(); i++) {
-        const QFileInfo ui(urdfs[i]);
-        if (!CopyModel(ui.absoluteFilePath(), objectDir, &usedMeshes, error)) return false;
-        const ModelInfo mi = ReadModelInfo(ui.absoluteFilePath());
-        const QString py = dir + QStringLiteral("/Code/") + mi.object + QStringLiteral(".py");
-        if (!QFileInfo(py).exists()) {
-            const QString joints = mi.joints.isEmpty() ? Utf8("(없음)") : mi.joints.join(QStringLiteral(", "));
-            if (!WriteText(py, QString::fromUtf8(kObject).arg(mi.object, joints), error)) return false;
-        }
-        addLines += QStringLiteral("sim.add_model(os.path.join(HERE, \"OBJECT\", \"%1\"))\n").arg(ui.fileName());
-        if (log) *log << Utf8("오브젝트 ") + mi.object + Utf8(": 관절 ") + mi.joints.join(QStringLiteral(", "));
-    }
-    addLines.chop(1);
-    if (!WriteText(dir + QStringLiteral("/main.py"), QString::fromUtf8(kMain).arg(addLines, QFileInfo(dir).fileName()), error)) return false;
+    if (!WriteText(dir + QStringLiteral("/Code/object.py"), QString::fromUtf8(kTemplate), error)) return false;
+    if (!WriteText(dir + QStringLiteral("/main.py"), QString::fromUtf8(kMain).arg(QFileInfo(dir).fileName()), error)) return false;
+    if (!AddModels(dir, urdfs, error, log)) return false;
     if (log) *log << Utf8("만들었습니다: ") + dir;
     return true;
 }

@@ -415,7 +415,7 @@ run.bat --viewer               # 에디터 대신 3D 뷰어(simul_main)
 - **Python Editor**: 문법 색과 자동 들여쓰기가 있는 편집기 (Ctrl+S 저장). main.py 와 `Code/<오브젝트>.py` 를 고친다.
 - 실행: **F5** main.py (python 이 자기 3D 창을 띄움), **Ctrl+F5** 창 없이, **Shift+F5** 정지.
 
-프로젝트 폴더 구조 (파일 > 새 프로젝트 가 만든다):
+프로젝트 폴더 구조 (파일 > 새 프로젝트: 위치와 이름만 정하면 URDF 없이도 아래 구조가 모두 만들어진다. URDF 는 파일 > "OBJECT 에 URDF 추가..." 로 넣는다. main.py 는 OBJECT/ 의 URDF 를 모두 올린다):
 
 ```
 my_project/
@@ -426,6 +426,7 @@ my_project/
     OBJ/                  <- URDF 가 쓰는 mesh 파일 (URDF 안의 경로는 OBJ/<파일> 로 고쳐 쓴다)
     arm.urdf
   Code/
+    object.py             <- 견본 (복사해서 <오브젝트 이름>.py 로)
     arm.py                <- 오브젝트 arm 의 python 코드: def update(info): return {"joints": {...}}
   main.py                 <- python main.py [--no-window]
 ```

@@ -220,7 +220,7 @@ class Behaviors(object):
             raise OSError("오브젝트 python 폴더가 없습니다: " + folder)
         for fn in sorted(os.listdir(folder)):
             stem, ext = os.path.splitext(fn)
-            if ext != ".py" or stem.startswith("_"):
+            if ext != ".py" or stem.startswith("_") or stem == "object":     # object.py 는 견본
                 continue
             try:
                 self.modules[stem] = _load(os.path.join(folder, fn), stem)

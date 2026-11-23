@@ -38,6 +38,7 @@ protected:
 private slots:
     void onNewProject();
     void onOpenProject();
+    void onAddUrdf();
     void onSave();
     void onCloseTab(int index);
     void reloadModels();

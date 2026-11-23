@@ -93,6 +93,8 @@ void EditorWindow::buildMenus() {
     QAction* a = file->addAction(K("새 프로젝트..."));
     a->setShortcut(QKeySequence::New);
     connect(a, &QAction::triggered, this, &EditorWindow::onNewProject);
+    a = file->addAction(K("OBJECT 에 URDF 추가..."));
+    connect(a, &QAction::triggered, this, &EditorWindow::onAddUrdf);
     a = file->addAction(K("프로젝트 열기..."));
     a->setShortcut(QKeySequence::Open);
     connect(a, &QAction::triggered, this, &EditorWindow::onOpenProject);
@@ -142,19 +144,30 @@ void EditorWindow::log(const QString& text) {
 CodeEdit* EditorWindow::CurrentEditor() const { return qobject_cast<CodeEdit*>(editors_->currentWidget()); }
 
 void EditorWindow::onNewProject() {
-    const QStringList urdfs = QFileDialog::getOpenFileNames(this, K("프로젝트에 넣을 URDF (여러 개 가능)"), QString::fromUtf8(SIMUL_SOURCE_DIR) + QStringLiteral("/Data/Object"), K("URDF (*.urdf)"));
-    if (urdfs.isEmpty()) return;
-    const QString parent = QFileDialog::getExistingDirectory(this, K("프로젝트를 만들 위치(폴더)"));
+    const QString parent = QFileDialog::getExistingDirectory(this, K("새 프로젝트를 만들 위치(폴더)"));
     if (parent.isEmpty()) return;
     bool ok = false;
-    const QString name = QInputDialog::getText(this, K("새 프로젝트"), K("프로젝트 이름"), QLineEdit::Normal, QStringLiteral("my_project"), &ok);
+    const QString name = QInputDialog::getText(this, K("새 프로젝트"), K("프로젝트 이름 (이 이름의 폴더가 만들어집니다)"), QLineEdit::Normal, QStringLiteral("my_project"), &ok);
     if (!ok || name.trimmed().isEmpty()) return;
     const QString dir = parent + QLatin1Char('/') + name.trimmed();
     if (QFileInfo(dir).exists() && !QDir(dir).entryList(QDir::NoDotAndDotDot | QDir::AllEntries).isEmpty()) {
         QMessageBox::warning(this, K("새 프로젝트"), K("비어 있지 않은 폴더입니다: ") + dir);
         return;
     }
-    NewProject(dir, urdfs);
+    NewProject(dir, QStringList());
+}
+
+void EditorWindow::onAddUrdf() {
+    if (project_.isEmpty()) { QMessageBox::information(this, K("URDF 추가"), K("먼저 프로젝트를 만들거나 여세요")); return; }
+    const QStringList urdfs = QFileDialog::getOpenFileNames(this, K("OBJECT 에 넣을 URDF (여러 개 가능)"), QString::fromUtf8(SIMUL_SOURCE_DIR) + QStringLiteral("/Data/Object"), K("URDF (*.urdf)"));
+    if (urdfs.isEmpty()) return;
+    QString err;
+    QStringList lines;
+    if (!projecttools::AddModels(project_, urdfs, &err, &lines)) { log(err); QMessageBox::warning(this, K("URDF 추가"), err); return; }
+    bottom_->setCurrentWidget(log_);
+    log(lines.join(QLatin1Char('\n')));
+    reloadModels();
+    console_->Start(project_);
 }
 
 bool EditorWindow::NewProject(const QString& dir, const QStringList& urdfs) {

@@ -8,7 +8,8 @@
 //   <폴더>/main.py                 시작 파일 (python main.py)
 //   <폴더>/Simul/Simul.py          DLL 을 부르는 python 파일 + 같은 폴더에 simul_core / simul_gui DLL(so)
 //   <폴더>/OBJECT/<이름>.urdf      URDF (mesh 는 OBJECT/OBJ/ 에 모은다)
-//   <폴더>/Code/<오브젝트>.py      그 오브젝트의 python 코드: def update(info)
+//   <폴더>/Code/<오브젝트>.py      그 오브젝트의 python 코드: def update(info)   (Code/object.py 는 견본)
+// 새 프로젝트는 URDF 없이도 이 구조를 모두 만든다.
 namespace projecttools {
 
 struct ModelInfo {
@@ -19,6 +20,8 @@ struct ModelInfo {
 bool IsProject(const QString& dir);
 ModelInfo ReadModelInfo(const QString& urdfPath);
 // urdfs 를 OBJECT/ 로 복사(참조하는 mesh 는 OBJECT/OBJ/)하고 위 구조를 만든다. 실패하면 false 와 사유.
+// OBJECT/ 에 URDF 를 더한다 (mesh 는 OBJ/ 로, Code/<오브젝트>.py 가 없으면 틀을 만든다)
+bool AddModels(const QString& dir, const QStringList& urdfs, QString* error, QStringList* log);
 bool CreateProject(const QString& dir, const QStringList& urdfs, QString* error, QStringList* log);
 // 이 프로젝트가 쓸 python 실행 파일(과 앞에 붙일 인자). 못 찾으면 program 이 빈 문자열.
 void FindPython(QString* program, QStringList* args);
