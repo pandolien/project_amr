@@ -29,6 +29,11 @@ M3 WorldInertia(const urdf::Link& l, const M3& Rlink) {
     return R * I * Rt;
 }
 
+// 루트 링크 원점의 운동 (루트 좌표계)
+struct BaseMotionV {
+    V3 omega, alpha, linAcc;
+};
+
 // 한 자세(q)에서의 재귀 뉴턴-오일러. 순기구학은 한 번만 하고 속도/가속도/중력만 바꿔 여러 번 부른다.
 struct Rnea {
     const urdf::Robot& robot;
@@ -58,16 +63,22 @@ struct Rnea {
         }
     }
 
-    // qd, qdd: 구동 관절 순서의 값. gravity: 떨어지는 방향의 가속도 벡터 (0 벡터면 중력 없음).
-    // 반환: 구동 관절별 토크/힘 (mimic 관절의 몫은 마스터에 배율을 곱해 합친다)
-    // linkForce, linkMoment 를 주면 링크마다 "그 링크와 자손 전체가 필요로 하는 합력/합모멘트" 를 돌려준다
-    // (루트 좌표계, 모멘트는 링크 원점 기준). 링크 c 의 값은 c 를 부모에 잇는 관절이 c 쪽에 전달해야 하는 하중이다.
-    simul::Array<double> Run(const simul::Array<double>& qd, const simul::Array<double>& qdd, const V3& gravity,
-                             simul::Array<V3>* linkForce = 0, simul::Array<V3>* linkMoment = 0) const {
-        const size_t nl = robot.links.size(), nj = robot.joints.size();
-        simul::Array<V3> w(nl), al(nl), ac(nl);
+    // 링크마다 각속도 w, 각가속도 al, 링크 원점의 "비력" ac = a - g (루트 좌표계). 가속도계가 재는 값이 비력이다
+    // (정지하면 -g = 위로 +9.8). base 는 루트 링크 원점의 운동 (기본 정지).
+    void Propagate(const simul::Array<double>& qd, const simul::Array<double>& qdd, const V3& gravity, const BaseMotionV& base,
+                   simul::Array<V3>* w, simul::Array<V3>* al, simul::Array<V3>* ac) const {
+        const size_t nl = robot.links.size();
+        w->assign(nl, V3());
+        al->assign(nl, V3());
+        ac->assign(nl, V3());
         // 루트: 정지. 중력은 루트가 위로 -g 만큼 가속한다고 놓는 방법으로 넣는다.
-        for (size_t i = 0; i < nl; i++) ac[i] = V3(-gravity.x, -gravity.y, -gravity.z);
+        for (size_t i = 0; i < nl; i++) (*ac)[i] = V3(-gravity.x, -gravity.y, -gravity.z);
+        if (robot.root >= 0) {  // 루트 링크가 움직이고 있으면 (AMR 이 달리는 중) 그 운동에서 시작한다
+            const size_t r0 = static_cast<size_t>(robot.root);
+            (*w)[r0] = base.omega;
+            (*al)[r0] = base.alpha;
+            (*ac)[r0] = base.linAcc + V3(-gravity.x, -gravity.y, -gravity.z);
+        }
         // 앞으로: 속도와 가속도 전파
         for (size_t o = 0; o < robot.order.size(); o++) {
             const size_t ji = static_cast<size_t>(robot.order[o]);
@@ -85,22 +96,33 @@ struct Rnea {
                 }
             }
             const V3 r = k.p[c] - k.p[p];
-            const V3 aP = ac[p] + Cross(al[p], r) + Cross(w[p], Cross(w[p], r));
+            const V3 aP = (*ac)[p] + Cross((*al)[p], r) + Cross((*w)[p], Cross((*w)[p], r));
             const V3 ax = k.axisW[ji];
             if (j.IsMovable() && j.IsAngular()) {
-                w[c] = w[p] + ax * jd;
-                al[c] = al[p] + ax * jdd + Cross(w[p], ax * jd);
-                ac[c] = aP;
+                (*w)[c] = (*w)[p] + ax * jd;
+                (*al)[c] = (*al)[p] + ax * jdd + Cross((*w)[p], ax * jd);
+                (*ac)[c] = aP;
             } else if (j.IsMovable()) {  // 이동 관절
-                w[c] = w[p];
-                al[c] = al[p];
-                ac[c] = aP + Cross(w[p], ax * jd) * 2.0 + ax * jdd;
+                (*w)[c] = (*w)[p];
+                (*al)[c] = (*al)[p];
+                (*ac)[c] = aP + Cross((*w)[p], ax * jd) * 2.0 + ax * jdd;
             } else {
-                w[c] = w[p];
-                al[c] = al[p];
-                ac[c] = aP;
+                (*w)[c] = (*w)[p];
+                (*al)[c] = (*al)[p];
+                (*ac)[c] = aP;
             }
         }
+    }
+
+    // qd, qdd: 구동 관절 순서의 값. gravity: 떨어지는 방향의 가속도 벡터 (0 벡터면 중력 없음).
+    // 반환: 구동 관절별 토크/힘 (mimic 관절의 몫은 마스터에 배율을 곱해 합친다)
+    // linkForce, linkMoment 를 주면 링크마다 "그 링크와 자손 전체가 필요로 하는 합력/합모멘트" 를 돌려준다
+    // (루트 좌표계, 모멘트는 링크 원점 기준). 링크 c 의 값은 c 를 부모에 잇는 관절이 c 쪽에 전달해야 하는 하중이다.
+    simul::Array<double> Run(const simul::Array<double>& qd, const simul::Array<double>& qdd, const V3& gravity,
+                             simul::Array<V3>* linkForce = 0, simul::Array<V3>* linkMoment = 0) const {
+        const size_t nl = robot.links.size(), nj = robot.joints.size();
+        simul::Array<V3> w, al, ac;
+        Propagate(qd, qdd, gravity, BaseMotionV(), &w, &al, &ac);
         // 링크 하나가 자기 질량 때문에 필요로 하는 힘 F 와 (질량중심 기준) 모멘트 N, 그리고 링크 원점 기준 모멘트
         simul::Array<V3> f(nl), n(nl);
         for (size_t i = 0; i < nl; i++) {
@@ -287,6 +309,25 @@ JointTorques InverseDynamics(const urdf::Robot& robot, const urdf::JointValues& 
                              const Gravity& g, bool clampToLimits) {
     const Rnea dyn(robot, q, clampToLimits);
     return ToMap(robot, dyn.act, dyn.Run(ToVec(robot, dyn.act, qd), ToVec(robot, dyn.act, qdd), GVec(g)));
+}
+
+simul::Array<LinkMotion> LinkMotions(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,
+                                     const Gravity& g, const RootMotion& root, bool clampToLimits) {
+    const Rnea dyn(robot, q, clampToLimits);
+    BaseMotionV base;
+    base.omega = V3(root.omega[0], root.omega[1], root.omega[2]);
+    base.alpha = V3(root.alpha[0], root.alpha[1], root.alpha[2]);
+    base.linAcc = V3(root.linAcc[0], root.linAcc[1], root.linAcc[2]);
+    simul::Array<V3> w, al, ac;
+    dyn.Propagate(ToVec(robot, dyn.act, qd), ToVec(robot, dyn.act, qdd), GVec(g), base, &w, &al, &ac);
+    simul::Array<LinkMotion> out(robot.links.size());
+    for (size_t i = 0; i < robot.links.size(); i++) {
+        out[i].name = robot.links[i].name;
+        out[i].omega[0] = w[i].x; out[i].omega[1] = w[i].y; out[i].omega[2] = w[i].z;
+        out[i].alpha[0] = al[i].x; out[i].alpha[1] = al[i].y; out[i].alpha[2] = al[i].z;
+        out[i].specificForce[0] = ac[i].x; out[i].specificForce[1] = ac[i].y; out[i].specificForce[2] = ac[i].z;
+    }
+    return out;
 }
 
 simul::Array<JointWrench> JointWrenches(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,

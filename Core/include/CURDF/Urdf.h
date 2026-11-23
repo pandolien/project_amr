@@ -147,6 +147,18 @@ struct FtDef {
     FtDef() : childToParent(false), forceNoise(0), torqueNoise(0) {}
 };
 
+// <gazebo reference="링크"><sensor type="imu"> 로 적은 IMU (Gazebo 형식).
+//   <pose> 는 링크 기준 센서 자세. 잡음은 <imu><linear_acceleration><x><noise><stddev> (가속도, m/s^2),
+//   <imu><angular_velocity><x><noise><stddev> (각속도, rad/s), <imu><orientation_reference_frame> 은 읽지 않는다.
+//   x 축 값 하나를 세 축에 같이 쓴다 (축마다 다르게 쓰는 것은 지원하지 않음). 자세 잡음은 확장 <imu><orientation><noise><stddev> (rad).
+struct ImuDef {
+    simul::String name;   // sensor name (없으면 링크 이름)
+    simul::String link;
+    dhMat pose;
+    float accelNoise, gyroNoise, orientationNoise;
+    ImuDef() : accelNoise(0), gyroNoise(0), orientationNoise(0) {}
+};
+
 struct Robot {
     simul::String name;
     simul::Array<Link> links;
@@ -154,6 +166,7 @@ struct Robot {
     simul::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
     simul::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
     simul::Array<CameraDef> cameras;       // <gazebo> 센서 중 카메라
+    simul::Array<ImuDef> imus;             // <gazebo> 센서 중 IMU
     simul::Array<FtDef> forceTorques;      // <gazebo> 센서 중 힘/토크 센서
     int root;                            // 루트 link 인덱스
     simul::Array<int> order;              // 부모가 먼저 오도록 정렬된 joint 인덱스

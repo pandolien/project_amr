@@ -24,6 +24,7 @@ void Robot::Clear() {
     lidars.clear();
     cameras.clear();
     forceTorques.clear();
+    imus.clear();
     root = -1;
     order.clear();
     baseDir.clear();
@@ -464,10 +465,52 @@ struct Parser {
         return true;
     }
 
+    // <imu><tag><x><noise><stddev> 에서 표준편차 하나를 읽는다 (없으면 0)
+    bool ImuNoise(XMLElement* imu, const char* tag, bool hasAxis, float* out, const simul::String& ctx) {
+        *out = 0.0f;
+        XMLElement* t = imu->FirstChildElement(tag);
+        if (!t) return true;
+        XMLElement* a = hasAxis ? t->FirstChildElement("x") : t;
+        if (!a) return true;
+        XMLElement* noise = a->FirstChildElement("noise");
+        if (!noise) return true;
+        if (!ChildFloat(noise, "stddev", 0.0f, out, ctx + " " + tag)) return false;
+        if (*out < 0.0f) return Fail(ctx + ": noise stddev 가 음수입니다");
+        return true;
+    }
+
+    bool ParseImu(XMLElement* s, const char* ref) {
+        ImuDef d;
+        d.name = s->Attribute("name") ? s->Attribute("name") : "";
+        const simul::String ctx = "IMU '" + (d.name.empty() ? simul::String(ref ? ref : "") : d.name) + "'";
+        if (!ref || !*ref) return Fail(ctx + ": <gazebo reference=\"링크\"> 가 필요합니다");
+        d.link = ref;
+        if (d.name.empty()) d.name = d.link;
+        if (XMLElement* pose = s->FirstChildElement("pose")) {
+            float v[6];
+            if (!pose->GetText() || !ParseFloats(pose->GetText(), 6, v)) return Fail(ctx + ": <pose> 는 숫자 6개 (x y z roll pitch yaw) 여야 합니다");
+            d.pose = dhEuler(v[5], v[4], v[3]).GetMat();
+            d.pose.v[12] = v[0];
+            d.pose.v[13] = v[1];
+            d.pose.v[14] = v[2];
+        }
+        if (XMLElement* imu = s->FirstChildElement("imu")) {
+            if (!ImuNoise(imu, "linear_acceleration", true, &d.accelNoise, ctx) || !ImuNoise(imu, "angular_velocity", true, &d.gyroNoise, ctx) ||
+                !ImuNoise(imu, "orientation", false, &d.orientationNoise, ctx))
+                return false;
+        }
+        robot->imus.push_back(d);
+        return true;
+    }
+
     bool ParseGazebo(XMLElement* g) {
         const char* ref = g->Attribute("reference");
         for (XMLElement* s = g->FirstChildElement("sensor"); s; s = s->NextSiblingElement("sensor")) {
             const simul::String type = s->Attribute("type") ? s->Attribute("type") : "";
+            if (type == "imu") {
+                if (!ParseImu(s, ref)) return false;
+                continue;
+            }
             if (type == "force_torque") {
                 if (!ParseForceTorque(s, ref)) return false;
                 continue;
@@ -551,6 +594,8 @@ struct Parser {
         if (!Validate()) return false;
         for (size_t i = 0; i < robot->lidars.size(); i++)
             if (robot->FindLink(robot->lidars[i].link) < 0) return Fail("라이다 '" + robot->lidars[i].name + "' 가 붙은 링크가 없습니다: " + robot->lidars[i].link);
+        for (size_t i = 0; i < robot->imus.size(); i++)
+            if (robot->FindLink(robot->imus[i].link) < 0) return Fail("IMU '" + robot->imus[i].name + "' 가 붙은 링크가 없습니다: " + robot->imus[i].link);
         for (size_t i = 0; i < robot->forceTorques.size(); i++)
             if (robot->FindJoint(robot->forceTorques[i].joint) < 0) return Fail("힘/토크 센서 '" + robot->forceTorques[i].name + "' 가 붙은 관절이 없습니다: " + robot->forceTorques[i].joint);
         for (size_t i = 0; i < robot->cameras.size(); i++)

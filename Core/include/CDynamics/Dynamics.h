@@ -41,6 +41,28 @@ struct JointWrench {
 simul::Array<JointWrench> JointWrenches(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,
                                         const Gravity& g = Gravity(), bool clampToLimits = true);
 
+// 링크의 운동 (IMU 같은 센서가 읽는 값). 루트 링크 좌표계, 링크 원점 기준.
+//   omega         각속도 (rad/s)
+//   alpha         각가속도 (rad/s^2)
+//   specificForce 비력 = a - g (m/s^2). 가속도계가 재는 값이다. 정지해 있으면 -g (기본 중력이면 위로 +9.80665)
+// root 는 루트 링크 원점의 운동이다 (AMR 이 달리거나 도는 중). 기본은 정지.
+struct RootMotion {
+    double omega[3], alpha[3], linAcc[3];  // linAcc 는 중력을 뺀 순수 가속도 a
+    RootMotion() {
+        for (int i = 0; i < 3; i++) omega[i] = alpha[i] = linAcc[i] = 0;
+    }
+};
+struct LinkMotion {
+    simul::String name;
+    double omega[3], alpha[3], specificForce[3];
+    LinkMotion() {
+        for (int i = 0; i < 3; i++) omega[i] = alpha[i] = specificForce[i] = 0;
+    }
+};
+// robot.links 와 같은 순서로 모든 링크. qd, qdd 에 없는 관절은 0.
+simul::Array<LinkMotion> LinkMotions(const urdf::Robot& robot, const urdf::JointValues& q, const JointTorques& qd, const JointTorques& qdd,
+                                     const Gravity& g = Gravity(), const RootMotion& root = RootMotion(), bool clampToLimits = true);
+
 // 질량 행렬 M(q) (구동 관절 기준, 대칭 양의 정부호). m 은 n x n 행 우선.
 struct MassMatrix {
     simul::Array<simul::String> joints;

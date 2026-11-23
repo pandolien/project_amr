@@ -41,7 +41,7 @@ project_simul/
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
 | CEnv | 환경: 태양 위치 (날짜/시각/위치 -> 방위각, 고도, 일출/일몰) | 3d |
-| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상 / 힘·토크 센서: 관절 전달 하중, 편향·잡음·포화) | CCollision, CDynamics, 3d |
+| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상 / 힘·토크 센서: 관절 전달 하중 / IMU: 가속도·자이로·자세, 편향·잡음·포화) | CCollision, CDynamics, 3d |
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
@@ -263,6 +263,24 @@ s.joint = "wrist";                 // fixed 관절
 s.forceNoiseStdDev = 0.1f;
 simul::sensor::ForceTorque ft(s);
 simul::sensor::FtReading m = ft.MeasureStatic(robot, q);   // m.force[3] (N), m.torque[3] (N·m)
+```
+
+## IMU (CSensor: Imu.h)
+
+3축 가속도계 + 3축 자이로 + 자세. AMR 본체나 로봇암 링크에 답니다.
+
+- 가속도계는 "비력" (a - g) 을 잽니다. 수평으로 정지하면 +z 로 +9.80665 m/s^2, 자유낙하하면 0. 센서가 링크 원점에서 떨어져 있으면 그 점의 가속도(각가속도, 구심 가속도 포함)를 잽니다. 자이로는 rad/s, 자세는 센서 -> 루트 좌표계 쿼터니언 (w, x, y, z).
+- 계산: `dynamics::LinkMotions` (RNEA 의 앞방향 전파, 링크마다 각속도/각가속도/비력). AMR 이 달리는 중이면 `dynamics::RootMotion` (루트 링크의 각속도, 각가속도, 선가속도) 을 넘기면 그 위의 링크 IMU 에 반영됩니다.
+- 설정: 센서 링크, `pose`, 가속도/자이로/자세 잡음 표준편차, 가속도/자이로 편향, 측정 범위(포화), 시드. 같은 시드면 같은 잡음.
+- URDF: `<gazebo reference="링크"><sensor type="imu">` 의 `<pose>`, `<imu><linear_acceleration><x><noise><stddev>`, `<angular_velocity><x><noise><stddev>` (x 축 값을 세 축에 같이 씀), 확장 `<imu><orientation><noise><stddev>` 를 읽어 `Robot::imus` 에 담고 `ImuSettingsFromDef` 로 설정으로 바꿉니다.
+- 검증: `tests/test_cimu.cpp` (정지 +g, 기울기, 자이로, 구심/접선 가속도, 루트 운동, 자유낙하, 자세, 편향/잡음/포화, URDF).
+
+```cpp
+simul::sensor::ImuSettings s;
+s.link = "base_link";
+s.accelNoiseStdDev = 0.05f;
+simul::sensor::Imu imu(s);
+simul::sensor::ImuReading m = imu.Measure(robot, q);   // m.accel, m.gyro, m.orientation
 ```
 
 ## 태양 (CEnv: Sun.h)
