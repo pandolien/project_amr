@@ -778,6 +778,17 @@ bool ModelViewer::buildFallBody(int model) const {
     return true;
 }
 
+// 관절(고정이 아닌)이 하나라도 있는 모델은 로봇이다: 바닥에 붙어 있어야 하므로 부딪혀도 밀려나지 않는다
+bool ModelViewer::isRobotModel(int model) const {
+    for (size_t j = 0; j < robot_.joints.size(); j++) {
+        if (robot_.joints[j].type == simul::urdf::kJointFixed) continue;
+        for (size_t l = 0; l < robot_.links.size(); l++) {
+            if (robot_.links[l].name == robot_.joints[j].child && world_.EntryOfLink(robot_, static_cast<int>(l)) == model) return true;
+        }
+    }
+    return false;
+}
+
 // 모델의 강체를 지금 상태에 맞춘다: 밖에서 옮기거나 관절이 바뀌었으면 새로 만든다. 강체로 다루는 모델이면 true.
 bool ModelViewer::prepareRigid(int model, bool dragged) {
     const size_t k = static_cast<size_t>(model);
@@ -874,7 +885,9 @@ bool ModelViewer::stepFallModels(double dt) {
         for (size_t k = 0; k < n; k++) {
             const bool dragged = dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0);
             if (dragged) modelFallVel_[k] = 0.0;
-            if (!prepareRigid(static_cast<int>(k), dragged)) continue;
+            const bool robot = !dragged && world_.Composite() && isRobotModel(static_cast<int>(k));
+            if (!prepareRigid(static_cast<int>(k), dragged || robot)) continue;
+            if (robot) { ids.push_back(static_cast<int>(k)); continue; }   // 장애물로만 넣는다 (아래에서 예전처럼 수직으로 떨어진다)
             handled[k] = true;
             ids.push_back(static_cast<int>(k));
         }
