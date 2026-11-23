@@ -709,9 +709,11 @@ bool ModelViewer::StepFall(double dt) {
         if (!modelBodies_.empty()) modelBodies_[0].valid = false;
         return false;
     }
-    if (floorModel_ < 0 && world_.size() == 1) {   // 모델 하나: 기울어진 모양이면 모서리로 닿아 구르며 떨어진다 (처음 돌아가는 순간 모델 자세로 바뀐다)
-        bool moving = false;
-        if (stepRigidModel(0, dt, &moving)) return moving;
+    if (floorModel_ < 0 && world_.size() == 1 && prepareRigid(0, false)) {   // 모델 하나: 기울어진 모양이면 모서리로 닿아 구르며 떨어진다 (처음 돌아가는 순간 모델 자세로 바뀐다)
+        simul::dynamics::RigidFall* body = &modelBodies_[0].body;
+        bool moving = simul::dynamics::StepRigidBodies(&body, 1, dt, gravityZ_);
+        commitRigid(0, &moving);
+        return moving;
     }
     simul::dynamics::FallBody b;
     b.height = static_cast<double>(ObjectBottom());
@@ -840,42 +842,60 @@ bool ModelViewer::buildFallBody(int model) const {
     st.body.SetShape(sel);
     st.body.SetPose(t, R);
     st.body.restitution = 0.3;
-    if (st.body.LowestPointZ() < -1e-3) st.body.asleep = true;   // 이미 바닥 아래에 있는 모델은 건드리지 않는다 (옛 동작과 같다)
+    if (st.body.LowestPointZ() < -1e-3) { st.body.asleep = true; st.body.collide = false; }   // 이미 바닥 아래에 있는 모델은 건드리지 않는다 (옛 동작과 같다)
     st.rigid = true;
     return true;
 }
 
-bool ModelViewer::stepRigidModel(int model, double dt, bool* moving) {
+// 모델의 강체를 지금 상태에 맞춘다: 밖에서 옮기거나 관절이 바뀌었으면 새로 만든다. 강체로 다루는 모델이면 true.
+bool ModelViewer::prepareRigid(int model, bool dragged) {
     const size_t k = static_cast<size_t>(model);
     syncModelCaches();
     while (modelBodies_.size() < world_.size()) modelBodies_.push_back(FallBodyState());
     if (k >= modelBodies_.size()) return false;
     FallBodyState* st = &modelBodies_[k];
     const bool single = !world_.Composite();
+    if (dragged) {   // 손으로 끄는 중: 몸체는 움직이지 않는 장애물이다 (자세만 따라간다)
+        if (!st->valid) buildFallBody(model);
+        st = &modelBodies_[k];
+        if (!st->rigid) return false;
+        const dhMat pose = ModelPose(model);
+        st->body.pos[0] = pose.v[12]; st->body.pos[1] = pose.v[13]; st->body.pos[2] = pose.v[14];
+        for (int r = 0; r < 3; r++)
+            for (int cc = 0; cc < 3; cc++) st->body.rot[r * 3 + cc] = pose.v[cc * 4 + r];
+        st->body.fixed = true;
+        st->sig.clear();   // 놓으면 새 자세로 다시 만든다
+        return true;
+    }
     const bool moved = single && st->valid && (simul::Abs(static_cast<double>(objectPos_.x) - st->body.pos[0]) > 1e-4 ||
                                                simul::Abs(static_cast<double>(objectPos_.y) - st->body.pos[1]) > 1e-4 ||
                                                simul::Abs(static_cast<double>(objectPos_.z) - st->body.pos[2]) > 1e-4);   // 밖에서 옮겼다
-    if (!st->valid || moved || st->sig.size() != modelSig_[k].size() ||
+    if (!st->valid || st->body.fixed || moved || st->sig.size() != modelSig_[k].size() ||
         (!st->sig.empty() && memcmp(&st->sig[0], &modelSig_[k][0], st->sig.size() * sizeof(float)) != 0)) {
         buildFallBody(model);          // 밖에서 옮기거나 관절이 바뀌었다: 새 자세로 다시 시작한다
         st = &modelBodies_[k];
     }
-    if (!st->rigid) return false;
-    if (st->body.AtRest()) return true;
-    const bool m = st->body.Step(dt, gravityZ_);
-    if (single) {
+    return st->rigid;
+}
+
+// 강체가 움직였으면 그 자세를 모델에 쓴다
+void ModelViewer::commitRigid(int model, bool* moving) {
+    const size_t k = static_cast<size_t>(model);
+    FallBodyState* st = &modelBodies_[k];
+    if (!st->body.moved || st->body.fixed) return;
+    if (!world_.Composite()) {
         bool turned = false;    // 돌지 않았으면 예전처럼 이동량만 바꾼다 (회전하는 순간 모델마다 자세를 갖는 장면으로 바뀐다)
         for (int i = 0; i < 9; i++) turned = turned || simul::Abs(st->body.rot[i] - ((i % 4 == 0) ? 1.0 : 0.0)) > 1e-7;
         if (!turned) {
             const dhVector np(static_cast<float>(st->body.pos[0]), static_cast<float>(st->body.pos[1]), static_cast<float>(st->body.pos[2]));
             if (np.x != objectPos_.x || np.y != objectPos_.y || np.z != objectPos_.z) {
                 objectPos_ = np;
-                minZValid_ = false;
                 update();
                 emit objectMoved();
             }
-            *moving = *moving || m;
-            return true;
+            syncModelCaches();
+            modelBodies_[k].sig = modelSig_[k];   // 우리가 옮긴 것이다 (밖에서 옮긴 것으로 착각하지 않는다)
+            return;
         }
     }
     dhMat pose;
@@ -888,8 +908,7 @@ bool ModelViewer::stepRigidModel(int model, double dt, bool* moving) {
     syncModelCaches();
     st = &modelBodies_[k];
     st->sig = modelSig_[k];            // 우리가 둔 자세이다
-    *moving = *moving || m;
-    return true;
+    (void)moving;
 }
 
 void ModelViewer::SetModelMotion(int model, const double linear[3], const double angular[3]) {
@@ -916,13 +935,32 @@ bool ModelViewer::stepFallModels(double dt) {
         return false;
     }
     bool any = false;
+    // 바닥이 z=0 평면이면 모델을 강체로 함께 풀어 서로 부딪히게 한다 (모델 하나하나를 따로 풀지 않는다)
+    simul::Array<bool> handled(n, false);
+    simul::Array<simul::dynamics::RigidFall*> ptrs;
+    simul::Array<int> ids;
+    if (floorModel_ < 0) {
+        for (size_t k = 0; k < n; k++) {
+            const bool dragged = dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0);
+            if (world_.IsConnected(k)) continue;   // 부모를 따라가는 모델은 따로 떨어지지 않는다
+            if (dragged) modelFallVel_[k] = 0.0;
+            if (!prepareRigid(static_cast<int>(k), dragged)) continue;
+            handled[k] = true;
+            ids.push_back(static_cast<int>(k));
+        }
+        for (size_t i = 0; i < ids.size(); i++) ptrs.push_back(&modelBodies_[static_cast<size_t>(ids[i])].body);
+        if (!ptrs.empty()) {
+            any = simul::dynamics::StepRigidBodies(&ptrs[0], ptrs.size(), dt, gravityZ_) || any;
+            for (size_t i = 0; i < ids.size(); i++) commitRigid(ids[i], &any);
+        }
+    }
     for (size_t k = 0; k < n; k++) {
+        if (handled[k]) continue;
         if (world_.IsConnected(k) || (dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0))) {  // 연결된 모델은 부모를 따라간다. 끄는 동안에는 손이 붙잡고 있다
             modelFallVel_[k] = 0.0;
             if (k < modelBodies_.size()) modelBodies_[k].valid = false;
             continue;
         }
-        if (floorModel_ < 0 && stepRigidModel(static_cast<int>(k), dt, &any)) continue;   // 바닥이 z=0 평면이면 회전하며 떨어진다
         simul::dynamics::FallBody b;
         const bool onFloorModel = floorModel_ >= 0 && floorModel_ != static_cast<int>(k);
         b.height = static_cast<double>(onFloorModel ? modelClearance(static_cast<int>(k)) : modelBottom(static_cast<int>(k)));
