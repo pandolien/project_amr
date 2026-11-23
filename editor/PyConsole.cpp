@@ -39,20 +39,30 @@ void PyConsole::Start(const QString& projectDir) {
     QStringList args;
     projecttools::FindPython(&program, &args);
     if (program.isEmpty()) { append(QString::fromUtf8("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.\n")); return; }
-    if (!QFileInfo(projectDir + QStringLiteral("/startup.py")).isFile()) { append(QString::fromUtf8("startup.py 가 없는 프로젝트입니다.\n")); return; }
+    if (!QFileInfo(projectDir + QStringLiteral("/Simul/Simul.py")).isFile()) { append(QString::fromUtf8("Simul/Simul.py 가 없는 프로젝트입니다.\n")); return; }
     proc_ = new QProcess(this);
     proc_->setWorkingDirectory(projectDir);
     proc_->setProcessChannelMode(QProcess::MergedChannels);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
-    env.insert(QStringLiteral("SIMUL_LIB"), projectDir + QStringLiteral("/simul"));
+    env.insert(QStringLiteral("SIMUL_LIB"), projectDir + QStringLiteral("/Simul"));
     proc_->setProcessEnvironment(env);
     connect(proc_, &QProcess::readyRead, this, &PyConsole::readOutput);
     connect(proc_, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this,
             [this](int code, QProcess::ExitStatus) { append(QString::fromUtf8("\n--- python 끝 (종료 코드 %1) ---\n").arg(code)); });
     out_->clear();
-    args << QStringLiteral("-i") << QStringLiteral("-u") << QStringLiteral("startup.py");
+    // sim 을 만들고 OBJECT/ 의 URDF 를 올린 상태로 시작한다. 오브젝트 이름(arm 등)이 그대로 변수가 된다.
+    const QString init = QString::fromUtf8(
+        "import sys, os, glob\n"
+        "sys.path.insert(0, 'Simul')\n"
+        "import Simul\n"
+        "sim = Simul.Simulation()\n"
+        "for _f in sorted(glob.glob('OBJECT/*.urdf')): sim.add_model(_f)\n"
+        "for _n in sim.objects:\n"
+        "    if _n.isidentifier(): globals()[_n] = sim.objects[_n]\n"
+        "print('sim, 오브젝트: ' + ', '.join(sorted(sim.objects)) + '   (sim.show() 로 3D 창)')\n");
+    args << QStringLiteral("-i") << QStringLiteral("-u") << QStringLiteral("-c") << init;
     proc_->start(program, args);
     if (!proc_->waitForStarted(3000)) append(QString::fromUtf8("python 을 시작하지 못했습니다: ") + program + QLatin1Char('\n'));
 }

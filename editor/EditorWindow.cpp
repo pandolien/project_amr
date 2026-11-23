@@ -279,7 +279,7 @@ void EditorWindow::RunMain(bool window) {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
-    env.insert(QStringLiteral("SIMUL_LIB"), project_ + QStringLiteral("/simul"));
+    env.insert(QStringLiteral("SIMUL_LIB"), project_ + QStringLiteral("/Simul"));
     proc_->setProcessEnvironment(env);
     connect(proc_, &QProcess::readyRead, this, [this]() { if (proc_) log_->appendPlainText(QString::fromUtf8(proc_->readAll()).trimmed()); });
     connect(proc_, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this,

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""python 래퍼(python/simul)와 simul_core 를 함께 시험한다. 환경 변수 SIMUL_LIB(라이브러리 경로), SIMUL_TEST_DATA_DIR 가 필요하다."""
+"""python 래퍼(python/Simul/Simul.py)와 simul_core 를 함께 시험한다. 환경 변수 SIMUL_LIB(라이브러리 경로), SIMUL_TEST_DATA_DIR 가 필요하다."""
 import math
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "python"))
-import simul  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "..", "python", "Simul"))
+import Simul as simul  # noqa: E402
 
 DATA = os.environ["SIMUL_TEST_DATA_DIR"]
 ARM = os.path.join(DATA, "Object", "samples", "arm.urdf")

@@ -363,7 +363,7 @@ simul_main --make-marker charuco,4x4,5,7,0.04,0.03 --marker-dir Data/Object/mark
 
 3D 창의 "오브젝트 / 관절 값" 도크 (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. python 코드에 쓸 이름과 관절 값을 확인하는 용도다.
 
-## python 에서 불러 쓰기 (simul_core / simul_gui, python/simul)
+## python 에서 불러 쓰기 (simul_core / simul_gui, python/Simul/Simul.py)
 
 시뮬레이션 코어가 공유 라이브러리(C 인터페이스)로 나와 있고, python 은 그것을 `ctypes` 로 불러 시뮬레이션을 직접 돌린다 (python 이 주인이다).
 
@@ -372,12 +372,12 @@ simul_main --make-marker charuco,4x4,5,7,0.04,0.03 --marker-dir Data/Object/mark
 | `simul_core` (`libsimul_core.so` / `simul_core.dll`) | 모델 올리기, 오브젝트·관절 상태, 충돌, 명령, 시간 진행, 이벤트. `api/include/simul_api.h` | Qt 없음 |
 | `simul_gui` (`libsimul_gui.so` / `simul_gui.dll`) | 3D 창 (보기 전용). `api/include/simul_gui.h` | Qt 5 (선택) |
 
-빌드하면 `build/lib` (Windows 는 `build/bin`)에 생긴다. python 쪽은 `python/simul` 패키지다 (설치 필요 없음: `PYTHONPATH=python` 또는 `sys.path` 에 넣는다). 라이브러리는 환경 변수 `SIMUL_LIB` (파일 또는 폴더)로 알려 준다.
+빌드하면 `build/lib` (Windows 는 `build/bin`)에 생긴다. python 쪽은 `python/Simul/Simul.py` 파일 하나다 (설치 필요 없음: 그 폴더를 `sys.path` 에 넣고 `import Simul`). 라이브러리는 환경 변수 `SIMUL_LIB` (파일 또는 폴더)로 알려 준다.
 
 ```python
-import math, simul
+import math, Simul
 
-sim = simul.Simulation()
+sim = Simul.Simulation()
 arm = sim.add_model("Data/Object/samples/arm.urdf", position=(0, 0, 0), rpy=(0, 0, 0))
 sim.show()                                   # 선택: 3D 창 (Qt 가 있어야 함)
 
@@ -410,24 +410,28 @@ run.bat --viewer               # 에디터 대신 3D 뷰어(simul_main)
 
 화면 (메뉴 / 왼쪽 솔루션 / 가운데 3D View + Python CMD / 오른쪽 Python Editor):
 - **솔루션**: 프로젝트 폴더의 파일 트리. 더블클릭하면 Python Editor 에 열린다.
-- **3D View**: `models/` 의 URDF 를 보여 준다 (Main 의 3D 뷰 부품 `SimulView`). 클릭한 물체의 정보와 관절 슬라이더, 마우스 이동/회전이 그대로 된다. F6: 모델 다시 읽기.
-- **Python CMD**: 프로젝트 폴더에서 `python -i startup.py` 를 돌린다. `sim` 과 오브젝트 이름(`arm` 등)을 바로 쓴다. 예) `arm.set_joint("base_yaw", 1.0)`, `sim.step(0.5)`, `sim.show()`(python 의 3D 창). ↑↓ 로 이전 명령. 탭 "실행 결과" 는 main.py 실행 로그.
-- **Python Editor**: 문법 색과 자동 들여쓰기가 있는 편집기 (Ctrl+S 저장). main.py 와 `objects/<오브젝트>.py` 를 고친다.
+- **3D View**: `OBJECT/` 의 URDF 를 보여 준다 (Main 의 3D 뷰 부품 `SimulView`). 클릭한 물체의 정보와 관절 슬라이더, 마우스 이동/회전이 그대로 된다. F6: 모델 다시 읽기.
+- **Python CMD**: 프로젝트 폴더에서 `python -i` 로 `sim` 과 오브젝트를 만들어 두고 시작한다. `sim` 과 오브젝트 이름(`arm` 등)을 바로 쓴다. 예) `arm.set_joint("base_yaw", 1.0)`, `sim.step(0.5)`, `sim.show()`(python 의 3D 창). ↑↓ 로 이전 명령. 탭 "실행 결과" 는 main.py 실행 로그.
+- **Python Editor**: 문법 색과 자동 들여쓰기가 있는 편집기 (Ctrl+S 저장). main.py 와 `Code/<오브젝트>.py` 를 고친다.
 - 실행: **F5** main.py (python 이 자기 3D 창을 띄움), **Ctrl+F5** 창 없이, **Shift+F5** 정지.
 
-프로젝트 폴더 구조 (파일 > 새 프로젝트 가 만든다. URDF 와 그것이 쓰는 mesh 만 `models/<이름>/` 으로 복사):
+프로젝트 폴더 구조 (파일 > 새 프로젝트 가 만든다):
 
 ```
 my_project/
+  Simul/
+    Simul.py              <- DLL 을 부르는 python 파일 (python/Simul/Simul.py 복사본)
+    libsimul_core.so ...  <- 우리 프로그램 DLL / SO (simul_core, 있으면 simul_gui)
+  OBJECT/
+    OBJ/                  <- URDF 가 쓰는 mesh 파일 (URDF 안의 경로는 OBJ/<파일> 로 고쳐 쓴다)
+    arm.urdf
+  Code/
+    arm.py                <- 오브젝트 arm 의 python 코드: def update(info): return {"joints": {...}}
   main.py                 <- python main.py [--no-window]
-  startup.py              <- Python CMD 시작 파일
-  simul/                  <- DLL 을 부르는 python 파일(python/simul 복사본) + simul_core / simul_gui DLL
-  models/arm/arm.urdf
-  objects/arm.py          <- 오브젝트 arm 의 코드: def update(info): return {"joints": {...}}
 ```
 
-- 폴더째 다른 PC(같은 OS, python 3 설치)로 옮겨도 그대로 돈다: DLL 이 `simul/` 안에 있다. python 의 3D 창(`sim.show()`)에는 그 PC 에 Qt 5 DLL 이 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이는 Qt 가 필요 없다.
-- `objects/<이름>.py` 의 `update(info)` 는 매 스텝 불리고 그 오브젝트의 움직임만 돌려준다: `{"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}`. 오브젝트 이름은 URDF 파일 이름(확장자 제외)이다. 한 파일에서 예외가 나면 그 오브젝트의 코드만 멈춘다.
+- 폴더째 다른 PC(같은 OS, python 3 설치)로 옮겨도 그대로 돈다: DLL 이 `Simul/` 안에 있다. python 의 3D 창(`sim.show()`)에는 그 PC 에 Qt 5 DLL 이 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이는 Qt 가 필요 없다.
+- `Code/<이름>.py` 의 `update(info)` 는 매 스텝 불리고 그 오브젝트의 움직임만 돌려준다: `{"joints": {관절: 목표 rad 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}`. 오브젝트 이름은 URDF 파일 이름(확장자 제외)이다. 한 파일에서 예외가 나면 그 오브젝트의 코드만 멈춘다.
 - python 은 환경 변수 `SIMUL_PYTHON`(없으면 `python3`, `python`, `py -3` 순서)으로 찾는다.
 
 ## 프로젝트 파일 (project.simul)
@@ -447,7 +451,7 @@ my_project/
 ```
 
 - 예제: `Data/Projects/arm_demo/`. 파일 안의 경로는 프로젝트 폴더 밖을 가리킬 수 없다 (`..`, 절대 경로 거부).
-- 이전의 "python 등록, 프로젝트 저장, 하나의 실행 파일로 내보내기(`--pack`)"는 내장 python 과 함께 없앴다. python 쪽은 `python/simul` 로 시뮬레이션을 직접 구성하므로 프로젝트 파일에 담을 필요가 없다 (예: `python/examples/arm_swing.py`).
+- 이전의 "python 등록, 프로젝트 저장, 하나의 실행 파일로 내보내기(`--pack`)"는 내장 python 과 함께 없앴다. python 쪽은 `python/Simul/Simul.py` 로 시뮬레이션을 직접 구성하므로 프로젝트 파일에 담을 필요가 없다 (예: `python/examples/arm_swing.py`).
 
 ## 서드파티 라이선스
 

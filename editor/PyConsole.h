@@ -7,7 +7,7 @@
 #include <QStringList>
 #include <QWidget>
 
-// Python CMD: 프로젝트 폴더에서 `python -i startup.py` 를 돌리고 한 줄씩 보낸다.
+// Python CMD: 프로젝트 폴더에서 `python -i` 로 sim 과 오브젝트를 만들어 두고 한 줄씩 보낸다.
 // (python 은 오브젝트를 움직일 때만 쓰고, 이 창은 그 python 을 손으로 부리는 곳이다)
 class PyConsole : public QWidget {
     Q_OBJECT
