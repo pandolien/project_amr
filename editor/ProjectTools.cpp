@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QMap>
 #include <QRegularExpression>
+#include <QProcess>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QXmlStreamReader>
@@ -549,13 +550,25 @@ void FindPython(QString* program, QStringList* args, const QString& projectDir) 
     program->clear();
     const QByteArray envPy = qgetenv("SIMUL_PYTHON");
     if (!envPy.isEmpty()) { *program = QString::fromLocal8Bit(envPy); return; }
-    const char* names[] = {"python3", "python"};
-    for (int i = 0; i < 2; i++) {
-        const QString p = QStandardPaths::findExecutable(QString::fromLatin1(names[i]));
-        if (!p.isEmpty()) { *program = p; return; }
+    // 후보를 하나씩 실제로 돌려 본다. Windows 의 Microsoft Store 가짜 python(WindowsApps\\python3.exe)은 건너뛴다 (실행하면 종료 코드 9009).
+    struct Cand { const char* name; const char* arg; };
+#ifdef _WIN32
+    const Cand cands[] = {{"py", "-3"}, {"python", nullptr}, {"python3", nullptr}};
+#else
+    const Cand cands[] = {{"python3", nullptr}, {"python", nullptr}, {"py", "-3"}};
+#endif
+    for (size_t i = 0; i < sizeof(cands) / sizeof(cands[0]); i++) {
+        const QString p = QStandardPaths::findExecutable(QString::fromLatin1(cands[i].name));
+        if (p.isEmpty() || p.contains(QStringLiteral("WindowsApps"), Qt::CaseInsensitive)) continue;
+        QStringList a;
+        if (cands[i].arg) a << QString::fromLatin1(cands[i].arg);
+        QProcess t;
+        t.start(p, QStringList(a) << QStringLiteral("-c") << QStringLiteral("import sys; sys.exit(0 if sys.version_info >= (3, 5) else 1)"));
+        if (!t.waitForFinished(5000) || t.exitStatus() != QProcess::NormalExit || t.exitCode() != 0) continue;
+        *program = p;
+        *args = a;
+        return;
     }
-    const QString py = QStandardPaths::findExecutable(QStringLiteral("py"));   // Windows 의 python 실행기
-    if (!py.isEmpty()) { *program = py; *args << QStringLiteral("-3"); }
 }
 
 }  // namespace projecttools

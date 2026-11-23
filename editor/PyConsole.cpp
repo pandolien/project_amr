@@ -38,7 +38,7 @@ void PyConsole::Start(const QString& projectDir) {
     QString program;
     QStringList args;
     projecttools::FindPython(&program, &args, projectDir);
-    if (program.isEmpty()) { append(QString::fromUtf8("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.\n")); return; }
+    if (program.isEmpty()) { append(QString::fromUtf8("python 을 찾지 못했습니다. python 3 를 설치하세요 (python.org, 설치할 때 \"Add python.exe to PATH\" 선택. Windows 의 Microsoft Store 가짜 python 은 쓸 수 없습니다). 이미 설치했다면 환경 변수 SIMUL_PYTHON 에 python 실행 파일을 지정하세요.\n")); return; }
     if (!QFileInfo(projectDir + QStringLiteral("/Simul/Simul.py")).isFile()) { append(QString::fromUtf8("Simul/Simul.py 가 없는 프로젝트입니다.\n")); return; }
     proc_ = new QProcess(this);
     proc_->setWorkingDirectory(projectDir);

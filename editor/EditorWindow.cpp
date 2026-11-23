@@ -356,7 +356,7 @@ void EditorWindow::RunMain(RunMode mode) {
     QString program;
     QStringList args;
     projecttools::FindPython(&program, &args, project_);
-    if (program.isEmpty()) { log(K("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.")); bottom_->setCurrentWidget(log_); return; }
+    if (program.isEmpty()) { log(K("python 을 찾지 못했습니다. python 3 를 설치하세요 (python.org, 설치할 때 \"Add python.exe to PATH\" 선택. Windows 의 Microsoft Store 가짜 python 은 쓸 수 없습니다). 이미 설치했다면 환경 변수 SIMUL_PYTHON 에 python 실행 파일을 지정하세요.")); bottom_->setCurrentWidget(log_); return; }
     proc_ = new QProcess(this);
     proc_->setWorkingDirectory(project_);
     proc_->setProcessChannelMode(QProcess::MergedChannels);
@@ -380,7 +380,10 @@ void EditorWindow::RunMain(RunMode mode) {
         }
     });
     connect(proc_, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this,
-            [this](int code, QProcess::ExitStatus) { log(K("--- main.py 끝 (종료 코드 %1) ---").arg(code)); });
+            [this](int code, QProcess::ExitStatus) {
+                log(K("--- main.py 끝 (종료 코드 %1) ---").arg(code));
+                if (code == 9009) log(K("[알림] 종료 코드 9009 는 python 이 진짜가 아니라는 뜻입니다 (Microsoft Store 의 가짜 python). python.org 에서 python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 을 지정하세요."));
+            });
     args << QStringLiteral("main.py");
     if (mode == InEditor) args << QStringLiteral("--editor");
     else if (mode == Headless) args << QStringLiteral("--no-window");
@@ -406,7 +409,7 @@ void EditorWindow::onCreateVenv() {
     QString program;
     QStringList args;
     projecttools::FindPython(&program, &args);   // 시스템 python
-    if (program.isEmpty()) { log(K("python 을 찾지 못했습니다. python 3 를 설치하거나 환경 변수 SIMUL_PYTHON 에 실행 파일을 지정하세요.")); bottom_->setCurrentWidget(log_); return; }
+    if (program.isEmpty()) { log(K("python 을 찾지 못했습니다. python 3 를 설치하세요 (python.org, 설치할 때 \"Add python.exe to PATH\" 선택. Windows 의 Microsoft Store 가짜 python 은 쓸 수 없습니다). 이미 설치했다면 환경 변수 SIMUL_PYTHON 에 python 실행 파일을 지정하세요.")); bottom_->setCurrentWidget(log_); return; }
     bottom_->setCurrentWidget(log_);
     const bool had = !projecttools::VenvPython(project_).isEmpty();
     QProcess* p = new QProcess(this);
