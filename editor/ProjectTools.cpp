@@ -384,10 +384,19 @@ bool CreateProject(const QString& dirIn, const QStringList& urdfs, QString* erro
     return true;
 }
 
+namespace {
+bool HasCoreLib(const QString& dir) {
+    const QStringList names = QDir(dir + QStringLiteral("/Simul")).entryList(QStringList() << QStringLiteral("*simul_core*"), QDir::Files);
+    return !names.isEmpty();
+}
+}  // namespace
+
+// main.py 가 예전 구조이거나, Simul/ 에 Simul.py 나 DLL 이 없는 프로젝트 (예제 프로젝트를 처음 열 때 등)
 bool NeedsUpgrade(const QString& dir) {
     QFile f(dir + QStringLiteral("/main.py"));
     if (!f.open(QIODevice::ReadOnly)) return false;
-    return !QString::fromUtf8(f.readAll()).contains(QStringLiteral("class Main"));
+    if (!QString::fromUtf8(f.readAll()).contains(QStringLiteral("class Main"))) return true;
+    return !QFileInfo(dir + QStringLiteral("/Simul/Simul.py")).isFile() || !HasCoreLib(dir);
 }
 
 // 예전 구조(함수형)의 프로젝트를 class 구조로 바꾼다. 바꾸는 파일은 .bak 으로 남긴다.
@@ -400,10 +409,20 @@ bool UpgradeProject(const QString& dirIn, QString* error, QStringList* log) {
     };
     const QString pySrc = QString::fromUtf8(SIMUL_SOURCE_DIR) + QStringLiteral("/python/Simul/Simul.py");
     const QString pyDst = dir + QStringLiteral("/Simul/Simul.py");
-    if (QFileInfo(pySrc).isFile() && QFileInfo(dir + QStringLiteral("/Simul")).isDir()) {
+    QDir().mkpath(dir + QStringLiteral("/Simul"));
+    if (QFileInfo(pySrc).isFile()) {
         QFile::remove(pyDst);
         QFile::copy(pySrc, pyDst);
         if (log) *log << Utf8("Simul/Simul.py 갱신");
+    }
+    const char* libs[] = {"simul_core", "simul_gui"};
+    for (int i = 0; i < 2; i++) {
+        const QStringList found = FindLibs(QString::fromLatin1(libs[i]));
+        if (found.isEmpty()) { if (log && i == 0) *log << Utf8("[경고] simul_core 라이브러리를 찾지 못했습니다 (SIMUL_LIB 환경 변수로 알려 주세요)"); continue; }
+        const QString to = dir + QStringLiteral("/Simul/") + QFileInfo(found[0]).fileName();
+        QFile::remove(to);
+        QFile::copy(found[0], to);
+        if (log) *log << Utf8("DLL 복사: ") + QFileInfo(found[0]).fileName();
     }
     if (NeedsUpgrade(dir)) {
         backup(dir + QStringLiteral("/main.py"));
