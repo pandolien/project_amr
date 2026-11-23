@@ -43,7 +43,7 @@ struct Options {
     struct Scale { simul::String model; double factor; };   // --scale 모델=배율
     simul::Array<Scale> scales;
     simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
-    bool onlyView;             // --only-view: 메뉴/도크/상태바를 숨기고 3D 화면만
+    bool onlyView;             // 기본: 메뉴/도크/상태바 없이 3D 화면만 (메뉴, 구조 트리, 오브젝트 뷰는 3D 화면 안에 뜬다). --classic 이면 예전 창 구성
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
@@ -99,7 +99,7 @@ struct Options {
     simul::Array<simul::Pair<simul::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     simul::Array<simul::Pair<simul::String, simul::String> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : onlyView(false), hideMenu(false), shading(2), info(false), objPanel(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : onlyView(true), hideMenu(false), shading(2), info(false), objPanel(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
@@ -162,7 +162,8 @@ void PrintUsage(const char* exe) {
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
-        "  --only-view / --hide-menu  처음부터 3D 화면만 / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
+        "  --classic            예전 창 구성(Qt 메뉴줄과 도크)으로 시작한다. 기본은 3D 화면만 (메뉴/구조 트리/오브젝트 뷰가 화면 안에 뜬다)\n"
+        "  --only-view / --hide-menu  3D 화면만(기본) / 메뉴만 숨김 (실행 중에는 F11 / F10, 3D 만 보기는 Esc 로도 돌아옴)\n"
         "  --shading 방식        조명 방식: lambert, phong, pbr (기본). 실행 중에는 보기 -> 조명 방식에서 바꾼다\n"
         "  (라이다는 URDF 의 <gazebo><sensor type=\"ray\"> 에 적으면 열기만 해도 달린다. 아래 옵션은 URDF 에 없을 때/덮어쓸 때)\n"
         "  --lidar 링크[,x,y,z]  그 링크에 2D 라이다를 달아 스캔한 점(빨강)과 광선을 표시. x,y,z 는 링크 좌표계의 센서 위치(m).\n"
@@ -306,6 +307,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         }
         if (a == "--camera-save" && hasNext) { o->cameraSave = argv[++i]; continue; }
         if (a == "--only-view") { o->onlyView = true; continue; }
+        if (a == "--classic") { o->onlyView = false; continue; }
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
         if (a == "--floor" && hasNext) { o->floorModel = argv[++i]; continue; }
