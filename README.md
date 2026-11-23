@@ -415,6 +415,20 @@ my_project/
 - **3D 창의 Qt 를 python venv 로 맞추기**: 프로젝트에 `requirements.txt`(`PyQt5==5.12.3`), `setup_env.sh/.bat`(`.venv` 만들고 설치), `run.sh/.bat`(`.venv` 로 main.py 실행)이 같이 생긴다. `simul` 은 `show()` 때 venv 에 PyQt5 가 있으면 그것을 먼저 불러 QApplication 을 만들고, `simul_gui` 는 이미 올라온 그 Qt 5.12 라이브러리를 그대로 쓴다 (Qt 가 한 벌만 돈다, 시스템에 Qt 를 따로 안 깔아도 된다). 주의: `simul_gui` 는 PyQt5 와 같은 Qt 5.12 계열로 빌드해야 한다 (더 새 Qt 로 빌드했으면 `version Qt_5.15 not found` 로 못 올라온다). PyQt5 가 없으면 시스템 Qt 를 쓰고, `SIMUL_NO_PYQT=1` 이면 PyQt5 를 건드리지 않는다.
 - `simul_core`(와 있으면 `simul_gui`) DLL 도 `simul/` 안에 복사된다. 그래서 폴더째 다른 PC(같은 OS)로 옮겨도 그대로 돈다. 다만 3D 창은 Qt 5 DLL 이 그 PC 에 있어야 한다 (LGPL 이라 같이 넣지 않는다). 창 없이(`--no-window`)는 Qt 없이 돈다. 다른 DLL 을 쓰려면 환경 변수 `SIMUL_LIB`.
 
+## 에디터 (editor/simul_editor.py, python + PyQt5)
+
+우리 라이브러리(simul)를 연동해 쓰는 python 기반 에디터. 프로젝트 폴더를 열어 python 을 고치고, 불러온 URDF 를 움직여 본다.
+
+```
+pip install PyQt5==5.12.3          # 프로젝트의 .venv 에서 (setup_env.sh)
+python3 editor/simul_editor.py [프로젝트 폴더]     # 새 프로젝트: 파일 > 새 프로젝트 (빌드한 DLL 위치는 SIMUL_LIB)
+```
+
+- 왼쪽 프로젝트 파일 트리 / 가운데 python 편집기(문법 색, 자동 들여쓰기, Ctrl+S) / 오른쪽 오브젝트와 관절 / 아래 실행 결과.
+- 오른쪽 관절 **슬라이더·값 입력**으로 `models/` 의 URDF 를 움직여 본다 (한계 안에서만). **F3** 으로 3D 창을 열면 바로 반영된다. 더블클릭하면 오브젝트/관절 이름이 코드에 들어가고, **Ctrl+Shift+J** 는 지금 관절 값을 `{"joints": {...}}` 로 넣는다.
+- **F5**: 저장하고 프로젝트의 `.venv`(없으면 지금 python)로 `main.py` 를 돌려 결과를 아래에 보여 준다.
+- 새 프로젝트는 URDF 와 그것이 쓰는 mesh 만 `models/<이름>/` 으로 복사한다.
+
 ## 프로젝트 파일 (project.simul)
 
 장면(모델과 배치)을 폴더 하나로 묶어 `simul_main --project my_project/project.simul` 로 연다.

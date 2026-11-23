@@ -61,6 +61,82 @@ def update(info):
 '''
 
 
+def copy_model(urdf, dst):
+    """URDF 와 그것이 참조하는 mesh/텍스처 파일만 (상대 경로를 지켜서) 복사한다."""
+    import re
+    src = os.path.dirname(urdf)
+    os.makedirs(dst)
+    shutil.copy2(urdf, dst)
+    with open(urdf, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    for ref in set(re.findall(r'filename\s*=\s*"([^"]+)"', text)):
+        rel = re.sub(r"^(package://[^/]*/|file://)", "", ref)
+        if os.path.isabs(rel) or ".." in rel.replace("\\", "/").split("/"):
+            continue
+        sp = os.path.join(src, rel)
+        if os.path.isfile(sp):
+            os.makedirs(os.path.dirname(os.path.join(dst, rel)), exist_ok=True)
+            shutil.copy2(sp, os.path.join(dst, rel))
+            if rel.lower().endswith(".obj"):                      # .mtl 이 옆에 있으면 같이
+                mtl = os.path.splitext(sp)[0] + ".mtl"
+                if os.path.isfile(mtl):
+                    shutil.copy2(mtl, os.path.join(dst, os.path.dirname(rel)))
+
+
+def create_project(dest, urdfs, lib, log=print):
+    """프로젝트 폴더를 만든다. 성공하면 0, DLL 을 못 찾으면 1."""
+    dest = os.path.abspath(dest)
+    import simul
+    from simul import _lib
+    found = {}
+    for base in ("simul_core", "simul_gui"):
+        for d in (lib, os.path.join(lib, "..", "bin"), os.path.join(lib, "..", "lib")):
+            for n in _lib._names(base):
+                if os.path.isfile(os.path.join(d, n)):
+                    found.setdefault(base, os.path.join(d, n))
+    if "simul_core" not in found:
+        log("simul_core DLL 을 찾지 못했습니다. 빌드한 폴더를 --lib 로 알려 주세요 (찾은 위치: %s)" % lib)
+        return 1
+    os.environ["SIMUL_LIB"] = os.path.dirname(found["simul_core"])
+    os.makedirs(os.path.join(dest, "objects"), exist_ok=True)
+    pkg = os.path.join(dest, "simul")
+    if os.path.isdir(pkg):
+        shutil.rmtree(pkg)
+    shutil.copytree(os.path.join(ROOT, "python", "simul"), pkg, ignore=shutil.ignore_patterns("__pycache__"))
+    for base, path in sorted(found.items()):
+        shutil.copy2(path, pkg)
+        log("DLL 복사: " + os.path.basename(path))
+    if "simul_gui" not in found:
+        log("[알림] simul_gui(3D 창)가 없어 창 없이 돌립니다 (Qt 로 빌드하면 생깁니다).")
+    sim = simul.Simulation()
+    lines = []
+    for u in urdfs:
+        u = os.path.abspath(u)
+        src = os.path.dirname(u)
+        sub = os.path.splitext(os.path.basename(u))[0]
+        dst = os.path.join(dest, "models", sub)
+        if not os.path.isdir(dst):
+            copy_model(u, dst)
+        obj = sim.add_model(os.path.join(dst, os.path.basename(u)))
+        joints = ", ".join(sorted(j for j in obj.joints)) or "(없음)"
+        pyf = os.path.join(dest, "objects", obj.name + ".py")
+        if not os.path.exists(pyf):
+            with open(pyf, "w", encoding="utf-8") as f:
+                f.write(OBJ.format(obj=obj.name, joints=joints))
+        lines.append('sim.add_model(os.path.join(HERE, "models", %r, %r))' % (sub, os.path.basename(u)))
+        log("오브젝트 %s: 관절 %s" % (obj.name, joints))
+    with open(os.path.join(dest, "main.py"), "w", encoding="utf-8") as f:
+        f.write(MAIN.format(home=ROOT, lib=lib, models="\n".join(lines), name=os.path.basename(dest)))
+    with open(os.path.join(dest, "requirements.txt"), "w") as f:
+        f.write("PyQt5==5.12.3\n")
+    for fn, txt, mode in (("setup_env.sh", SETUP_SH, 0o755), ("run.sh", RUN_SH, 0o755), ("setup_env.bat", SETUP_BAT, 0o644), ("run.bat", RUN_BAT, 0o644)):
+        with open(os.path.join(dest, fn), "w", newline="\n" if fn.endswith(".sh") else None) as f:
+            f.write(txt)
+        os.chmod(os.path.join(dest, fn), mode)
+    log("만들었습니다: " + dest)
+    return 0
+
+
 def main():
     args = sys.argv[1:]
     lib = os.path.join(ROOT, "build", "lib")
@@ -71,56 +147,7 @@ def main():
     if len(args) < 2:
         print(__doc__)
         return 2
-    dest, urdfs = os.path.abspath(args[0]), args[1:]
-    import simul
-    from simul import _lib
-    found = {}
-    for base in ("simul_core", "simul_gui"):
-        for d in (lib, os.path.join(lib, "..", "bin"), os.path.join(lib, "..", "lib")):
-            for n in _lib._names(base):
-                if os.path.isfile(os.path.join(d, n)):
-                    found.setdefault(base, os.path.join(d, n))
-    if "simul_core" not in found:
-        print("simul_core DLL 을 찾지 못했습니다. 빌드한 폴더를 --lib 로 알려 주세요 (찾은 위치: %s)" % lib)
-        return 1
-    os.environ["SIMUL_LIB"] = os.path.dirname(found["simul_core"])
-    os.makedirs(os.path.join(dest, "objects"), exist_ok=True)
-    pkg = os.path.join(dest, "simul")
-    if os.path.isdir(pkg):
-        shutil.rmtree(pkg)
-    shutil.copytree(os.path.join(ROOT, "python", "simul"), pkg, ignore=shutil.ignore_patterns("__pycache__"))
-    for base, path in sorted(found.items()):
-        shutil.copy2(path, pkg)
-        print("DLL 복사: " + os.path.basename(path))
-    if "simul_gui" not in found:
-        print("[알림] simul_gui(3D 창)가 없어 창 없이 돌립니다 (Qt 로 빌드하면 생깁니다).")
-    sim = simul.Simulation()
-    lines = []
-    for u in urdfs:
-        u = os.path.abspath(u)
-        src = os.path.dirname(u)
-        sub = os.path.splitext(os.path.basename(u))[0]
-        dst = os.path.join(dest, "models", sub)
-        if not os.path.isdir(dst):
-            shutil.copytree(src, dst)
-        obj = sim.add_model(os.path.join(dst, os.path.basename(u)))
-        joints = ", ".join(sorted(j for j in obj.joints)) or "(없음)"
-        pyf = os.path.join(dest, "objects", obj.name + ".py")
-        if not os.path.exists(pyf):
-            with open(pyf, "w", encoding="utf-8") as f:
-                f.write(OBJ.format(obj=obj.name, joints=joints))
-        lines.append('sim.add_model(os.path.join(HERE, "models", %r, %r))' % (sub, os.path.basename(u)))
-        print("오브젝트 %s: 관절 %s" % (obj.name, joints))
-    with open(os.path.join(dest, "main.py"), "w", encoding="utf-8") as f:
-        f.write(MAIN.format(home=ROOT, lib=lib, models="\n".join(lines), name=os.path.basename(dest)))
-    with open(os.path.join(dest, "requirements.txt"), "w") as f:
-        f.write("PyQt5==5.12.3\n")
-    for fn, txt, mode in (("setup_env.sh", SETUP_SH, 0o755), ("run.sh", RUN_SH, 0o755), ("setup_env.bat", SETUP_BAT, 0o644), ("run.bat", RUN_BAT, 0o644)):
-        with open(os.path.join(dest, fn), "w", newline="\n" if fn.endswith(".sh") else None) as f:
-            f.write(txt)
-        os.chmod(os.path.join(dest, fn), mode)
-    print("만들었습니다: " + dest)
-    return 0
+    return create_project(args[0], [os.path.abspath(u) for u in args[1:]], lib)
 
 
 if __name__ == "__main__":
