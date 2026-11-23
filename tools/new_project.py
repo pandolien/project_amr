@@ -3,7 +3,7 @@
 """새 프로젝트 폴더를 만든다.   python3 tools/new_project.py <폴더> <모델.urdf> [<모델2.urdf> ...] [--lib 빌드/lib]
 
     <폴더>/main.py                  <- 이것을 실행한다 (DLL 을 불러 시뮬레이션을 돌린다)
-    <폴더>/simul/                   <- DLL 과 연결하는 python 파일 (python/simul 복사본: ctypes 로 simul_core 를 부른다)
+    <폴더>/simul/                   <- DLL 과 연결하는 python 파일 (python/simul 복사본) + simul_core / simul_gui DLL
     <폴더>/models/<이름>/...        <- URDF 와 그 mesh (원본 폴더째 복사)
     <폴더>/objects/<이름>.py        <- 그 오브젝트의 python 코드 (update(info))
 """
@@ -15,13 +15,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 sys.path.insert(0, os.path.join(ROOT, "python"))
 
 MAIN = '''# -*- coding: utf-8 -*-
-"""프로젝트 시작 파일.  python main.py   (DLL 은 환경 변수 SIMUL_LIB 폴더, 없으면 아래 기본값)"""
+"""프로젝트 시작 파일.  python main.py   (simul_core / simul_gui DLL 은 simul/ 폴더에 들어 있다. 다른 것을 쓰려면 환경 변수 SIMUL_LIB)"""
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)                                 # HERE/simul : DLL 과 연결하는 python 파일
-os.environ.setdefault("SIMUL_LIB", {lib!r})              # 빌드한 DLL 이 있는 폴더 (이미 환경 변수가 있으면 그대로)
 import simul  # noqa: E402
 
 WINDOW = "--no-window" not in sys.argv
@@ -60,13 +59,28 @@ def main():
         print(__doc__)
         return 2
     dest, urdfs = os.path.abspath(args[0]), args[1:]
-    os.environ["SIMUL_LIB"] = lib
     import simul
+    from simul import _lib
+    found = {}
+    for base in ("simul_core", "simul_gui"):
+        for d in (lib, os.path.join(lib, "..", "bin"), os.path.join(lib, "..", "lib")):
+            for n in _lib._names(base):
+                if os.path.isfile(os.path.join(d, n)):
+                    found.setdefault(base, os.path.join(d, n))
+    if "simul_core" not in found:
+        print("simul_core DLL 을 찾지 못했습니다. 빌드한 폴더를 --lib 로 알려 주세요 (찾은 위치: %s)" % lib)
+        return 1
+    os.environ["SIMUL_LIB"] = os.path.dirname(found["simul_core"])
     os.makedirs(os.path.join(dest, "objects"), exist_ok=True)
     pkg = os.path.join(dest, "simul")
     if os.path.isdir(pkg):
         shutil.rmtree(pkg)
     shutil.copytree(os.path.join(ROOT, "python", "simul"), pkg, ignore=shutil.ignore_patterns("__pycache__"))
+    for base, path in sorted(found.items()):
+        shutil.copy2(path, pkg)
+        print("DLL 복사: " + os.path.basename(path))
+    if "simul_gui" not in found:
+        print("[알림] simul_gui(3D 창)가 없어 창 없이 돌립니다 (Qt 로 빌드하면 생깁니다).")
     sim = simul.Simulation()
     lines = []
     for u in urdfs:
