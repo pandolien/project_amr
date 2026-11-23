@@ -37,7 +37,6 @@ include(CompilerWarnings)
 # ---- 옵션 ----
 option(SIMUL_BUILD_QT    "CoreQt(Qt5 위젯) 빌드 (Qt 5.12, LGPLv3 동적 링크)" ON)
 option(SIMUL_BUILD_TESTS "테스트 빌드" OFF)
-option(SIMUL_BUILD_PYTHON "CorePy(앱 안에 내장하는 Python) 빌드. 개발 헤더가 없으면 자동으로 끈다 (Ubuntu: sudo apt install python3-dev)" ON)
 
 # 런타임에서 Data/ 위치를 찾기 위한 경로
 set(SIMUL_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
@@ -45,19 +44,6 @@ set(SIMUL_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 # ---- 라이브러리 (의존 순서: Core <- CoreQt) ----
 add_subdirectory(Core)
 
-
-# ---- CorePy (선택): 내장 Python ----
-set(SIMUL_HAS_PYTHON OFF)
-if(SIMUL_BUILD_PYTHON)
-    find_package(Python3 COMPONENTS Interpreter Development QUIET)
-    if(Python3_Development_FOUND)
-        message(STATUS "Python ${Python3_VERSION} 내장 (CorePy)")
-        add_subdirectory(Core/Python)
-        set(SIMUL_HAS_PYTHON ON)
-    else()
-        message(STATUS "Python 개발 헤더를 찾지 못해 CorePy 를 건너뜁니다 (Ubuntu: sudo apt install python3-dev)")
-    endif()
-endif()
 
 # ---- 메인 시스템 (main.cpp + 루트 src/ + 루트 include/) ----
 # main.cpp 가 비어 있는 동안(구조만 잡은 단계)에는 링크가 실패하므로 simul_main 을 만들지 않는다.
@@ -72,10 +58,6 @@ if(SIMUL_MAIN_SIZE GREATER 0)
     if(SIMUL_BUILD_QT)
         target_link_libraries(simul_main PRIVATE CoreQt)   # 3D 뷰어 창
         target_compile_definitions(simul_main PRIVATE SIMUL_HAS_QT)
-        if(SIMUL_HAS_PYTHON)
-            target_link_libraries(simul_main PRIVATE CorePy)   # 내장 Python (Main.py + 등록 클래스)
-            target_compile_definitions(simul_main PRIVATE SIMUL_HAS_PYTHON)
-        endif()
     endif()
 else()
     message(STATUS "main.cpp 가 비어 있어 simul_main 은 만들지 않습니다")

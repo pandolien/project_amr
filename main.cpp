@@ -24,12 +24,6 @@
 #include "CURDF/Urdf.h"
 #include "CMarker/Marker.h"
 #include "CProject/Project.h"
-#ifdef SIMUL_HAS_QT
-#include "ProjectPack.h"
-#endif
-#ifdef SIMUL_HAS_PYTHON
-#include "CorePy/PyRuntime.h"
-#endif
 
 namespace {
 
@@ -54,19 +48,8 @@ struct Options {
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
     int shading;               // 조명 방식 0 Lambert, 1 Blinn-Phong, 2 PBR (기본)
     bool info;                 // 창 없이 정보만 출력
-    bool pyEnabled;            // --python: 내장 Python 을 시작 때 띄운다 (안 주면 메뉴에서 처음 시작할 때)
-    simul::String pyMain;      // --python-main: Main.py 경로 (기본 Data/Python/Main.py)
-    simul::Array<simul::Pair<simul::String, simul::String> > pyScripts;   // --python-script 파일[:오브젝트,...]
-    double pyHz;               // --python-hz: 초당 틱 수
-    int pySteps;               // --python-steps N: 시작하자마자 N 틱을 돌린 뒤 멈춘다 (확인용)
     bool objPanel;             // --object-panel: 오브젝트 / 관절 값 도크를 연 채로 시작
-    bool pyEditor;             // --python-editor: 오른쪽 Python 편집기를 연 채로 시작
-    bool pyRun;                // --python-run: 시작하자마자 실시간으로 돌린다
     simul::String projectFile; // --project 파일: project.simul 을 열어 장면, 스크립트 등록, 자동 시작까지 한다
-    simul::String saveProjectDir;   // --save-project 폴더: 지금 장면과 등록한 python 을 프로젝트 폴더로 저장하고 끝낸다
-    simul::String packProject; // --pack 프로젝트: 그 프로젝트를 이 프로그램의 실행 파일 뒤에 붙여 하나의 실행 파일로 만든다
-    simul::String packOut;     // -o / --output: --pack 의 출력 파일
-    simul::String embeddedDir; // (내부) 실행 파일에 붙은 프로젝트를 푼 폴더
     simul::String makeMarker;  // --make-marker 명세: ArUco/ChArUco 마커 메시와 URDF 를 만들고 끝낸다
     simul::String makeMarkerDir;  // --marker-dir: 마커 파일을 쓸 폴더 (기본 현재 폴더)
     bool aabb;                 // AABB 충돌 박스를 처음부터 표시
@@ -116,7 +99,7 @@ struct Options {
     simul::Array<simul::Pair<simul::String, double> > joints;           // --joint 이름=값 (revolute: 도, prismatic: m)
     simul::Array<simul::Pair<simul::String, simul::String> > packages;    // --package 이름=폴더
     int width, height;
-    Options() : onlyView(false), hideMenu(false), shading(2), info(false), pyEnabled(false), pyHz(60.0), pySteps(0), objPanel(false), pyEditor(false), pyRun(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
+    Options() : onlyView(false), hideMenu(false), shading(2), info(false), objPanel(false), aabb(false), obb(false), torque(false), dragX0(-1), dragY0(-1), dragX1(-1), dragY1(-1), motorsOff(false), simulate(0), noFall(false), settle(false), hasMove(false), clickX(-1), clickY(-1), width(1100), height(720) {
         lidarMount[0] = lidarMount[1] = lidarMount[2] = 0;
         lidarChannels = 1;
         lidarElev[0] = lidarElev[1] = 0;
@@ -154,15 +137,8 @@ void PrintUsage(const char* exe) {
         "사용법: %s [옵션] [파일]\n"
         "  파일               .urdf .glb .gltf .stl .obj .dae (생략하면 빈 뷰어)\n"
         "  --info             창을 띄우지 않고 파일 정보만 출력\n"
-        "  --python           내장 Python 을 시작 때 띄운다 (Data/Python/Main.py 를 올린다. 메뉴 Python 으로도 된다)\n"
-        "  --python-script 파일[:오브젝트,...]  Main.py 에 등록할 외부 python 파일과, 그 파일의 클래스가 움직일 수 있는 오브젝트 (여러 번 가능, --python 을 포함)\n"
-        "  --python-main 파일  Main.py 대신 쓸 파일    --python-hz N  초당 틱 수 (기본 60)\n"
-        "  --python-editor    오른쪽 Python 편집기를 연 채로 시작 (메뉴 Python > Python 편집기, Ctrl+E)\n"
-        "  --save-project 폴더  지금 장면과 등록한 python 을 프로젝트 폴더(project.simul, models, scripts)로 저장하고 끝낸다\n"
-        "  --object-panel     오브젝트 / 관절 값 도크를 연 채로 시작 (메뉴 Python > 오브젝트 / 관절 값, Ctrl+J)\n"
-        "  --python-run       시작하자마자 시뮬레이션을 실시간으로 돌린다    --python-steps N  N 틱을 바로 돌리고 멈춘다 (확인용)\n"
-        "  --project 파일     project.simul 을 연다 (모델 배치, python 등록과 권한, 자동 시작까지)\n"
-        "  --pack 프로젝트 [-o 출력]  프로젝트 폴더를 이 프로그램 뒤에 붙여 하나의 실행 파일로 만든다 (실행하면 그 프로젝트가 자동으로 열려 돌아간다)\n"
+        "  --object-panel     오브젝트 / 관절 값 도크를 연 채로 시작 (메뉴 보기에서도 켠다, Ctrl+J)\n"
+        "  --project 파일     project.simul 을 연다 (모델과 배치를 복원)\n"
         "  --make-marker 명세 ArUco/ChArUco 마커를 만들어 STL 2개 + URDF 로 쓰고 끝낸다 (--marker-dir 폴더 기본 .)\n"
         "                     aruco,사전,id,한변(m)  예: aruco,4x4,0,0.15\n"
         "                     charuco,사전,가로칸,세로칸,칸길이(m),마커한변(m)[,첫id]  예: charuco,4x4,5,7,0.04,0.03\n"
@@ -235,37 +211,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         }
         const bool hasNext = i + 1 < argc;
         if (a == "--project" && hasNext) { o->projectFile = argv[++i]; continue; }
-        if (a == "--save-project" && hasNext) { o->saveProjectDir = argv[++i]; continue; }
-        if (a == "--pack" && hasNext) { o->packProject = argv[++i]; continue; }
-        if ((a == "-o" || a == "--output") && hasNext) { o->packOut = argv[++i]; continue; }
-        if (a == "--python") { o->pyEnabled = true; continue; }
-        if (a == "--python-editor") { o->pyEditor = true; continue; }
         if (a == "--object-panel") { o->objPanel = true; continue; }
-        if (a == "--python-run") { o->pyEnabled = true; o->pyRun = true; continue; }
-        if (a == "--python-main" && hasNext) { o->pyEnabled = true; o->pyMain = argv[++i]; continue; }
-        if (a == "--python-hz" && hasNext) {
-            o->pyHz = atof(argv[++i]);
-            if (!(o->pyHz >= 1.0 && o->pyHz <= 1000.0)) { fprintf(stderr, "--python-hz 는 1~1000 입니다\n"); return false; }
-            continue;
-        }
-        if (a == "--python-steps" && hasNext) {
-            o->pySteps = atoi(argv[++i]);
-            if (o->pySteps < 1) { fprintf(stderr, "--python-steps 는 1 이상입니다\n"); return false; }
-            o->pyEnabled = true;
-            continue;
-        }
-        if (a == "--python-script" && hasNext) {
-            simul::String spec = argv[++i], file = spec, objs;
-            for (size_t k = spec.size(); k-- > 1;) {   // 마지막 ':' 뒤에 경로 구분자가 없으면 오브젝트 목록 (C:\... 의 드라이브 콜론은 건드리지 않는다)
-                if (spec[k] != ':') continue;
-                const simul::String tail = spec.substr(k + 1);
-                if (tail.find('/') == simul::String::npos && tail.find('\\') == simul::String::npos) { file = spec.substr(0, k); objs = tail; }
-                break;
-            }
-            o->pyScripts.push_back(simul::MakePair(file, objs));
-            o->pyEnabled = true;
-            continue;
-        }
         if (a == "--make-marker" && hasNext) { o->makeMarker = argv[++i]; continue; }
         if (a == "--marker-dir" && hasNext) { o->makeMarkerDir = argv[++i]; continue; }
         if (a == "--fps") { o->showFps = true; continue; }
@@ -620,7 +566,6 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/SimulView.h"
 #include "CoreQt/SimulRunner.h"
 #include "CoreQt/ObjectInfoPanel.h"
-#include "CoreQt/PythonPanel.h"
 #include "CoreQt/LogView.h"
 #include <QSet>
 #include <QLineEdit>
@@ -1020,374 +965,25 @@ public:
     }
 
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
-#ifdef SIMUL_HAS_PYTHON
-    // ---- 내장 Python: 엔진 + Main.py + 등록된 외부 클래스 ----
-    ~MainWindow() override {
-        if (runner_) runner_->Stop();
-        delete py_;   // 인터프리터를 끝낸다 (엔진보다 먼저)
-        py_ = nullptr;
-    }
+    ~MainWindow() override {}
 
-    static void pyOutput(bool isError, const char* line, void* user) {
-        MainWindow* w = static_cast<MainWindow*>(user);
-        const QString text = QString::fromUtf8(line);
-        if (isError) { fprintf(stderr, "%s\n", line); w->log_->Error(text); }
-        else { printf("%s\n", line); fflush(stdout); w->log_->Info(text); }
-    }
-
-    // 처음 필요할 때 엔진, 인터프리터, Main.py 를 만든다. 실패하면 로그에 남기고 false
-    bool ensurePython(const Options& o) {
-        if (py_) return pyReady_;
-        if (!backend_) backend_ = new ViewerBackend(viewer_);
-        engine_ = new simul::sim::Engine(backend_);
-        runner_ = new SimulRunner(engine_, this);
-        runner_->SetRate(o.pyHz);
-        py_ = new simul::py::Runtime(engine_);
-        py_->SetOutput(&MainWindow::pyOutput, this);
-        QObject::connect(runner_, &SimulRunner::started, this, [this]() { log_->Info(QString::fromUtf8("시뮬레이션 시작 (%1 Hz)").arg(runner_->Rate())); });
-        QObject::connect(runner_, &SimulRunner::stopped, this, [this]() { log_->Info(QString::fromUtf8("시뮬레이션 정지 (시계 %1 s)").arg(engine_->Time(), 0, 'f', 2)); });
-        QObject::connect(runner_, &SimulRunner::stepFailed, this, [this](const QString& e) { log_->Error(e); });
-        simul::String err;
-        if (!py_->Initialize(&err)) { logError(QString::fromUtf8("Python 을 시작하지 못했습니다: %1").arg(simulqt::ToQ(err))); return false; }
-        log_->Info(QString::fromUtf8("Python %1 시작").arg(simulqt::ToQ(simul::py::Runtime::PythonVersion())));
-        simul::String mainPy = o.pyMain.empty() ? simul::String(SIMUL_DATA_DIR) + "/Python/Main.py" : o.pyMain;
-        if (!py_->RunFile(mainPy, &err)) { logError(QString::fromUtf8("Main.py 를 올리지 못했습니다: %1 (%2)").arg(simulqt::ToQ(mainPy)).arg(simulqt::ToQ(err))); return false; }
-        log_->Info(QString::fromUtf8("Main.py: %1").arg(simulqt::ToQ(mainPy)));
-        pyReady_ = true;
-        return true;
-    }
-
-    bool registerScript(const simul::String& file, const simul::String& objects, bool reload = false) {
-        if (!pyReady_) return false;
-        // 경로와 목록은 Python 문자열로 안전하게 넘긴다 (작은따옴표, 역슬래시 처리)
-        simul::String f, ob;
-        for (size_t i = 0; i < file.size(); i++) { if (file[i] == '\\' || file[i] == '\'') f += '\\'; f += file[i]; }
-        for (size_t i = 0; i < objects.size(); i++) { if (objects[i] == '\\' || objects[i] == '\'') ob += '\\'; ob += objects[i]; }
-        simul::String code = simul::String("import Main; _r = Main.") + (reload ? "reload_file" : "register_file") + "('" + f + "'" + (objects.empty() ? simul::String() : simul::String(", '") + ob + "'") + ")";
-        simul::String err;
-        py_->RunSnippet(code, &err);
-        if (!err.empty()) { logError(QString::fromUtf8("등록 실패: %1").arg(simulqt::ToQ(err))); return false; }
-        log_->Info(QString::fromUtf8("스크립트 등록: %1%2").arg(simulqt::ToQ(file)).arg(objects.empty() ? QString() : QString::fromUtf8("  (권한: %1)").arg(simulqt::ToQ(objects))));
-        rememberScript(simulqt::ToQ(file), simulqt::ToQ(objects));
-        return true;
-    }
-
-    // 메뉴 Python 을 만들고, 옵션에 따라 바로 시작하거나 N 틱을 돌린다. 모델을 모두 연 뒤에 부른다.
-    void setupPython(const Options& o) {
-        pyOpt_ = o;
-        pyOpt_.pyEnabled = true;
-        pyOpt_.pyScripts.clear();
-        pyOpt_.projectFile.clear();
-        pyOpt_.pyRun = false;
-        pyOpt_.pyEditor = false;
-        pyOpt_.objPanel = false;
-        QMenu* m = menuBar()->addMenu(QString::fromUtf8("Python"));
-        nativeMenus_ << m;
-        QAction* start = m->addAction(QString::fromUtf8("시작"));
-        start->setShortcut(Qt::Key_F5);
-        QAction* stop = m->addAction(QString::fromUtf8("정지"));
-        stop->setShortcut(Qt::SHIFT + Qt::Key_F5);
-        QAction* once = m->addAction(QString::fromUtf8("한 틱"));
-        once->setShortcut(Qt::Key_F10);
-        m->addSeparator();
-        QAction* reg = m->addAction(QString::fromUtf8("스크립트 등록..."));
-        QAction* info = m->addAction(QString::fromUtf8("오브젝트와 등록 현황 보기"));
-        // 오른쪽 Python 편집기: 파일을 쓰고, 저장하면서 등록(다시 읽기)하고, 한 줄씩 실행한다
-        pyPanel_ = new PythonPanel;
-        // 새 파일 기본 저장 위치. 개발용 Data 폴더가 없는 PC(패키지로 받은 실행 파일)에서는 문서 폴더를 쓴다 (없는 경로를 만들어 내지 않는다)
-        QString userDir = QString::fromUtf8(SIMUL_DATA_DIR) + QStringLiteral("/Python");
-        if (QFileInfo(userDir).isDir()) userDir += QStringLiteral("/user");
-        else userDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Simul/python");
-        QDir().mkpath(userDir);
-        pyPanel_->SetDefaultDir(userDir);
-        pyDock_ = new QDockWidget(QString::fromUtf8("Python 편집기"), this);
-        pyDock_->setWidget(pyPanel_);
-        addDockWidget(Qt::RightDockWidgetArea, pyDock_);
-        resizeDocks(QList<QDockWidget*>() << pyDock_, QList<int>() << 480, Qt::Horizontal);
-        pyDock_->hide();
-        // 오브젝트 / 관절 정보: 엔진 없이도 장면에서 바로 읽는다. 더블클릭하면 편집기 커서에 "이름" 이 들어간다
+    // 오른쪽 "오브젝트 / 관절 값" 도크 (Ctrl+J): 장면에서 오브젝트 이름과 관절 값을 바로 읽어 보여 준다
+    void setupObjectPanel(const Options& o) {
         if (!backend_) backend_ = new ViewerBackend(viewer_);
         objPanel_ = new ObjectInfoPanel(backend_);
         objDock_ = new QDockWidget(QString::fromUtf8("오브젝트 / 관절 값"), this);
         objDock_->setWidget(objPanel_);
         addDockWidget(Qt::RightDockWidgetArea, objDock_);
-        splitDockWidget(pyDock_, objDock_, Qt::Vertical);
         objDock_->hide();
-        m->insertAction(reg, objDock_->toggleViewAction());
-        objDock_->toggleViewAction()->setText(QString::fromUtf8("오브젝트 / 관절 값"));
-        objDock_->toggleViewAction()->setShortcut(Qt::CTRL + Qt::Key_J);
-        QObject::connect(objPanel_, &ObjectInfoPanel::nameActivated, this, [this](const QString& quoted) {
-            if (!pyDock_->isVisible()) pyDock_->show();
-            pyPanel_->editor()->insertPlainText(quoted);
-            pyPanel_->editor()->setFocus();
-        });
-        m->insertAction(reg, pyDock_->toggleViewAction());
-        pyDock_->toggleViewAction()->setText(QString::fromUtf8("Python 편집기"));
-        pyDock_->toggleViewAction()->setShortcut(Qt::CTRL + Qt::Key_E);
-        const Options opt = o;
-        QObject::connect(pyPanel_, &PythonPanel::registerRequested, this, [this, opt](const QString& path, const QString& objs) {
-            if (!ensurePython(opt)) return;
-            logDock_->show();
-            registerScript(simulqt::FromQ(path), simulqt::FromQ(objs), true);
-        });
-        QObject::connect(pyPanel_, &PythonPanel::snippetRequested, this, [this, opt](const QString& code) {
-            if (!ensurePython(opt)) return;
-            logDock_->show();
-            log_->Info(QStringLiteral(">>> ") + code);
-            simul::String err;
-            py_->RunSnippet(simulqt::FromQ(code), &err);
-        });
-        QObject::connect(start, &QAction::triggered, this, [this, opt]() { if (ensurePython(opt)) { logDock_->show(); runner_->Start(); } });
-        QObject::connect(stop, &QAction::triggered, this, [this]() { if (runner_) runner_->Stop(); });
-        QObject::connect(once, &QAction::triggered, this, [this, opt]() { if (ensurePython(opt)) { logDock_->show(); runner_->StepOnce(); } });
-        QObject::connect(reg, &QAction::triggered, this, [this, opt]() {
-            const QString f = QFileDialog::getOpenFileName(this, QString::fromUtf8("등록할 python 파일"), QString(), QString::fromUtf8("Python (*.py)"));
-            if (f.isEmpty() || !ensurePython(opt)) return;
-            bool ok = false;
-            const QString objs = QInputDialog::getText(this, QString::fromUtf8("움직일 수 있는 오브젝트"), QString::fromUtf8("오브젝트 이름 (쉼표로 구분, 비우면 파일 안의 objects 설정을 따름, * 는 전부)"), QLineEdit::Normal, QString(), &ok);
-            if (!ok) return;
-            logDock_->show();
-            registerScript(simulqt::FromQ(f), simulqt::FromQ(objs.trimmed()));
-        });
-        QObject::connect(info, &QAction::triggered, this, [this, opt]() {
-            if (!ensurePython(opt)) return;
-            logDock_->show();
-            simul::String err;
-            py_->RunSnippet("Main.hub.refresh(); print(Main.hub.describe())", &err);
-        });
-        if (fileMenu_) {   // 프로젝트: 장면 + python 을 폴더 하나로 저장 / 열기 / 실행 파일 하나로 내보내기
-            fileMenu_->addSeparator();
-            QAction* pOpen = fileMenu_->addAction(QString::fromUtf8("프로젝트 열기..."));
-            QAction* pSave = fileMenu_->addAction(QString::fromUtf8("프로젝트로 저장..."));
-            QAction* pExport = fileMenu_->addAction(QString::fromUtf8("실행 파일로 내보내기..."));
-            QObject::connect(pOpen, &QAction::triggered, this, [this]() {
-                const QString f = QFileDialog::getOpenFileName(this, QString::fromUtf8("프로젝트 열기"), QString(), QString::fromUtf8("프로젝트 (project.simul *.simul)"));
-                if (!f.isEmpty()) runProject(f);
-            });
-            QObject::connect(pSave, &QAction::triggered, this, [this]() { saveProjectAs(); });
-            QObject::connect(pExport, &QAction::triggered, this, [this]() { exportExecutable(); });
-        }
+        QAction* t = objDock_->toggleViewAction();
+        t->setText(QString::fromUtf8("오브젝트 / 관절 값"));
+        t->setShortcut(Qt::CTRL + Qt::Key_J);
+        if (fileMenu_) menuBar()->addAction(t);
         if (o.objPanel) objDock_->show();
-        if (o.pyEditor) {
-            pyDock_->show();
-            if (!o.pyScripts.empty()) pyPanel_->Open(simulqt::ToQ(o.pyScripts[0].first));
-        }
-        if (!o.pyEnabled) return;
-        if (!ensurePython(o)) return;
-        for (size_t i = 0; i < o.pyScripts.size(); i++) registerScript(o.pyScripts[i].first, o.pyScripts[i].second);
-        if (o.pySteps > 0) {
-            runner_->Start();
-            for (int i = 0; i < o.pySteps; i++) runner_->StepOnce();
-            runner_->Stop();
-            printf("시뮬레이션 %d 틱 (시계 %.3f s)\n", o.pySteps, engine_->Time());
-        } else if (o.pyRun) {
-            logDock_->show();
-            runner_->Start();
-        }
-    }
-    // ---- 프로젝트 저장 / 열기 / 내보내기 ----
-    void rememberScript(const QString& file, const QString& objects) {
-        const QString abs = QFileInfo(file).absoluteFilePath();
-        for (int i = 0; i < regScripts_.size(); i++)
-            if (QFileInfo(regScripts_[i].first).absoluteFilePath() == abs) { regScripts_[i].second = objects; return; }
-        regScripts_.push_back(qMakePair(file, objects));
     }
 
-    static QString SafeName(const QString& n) {
-        QString out;
-        for (int i = 0; i < n.size(); i++) {
-            const QChar c = n[i];
-            out += (c.isLetterOrNumber() || c == QLatin1Char('.') || c == QLatin1Char('_') || c == QLatin1Char('-')) ? c : QLatin1Char('_');
-        }
-        return out.isEmpty() ? QStringLiteral("model") : out;
-    }
-
-    // 지금 장면(모델마다 폴더, 배치)과 등록한 python 파일(권한)을 dirPath 에 project.simul 과 함께 쓴다
-    bool writeProject(const QString& dirPath) {
-        QDir base(dirPath);
-        if (!base.mkpath(QStringLiteral("models")) || !base.mkpath(QStringLiteral("scripts"))) {
-            logError(QString::fromUtf8("폴더를 만들 수 없습니다: %1").arg(dirPath));
-            return false;
-        }
-        simul::project::Project p;
-        p.name = simulqt::FromQ(base.dirName());
-        QStringList used;
-        for (int i = 0; i < viewer_->ModelCount(); i++) {
-            const QString src = viewer_->ModelSourcePath(i);
-            if (src.isEmpty() || !QFileInfo(src).isFile()) {
-                log_->Warning(QString::fromUtf8("모델 '%1' 은 원본 파일이 없어(도형 등) 프로젝트에 담지 못합니다").arg(viewer_->ModelName(i)));
-                continue;
-            }
-            const QString safe = SafeName(viewer_->ModelName(i));
-            QString uniq = safe;
-            for (int k = 2; used.contains(uniq); k++) uniq = safe + QStringLiteral("_") + QString::number(k);
-            used << uniq;
-            // 원본 파일과 그것이 쓰는 메시/텍스처를 models/<이름>/ 아래로 복사한다 (원본 폴더 안에 있는 것은 상대 위치를 그대로 유지)
-            const QDir srcDir = QFileInfo(src).absoluteDir();
-            const QDir dstDir(base.filePath(QStringLiteral("models/") + uniq));
-            QStringList files;
-            files << QFileInfo(src).absoluteFilePath();
-            files << viewer_->ModelReferencedFiles(i);
-            bool copyOk = true;
-            for (int f = 0; f < files.size(); f++) {
-                const QString rel = srcDir.relativeFilePath(files[f]);
-                if (rel.startsWith(QStringLiteral(".."))) {
-                    log_->Warning(QString::fromUtf8("모델 '%1': 폴더 밖 파일은 담지 못합니다: %2").arg(viewer_->ModelName(i)).arg(files[f]));
-                    continue;
-                }
-                const QString dst = dstDir.filePath(rel);
-                QDir().mkpath(QFileInfo(dst).absolutePath());
-                if (QFileInfo(dst).absoluteFilePath() == QFileInfo(files[f]).absoluteFilePath()) continue;
-                QFile::remove(dst);
-                if (!QFile::copy(files[f], dst)) { logError(QString::fromUtf8("복사 실패: %1 -> %2").arg(files[f]).arg(dst)); copyOk = false; }
-            }
-            if (!copyOk) return false;
-            simul::project::ModelEntry m;
-            m.file = simulqt::FromQ(QStringLiteral("models/") + uniq + QLatin1Char('/') + QFileInfo(src).fileName());
-            float v[6];
-            viewer_->ModelPlacement6(i, v);
-            for (int k = 0; k < 3; k++) { m.position[k] = v[k]; m.rpy[k] = v[3 + k] * 3.14159265358979323846 / 180.0; }
-            p.models.push_back(m);
-        }
-        QStringList scriptNames;
-        for (int i = 0; i < regScripts_.size(); i++) {
-            const QString src = QFileInfo(regScripts_[i].first).absoluteFilePath();
-            if (pyPanel_ && pyPanel_->Modified() && QFileInfo(pyPanel_->FilePath()).absoluteFilePath() == src) pyPanel_->Save();   // 편집기에서 고친 것도 담는다
-            QString bn = QFileInfo(src).fileName();
-            QString uniq = bn;
-            for (int k = 2; scriptNames.contains(uniq); k++) uniq = QFileInfo(bn).completeBaseName() + QStringLiteral("_") + QString::number(k) + QStringLiteral(".py");
-            scriptNames << uniq;
-            const QString dst = base.filePath(QStringLiteral("scripts/") + uniq);
-            if (QFileInfo(dst).absoluteFilePath() != src) {
-                QFile::remove(dst);
-                if (!QFile::copy(src, dst)) {
-                    logError(QString::fromUtf8("python 파일을 복사할 수 없습니다: %1 -> %2").arg(src).arg(dst));
-                    return false;
-                }
-            }
-            simul::project::ScriptEntry se;
-            se.file = simulqt::FromQ(QStringLiteral("scripts/") + uniq);
-            se.objects = simulqt::FromQ(regScripts_[i].second);
-            p.scripts.push_back(se);
-        }
-        p.hz = runner_ ? runner_->Rate() : pyOpt_.pyHz;
-        p.autostart = !p.scripts.empty();
-        p.showEditor = pyDock_ && pyDock_->isVisible();
-        simul::String err;
-        const QString file = base.filePath(QStringLiteral("project.simul"));
-        if (!simul::project::SaveProject(simulqt::FromQ(file), p, &err)) {
-            logError(QString::fromUtf8("project.simul 저장 실패: %1").arg(simulqt::ToQ(err)));
-            return false;
-        }
-        projectFile_ = file;
-        setWindowTitle(QString::fromUtf8("%1 - Project Simul").arg(base.dirName()));
-        const QString msg = QString::fromUtf8("프로젝트 저장: %1 (모델 %2개, python 파일 %3개)").arg(file).arg(p.models.size()).arg(p.scripts.size());
-        log_->Info(msg);
-        statusBar()->showMessage(msg);
-        return true;
-    }
-
-    bool saveProjectAs() {
-        if (viewer_->ModelCount() == 0) {
-            QMessageBox::information(this, QString::fromUtf8("프로젝트로 저장"), QString::fromUtf8("저장할 모델이 없습니다. 먼저 모델을 여세요."));
-            return false;
-        }
-        const QString start = projectFile_.isEmpty() ? QString() : QFileInfo(projectFile_).absolutePath();
-        const QString dir = QFileDialog::getExistingDirectory(this, QString::fromUtf8("프로젝트를 저장할 폴더 (이 폴더에 project.simul, models, scripts 가 만들어집니다)"), start);
-        if (dir.isEmpty()) return false;
-        if (QFileInfo(QDir(dir).filePath(QStringLiteral("project.simul"))).exists() &&
-            QMessageBox::question(this, QString::fromUtf8("프로젝트로 저장"), QString::fromUtf8("이 폴더에 이미 프로젝트가 있습니다. 덮어쓸까요?\n%1").arg(dir)) != QMessageBox::Yes)
-            return false;
-        logDock_->show();
-        return writeProject(dir);
-    }
-
-    // project.simul 을 열어 지금 장면을 바꾸고 python 을 등록하고 (설정대로) 시작한다
-    bool runProject(const QString& path) {
-        if (runner_) runner_->Stop();
-        if (py_ && pyReady_) {
-            for (int i = 0; i < regScripts_.size(); i++) {
-                simul::String f;
-                const simul::String raw = simulqt::FromQ(regScripts_[i].first);
-                for (size_t k = 0; k < raw.size(); k++) { if (raw[k] == '\\' || raw[k] == '\'') f += '\\'; f += raw[k]; }
-                simul::String err;
-                py_->RunSnippet(simul::String("import Main; Main.hub.unregister_file('") + f + "')", &err);
-            }
-        }
-        regScripts_.clear();
-        showLidar(false);
-        viewer_->CloseAll();
-        loggedWarnings_.clear();
-        lidarSpec_ = LidarSpec();
-        afterLoad(QString());
-        Options o = pyOpt_;
-        o.projectFile = simulqt::FromQ(path);
-        o.pyScripts.clear();
-        if (!loadProject(&o)) return false;
-        projectFile_ = path;
-        logDock_->show();
-        if (!ensurePython(o)) return true;
-        if (runner_) runner_->SetRate(o.pyHz);
-        for (size_t i = 0; i < o.pyScripts.size(); i++) registerScript(o.pyScripts[i].first, o.pyScripts[i].second);
-        if (o.objPanel) objDock_->show();
-        if (o.pyEditor) {
-            pyDock_->show();
-            if (!o.pyScripts.empty()) pyPanel_->Open(simulqt::ToQ(o.pyScripts[0].first));
-        }
-        if (o.pyRun && runner_) runner_->Start();
-        return true;
-    }
-
-    // 프로젝트를 이 프로그램의 실행 파일 뒤에 붙여 실행 파일 하나로 만든다
-    bool exportExecutable() {
-        if (projectFile_.isEmpty()) {
-            if (QMessageBox::question(this, QString::fromUtf8("실행 파일로 내보내기"), QString::fromUtf8("먼저 프로젝트로 저장해야 합니다. 지금 저장할까요?")) != QMessageBox::Yes) return false;
-            if (!saveProjectAs()) return false;
-        } else {
-            const QMessageBox::StandardButton b = QMessageBox::question(
-                this, QString::fromUtf8("실행 파일로 내보내기"),
-                QString::fromUtf8("지금 장면과 python 파일을 프로젝트 폴더에 다시 저장한 뒤 내보낼까요?\n(아니오: 저장된 프로젝트 그대로 내보냅니다)\n%1").arg(projectFile_),
-                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
-            if (b == QMessageBox::Cancel) return false;
-            if (b == QMessageBox::Yes && !writeProject(QFileInfo(projectFile_).absolutePath())) return false;
-        }
-        const QFileInfo pf(projectFile_);
-        QString suggest = pf.absoluteDir().absoluteFilePath(pf.absoluteDir().dirName()
-#ifdef _WIN32
-                                                            + QStringLiteral(".exe")
-#endif
-                                                            );
-        const QString out = QFileDialog::getSaveFileName(this, QString::fromUtf8("실행 파일로 내보내기"), suggest
-#ifdef _WIN32
-                                                         , QString::fromUtf8("실행 파일 (*.exe)")
-#endif
-                                                         );
-        if (out.isEmpty()) return false;
-        QString dataDir = QCoreApplication::applicationDirPath() + QStringLiteral("/Data");
-#ifdef SIMUL_DATA_DIR
-        if (!QFileInfo(dataDir + QStringLiteral("/Python/Main.py")).isFile()) dataDir = QString::fromUtf8(SIMUL_DATA_DIR);
-#endif
-        QString err;
-        int n = 0;
-        logDock_->show();
-        if (!projectpack::PackProject(projectFile_, dataDir, QCoreApplication::applicationFilePath(), out, &err, &n)) {
-            logError(QString::fromUtf8("내보내기 실패: %1").arg(err));
-            QMessageBox::warning(this, QString::fromUtf8("내보내기 실패"), err);
-            return false;
-        }
-        const QString msg = QString::fromUtf8("실행 파일로 내보냈습니다 (파일 %1개): %2").arg(n).arg(out);
-        log_->Info(msg);
-        statusBar()->showMessage(msg);
-        return true;
-    }
-    bool pythonQuitRequested() const { return py_ && py_->QuitRequested(); }
-#else
-    void setupPython(const Options&) {}
-    bool pythonQuitRequested() const { return false; }
-#endif
-
-    // project.simul 을 열어 모델을 올리고 배치하고, python 등록/설정을 Options 에 채운다 (setupPython 이 이어서 처리한다)
-    bool loadProject(Options* o) {
+    // project.simul 을 열어 모델을 올리고 배치한다
+    bool loadProject(const Options* o) {
         simul::project::Project p;
         simul::String err;
         if (!simul::project::LoadProject(o->projectFile, &p, &err)) {
@@ -1407,15 +1003,6 @@ public:
                 viewer_->SetModelPlacement6(viewer_->ModelCount() - 1, v);
             }
         }
-        for (size_t i = 0; i < p.scripts.size(); i++)
-            o->pyScripts.push_back(simul::MakePair(simulqt::FromQ(base.filePath(simulqt::ToQ(p.scripts[i].file))), p.scripts[i].objects));
-        o->pyEnabled = true;
-        o->pyHz = p.hz;
-        o->pyRun = p.autostart;
-        o->pyEditor = p.showEditor;
-        o->objPanel = o->objPanel || p.showEditor;
-        if (!p.mainPy.empty()) o->pyMain = simulqt::FromQ(base.filePath(simulqt::ToQ(p.mainPy)));
-        else if (!o->embeddedDir.empty()) o->pyMain = o->embeddedDir + "/__simul/Main.py";
         viewer_->FitView();
         return true;
     }
@@ -1890,7 +1477,6 @@ private:
 #ifdef SIMUL_DATA_DIR
         dirs << QString::fromUtf8(SIMUL_DATA_DIR);
 #endif
-        if (!cli_.embeddedDir.empty()) dirs << simulqt::ToQ(cli_.embeddedDir) + QStringLiteral("/__simul/Data");   // --pack 으로 묶은 실행 파일
         dirs << QCoreApplication::applicationDirPath() + "/Data" << QCoreApplication::applicationDirPath() + "/../Data";
         for (int i = 0; i < dirs.size(); i++) {
             const QString path = QDir(dirs[i]).filePath("Object/gizmo/axes.obj");
@@ -2086,21 +1672,10 @@ private:
     bool statusWasVisible_ = true;
     QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
-#ifdef SIMUL_HAS_PYTHON
     ViewerBackend* backend_ = nullptr;
-    simul::sim::Engine* engine_ = nullptr;
-    SimulRunner* runner_ = nullptr;
-    simul::py::Runtime* py_ = nullptr;
-    bool pyReady_ = false;
-    PythonPanel* pyPanel_ = nullptr;
-    QDockWidget* pyDock_ = nullptr;
     ObjectInfoPanel* objPanel_ = nullptr;
-    QMenu* fileMenu_ = nullptr;
-    Options pyOpt_;
-    QString projectFile_;                          // 지금 열었거나 저장한 project.simul
-    QList<QPair<QString, QString> > regScripts_;   // 등록한 python 파일과 권한 (프로젝트로 저장할 때 담는다)
     QDockWidget* objDock_ = nullptr;
-#endif
+    QMenu* fileMenu_ = nullptr;
     QDockWidget* logDock_ = nullptr;
     SunPanel* sunPanel_ = nullptr;
     QDockWidget* sunDock_ = nullptr;
@@ -2131,46 +1706,12 @@ int main(int argc, char** argv) {
     if (pr == 2) return 2;
     if (!o.makeMarker.empty()) return MakeMarkerFiles(o);
     if (o.info) return PrintInfo(o);
-    if (!o.packProject.empty()) {   // --pack: 창 없이 하나의 실행 파일로 만든다
-        QCoreApplication core(argc, argv);
-        QString out = simulqt::ToQ(o.packOut), err;
-        const QFileInfo pf(simulqt::ToQ(o.packProject));
-        if (out.isEmpty()) out = pf.absoluteDir().absoluteFilePath(pf.absoluteDir().dirName()
-#ifdef _WIN32
-                                                                   + QStringLiteral(".exe")
-#endif
-                                                                   );
-        QString dataDir = QCoreApplication::applicationDirPath() + QStringLiteral("/Data");
-#ifdef SIMUL_DATA_DIR
-        if (!QFileInfo(dataDir + QStringLiteral("/Python/Main.py")).isFile()) dataDir = QString::fromUtf8(SIMUL_DATA_DIR);
-#endif
-        int n = 0;
-        if (!projectpack::PackProject(simulqt::ToQ(o.packProject), dataDir, QCoreApplication::applicationFilePath(), out, &err, &n)) {
-            fprintf(stderr, "묶기 실패: %s\n", err.toUtf8().constData());
-            return 2;
-        }
-        printf("프로젝트를 하나의 실행 파일로 묶었습니다 (파일 %d개): %s\n", n, out.toUtf8().constData());
-        return 0;
-    }
-
     QSurfaceFormat fmt;
     fmt.setDepthBufferSize(24);
     fmt.setSamples(4);
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
-    {   // 이 실행 파일에 프로젝트가 붙어 있으면(--pack 으로 만든 것) 그것을 풀어서 연다
-        QString dir, perr;
-        const projectpack::Found found = projectpack::ExtractEmbedded(QCoreApplication::applicationFilePath(), &dir, &perr);
-        if (found == projectpack::kFailed) {
-            QMessageBox::critical(nullptr, QString::fromUtf8("프로젝트를 열 수 없음"), perr);
-            return 1;
-        }
-        if (found == projectpack::kExtracted) {
-            o.embeddedDir = simulqt::FromQ(dir);
-            o.projectFile = simulqt::FromQ(dir + QStringLiteral("/project.simul"));
-        }
-    }
     MainWindow w(o);
     w.show();
     if (!o.projectFile.empty()) {
@@ -2189,14 +1730,7 @@ int main(int argc, char** argv) {
         }
     }
     w.startHidden(o);
-    w.setupPython(o);
-#ifdef SIMUL_HAS_PYTHON
-    if (!o.saveProjectDir.empty()) {   // 확인용/배치용: 프로젝트 폴더로 저장하고 끝낸다
-        if (!w.writeProject(QString::fromLocal8Bit(o.saveProjectDir.c_str()))) return 1;
-        printf("프로젝트 저장: %s\n", o.saveProjectDir.c_str());
-        return 0;
-    }
-#endif
+    w.setupObjectPanel(o);
     if (!o.shot.empty() || !o.shotWindow.empty()) {
         const simul::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
