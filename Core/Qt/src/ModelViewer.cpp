@@ -725,6 +725,95 @@ float ModelViewer::modelBottom(int model) const {
     return modelMinZ_[k] == simul::kFloatMax ? 0.0f : modelMinZ_[k];
 }
 
+// 모델의 지금 모양과 자세로 강체를 만든다: 몸체 좌표계 = 모델 자세 (원점과 회전), 접촉 후보 점 = 꼭짓점의 볼록 껍질 근처
+bool ModelViewer::buildFallBody(int model) const {
+    const size_t k = static_cast<size_t>(model);
+    while (modelBodies_.size() < world_.size()) modelBodies_.push_back(FallBodyState());
+    if (k >= modelBodies_.size()) return false;
+    syncModelCaches();
+    FallBodyState& st = modelBodies_[k];
+    st = FallBodyState();
+    st.valid = true;
+    st.sig = modelSig_[k];
+    size_t count = 0;
+    for (size_t i = 0; i < items_.size(); i++) {
+        if (world_.EntryOfLink(robot_, items_[i]->link) == model) count += items_[i]->data.size() / 6;
+    }
+    if (count == 0 || count > 300000) return true;   // 모양이 없거나 너무 크다 (큰 배경 모델): 수직으로만 떨어진다
+    const dhMat pose = ModelPose(model);
+    double R[9], t[3] = {pose.v[12], pose.v[13], pose.v[14]};
+    for (int r = 0; r < 3; r++)
+        for (int cc = 0; cc < 3; cc++) R[r * 3 + cc] = pose.v[cc * 4 + r];
+    simul::Array<double> pts;
+    pts.reserve(count * 3);
+    for (size_t i = 0; i < items_.size(); i++) {
+        const Item& it = *items_[i];
+        if (world_.EntryOfLink(robot_, it.link) != model) continue;
+        dhMat m = it.base;
+        if (it.link >= 0 && static_cast<size_t>(it.link) < linkT_.size()) m = linkT_[static_cast<size_t>(it.link)] * it.base;
+        for (size_t v = 0; v + 5 < it.data.size(); v += 6) {
+            float p[3];
+            Transform(m, &it.data[v], p);
+            const double d[3] = {p[0] - t[0], p[1] - t[1], p[2] - t[2]};
+            pts.push_back(R[0] * d[0] + R[3] * d[1] + R[6] * d[2]);   // R^T d (몸체 좌표)
+            pts.push_back(R[1] * d[0] + R[4] * d[1] + R[7] * d[2]);
+            pts.push_back(R[2] * d[0] + R[5] * d[1] + R[8] * d[2]);
+        }
+    }
+    simul::Array<double> sel;
+    simul::dynamics::SelectContactPoints(&pts[0], pts.size() / 3, &sel);
+    st.body.SetShape(sel);
+    st.body.SetPose(t, R);
+    st.body.restitution = 0.3;
+    if (st.body.LowestPointZ() < -1e-3) st.body.asleep = true;   // 이미 바닥 아래에 있는 모델은 건드리지 않는다 (옛 동작과 같다)
+    st.rigid = true;
+    return true;
+}
+
+bool ModelViewer::stepRigidModel(int model, double dt, bool* moving) {
+    const size_t k = static_cast<size_t>(model);
+    syncModelCaches();
+    while (modelBodies_.size() < world_.size()) modelBodies_.push_back(FallBodyState());
+    if (k >= modelBodies_.size()) return false;
+    FallBodyState* st = &modelBodies_[k];
+    if (!st->valid || st->sig.size() != modelSig_[k].size() ||
+        (!st->sig.empty() && memcmp(&st->sig[0], &modelSig_[k][0], st->sig.size() * sizeof(float)) != 0)) {
+        buildFallBody(model);          // 밖에서 옮기거나 관절이 바뀌었다: 새 자세로 다시 시작한다
+        st = &modelBodies_[k];
+    }
+    if (!st->rigid) return false;
+    if (st->body.AtRest()) return true;
+    const bool m = st->body.Step(dt, gravityZ_);
+    dhMat pose;
+    for (int r = 0; r < 3; r++)
+        for (int cc = 0; cc < 3; cc++) pose.v[cc * 4 + r] = static_cast<float>(st->body.rot[r * 3 + cc]);
+    pose.v[12] = static_cast<float>(st->body.pos[0]);
+    pose.v[13] = static_cast<float>(st->body.pos[1]);
+    pose.v[14] = static_cast<float>(st->body.pos[2]);
+    SetModelPose(model, pose);
+    syncModelCaches();
+    st = &modelBodies_[k];
+    st->sig = modelSig_[k];            // 우리가 둔 자세이다
+    *moving = *moving || m;
+    return true;
+}
+
+void ModelViewer::SetModelMotion(int model, const double linear[3], const double angular[3]) {
+    if (model < 0 || static_cast<size_t>(model) >= world_.size()) return;
+    if (!world_.Composite() && !ensureComposite()) return;
+    if (!buildFallBody(model) || !modelBodies_[static_cast<size_t>(model)].rigid) return;
+    FallBodyState& st = modelBodies_[static_cast<size_t>(model)];
+    st.body.asleep = false;
+    st.body.SetVelocity(linear, angular);
+    update();
+}
+
+bool ModelViewer::ModelAtRest(int model) const {
+    if (model < 0 || static_cast<size_t>(model) >= modelBodies_.size()) return true;
+    const FallBodyState& st = modelBodies_[static_cast<size_t>(model)];
+    return !st.valid || !st.rigid || st.body.AtRest();
+}
+
 bool ModelViewer::stepFallModels(double dt) {
     const size_t n = world_.size();
     while (modelFallVel_.size() < n) modelFallVel_.push_back(0.0);
@@ -736,8 +825,10 @@ bool ModelViewer::stepFallModels(double dt) {
     for (size_t k = 0; k < n; k++) {
         if (dragModel_ == static_cast<int>(k) && (dragAxis_ >= 0 || dragRing_ >= 0)) {  // 끄는 동안에는 손이 붙잡고 있다
             modelFallVel_[k] = 0.0;
+            if (k < modelBodies_.size()) modelBodies_[k].valid = false;
             continue;
         }
+        if (floorModel_ < 0 && stepRigidModel(static_cast<int>(k), dt, &any)) continue;   // 바닥이 z=0 평면이면 회전하며 떨어진다
         simul::dynamics::FallBody b;
         const bool onFloorModel = floorModel_ >= 0 && floorModel_ != static_cast<int>(k);
         b.height = static_cast<double>(onFloorModel ? modelClearance(static_cast<int>(k)) : modelBottom(static_cast<int>(k)));
@@ -768,6 +859,7 @@ void ModelViewer::SetFloorModel(int model) {
     floorValid_ = false;
     modelMinZValid_ = false;   // 캐시를 모두 새로 만든다
     for (size_t k = 0; k < modelFallVel_.size(); k++) modelFallVel_[k] = 0.0;
+    modelBodies_.clear();
     update();
 }
 
@@ -1146,6 +1238,7 @@ bool ModelViewer::rebuildWorld(QString* error, bool keepView) {
         return false;
     }
     modelFallVel_.clear();
+    modelBodies_.clear();
     const simul::urdf::JointValues oldQ = q_;
     const QString selName = (selectedLink_ >= 0 && static_cast<size_t>(selectedLink_) < robot_.links.size()) ? simulqt::ToQ(robot_.links[static_cast<size_t>(selectedLink_)].name) : QString();
     const float vYaw = yaw_, vPitch = pitch_, vDist = dist_;
