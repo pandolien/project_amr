@@ -27,6 +27,11 @@ target_link_libraries(test_cimu PRIVATE Core)
 simul_set_warnings(test_cimu)
 add_test(NAME test_cimu COMMAND test_cimu)
 
+add_executable(test_cencoder test_cencoder.cpp)
+target_link_libraries(test_cencoder PRIVATE Core)
+simul_set_warnings(test_cencoder)
+add_test(NAME test_cencoder COMMAND test_cencoder)
+
 add_executable(test_cenv test_cenv.cpp)
 target_link_libraries(test_cenv PRIVATE Core)
 simul_set_warnings(test_cenv)

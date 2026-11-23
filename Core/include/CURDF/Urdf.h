@@ -159,6 +159,18 @@ struct ImuDef {
     ImuDef() : accelNoise(0), gyroNoise(0), orientationNoise(0) {}
 };
 
+// <gazebo reference="관절"><sensor type="encoder"> 로 적은 엔코더 (Gazebo 표준이 아닌 이 프로젝트의 확장).
+//   <encoder><resolution> 엔코더 축 1회전당 카운트 (이동 관절은 1 m 당), <gear_ratio> 엔코더 축 회전수 / 관절 회전수 (기본 1),
+//   <invert>true|false, <absolute>true|false, <noise><stddev> 카운트 잡음.
+struct EncoderDef {
+    simul::String name;    // sensor name (없으면 관절 이름)
+    simul::String joint;
+    double resolution, gearRatio;
+    bool invert, absolute;
+    float noiseCounts;
+    EncoderDef() : resolution(1024.0), gearRatio(1.0), invert(false), absolute(false), noiseCounts(0) {}
+};
+
 struct Robot {
     simul::String name;
     simul::Array<Link> links;
@@ -166,6 +178,7 @@ struct Robot {
     simul::Array<MaterialDef> materials;  // <robot> 바로 아래 이름 있는 재질
     simul::Array<LidarDef> lidars;         // <gazebo> 센서 중 라이다
     simul::Array<CameraDef> cameras;       // <gazebo> 센서 중 카메라
+    simul::Array<EncoderDef> encoders;     // <gazebo> 센서 중 엔코더 (확장)
     simul::Array<ImuDef> imus;             // <gazebo> 센서 중 IMU
     simul::Array<FtDef> forceTorques;      // <gazebo> 센서 중 힘/토크 센서
     int root;                            // 루트 link 인덱스

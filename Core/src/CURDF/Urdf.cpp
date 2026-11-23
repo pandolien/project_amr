@@ -25,6 +25,7 @@ void Robot::Clear() {
     cameras.clear();
     forceTorques.clear();
     imus.clear();
+    encoders.clear();
     root = -1;
     order.clear();
     baseDir.clear();
@@ -503,10 +504,48 @@ struct Parser {
         return true;
     }
 
+    bool ChildBool(XMLElement* parent, const char* tag, bool def, bool* out, const simul::String& ctx) {
+        *out = def;
+        XMLElement* e = parent->FirstChildElement(tag);
+        if (!e) return true;
+        const simul::String v = e->GetText() ? e->GetText() : "";
+        if (v == "true" || v == "1") *out = true;
+        else if (v == "false" || v == "0") *out = false;
+        else return Fail(ctx + ": <" + tag + "> 는 true 또는 false 여야 합니다");
+        return true;
+    }
+
+    bool ParseEncoder(XMLElement* s, const char* ref) {
+        EncoderDef d;
+        d.name = s->Attribute("name") ? s->Attribute("name") : "";
+        const simul::String ctx = "엔코더 '" + (d.name.empty() ? simul::String(ref ? ref : "") : d.name) + "'";
+        if (!ref || !*ref) return Fail(ctx + ": <gazebo reference=\"관절\"> 가 필요합니다");
+        d.joint = ref;
+        if (d.name.empty()) d.name = d.joint;
+        if (XMLElement* enc = s->FirstChildElement("encoder")) {
+            float res = static_cast<float>(d.resolution), gear = static_cast<float>(d.gearRatio);
+            if (!ChildFloat(enc, "resolution", res, &res, ctx) || !ChildFloat(enc, "gear_ratio", gear, &gear, ctx)) return false;
+            if (!(res > 0.0f) || !(gear > 0.0f)) return Fail(ctx + ": resolution 과 gear_ratio 는 0 보다 커야 합니다");
+            d.resolution = static_cast<double>(res);
+            d.gearRatio = static_cast<double>(gear);
+            if (!ChildBool(enc, "invert", false, &d.invert, ctx) || !ChildBool(enc, "absolute", false, &d.absolute, ctx)) return false;
+        }
+        if (XMLElement* noise = s->FirstChildElement("noise")) {
+            if (!ChildFloat(noise, "stddev", 0.0f, &d.noiseCounts, ctx + " noise")) return false;
+            if (d.noiseCounts < 0.0f) return Fail(ctx + ": noise stddev 가 음수입니다");
+        }
+        robot->encoders.push_back(d);
+        return true;
+    }
+
     bool ParseGazebo(XMLElement* g) {
         const char* ref = g->Attribute("reference");
         for (XMLElement* s = g->FirstChildElement("sensor"); s; s = s->NextSiblingElement("sensor")) {
             const simul::String type = s->Attribute("type") ? s->Attribute("type") : "";
+            if (type == "encoder") {
+                if (!ParseEncoder(s, ref)) return false;
+                continue;
+            }
             if (type == "imu") {
                 if (!ParseImu(s, ref)) return false;
                 continue;
@@ -594,6 +633,8 @@ struct Parser {
         if (!Validate()) return false;
         for (size_t i = 0; i < robot->lidars.size(); i++)
             if (robot->FindLink(robot->lidars[i].link) < 0) return Fail("라이다 '" + robot->lidars[i].name + "' 가 붙은 링크가 없습니다: " + robot->lidars[i].link);
+        for (size_t i = 0; i < robot->encoders.size(); i++)
+            if (robot->FindJoint(robot->encoders[i].joint) < 0) return Fail("엔코더 '" + robot->encoders[i].name + "' 가 붙은 관절이 없습니다: " + robot->encoders[i].joint);
         for (size_t i = 0; i < robot->imus.size(); i++)
             if (robot->FindLink(robot->imus[i].link) < 0) return Fail("IMU '" + robot->imus[i].name + "' 가 붙은 링크가 없습니다: " + robot->imus[i].link);
         for (size_t i = 0; i < robot->forceTorques.size(); i++)

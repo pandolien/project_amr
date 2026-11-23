@@ -41,7 +41,7 @@ project_simul/
 | CURDF | URDF 읽기, 순기구학, URDF 안의 메시 로딩 | 3d, CMesh, tinyxml2 |
 | CCollision | 충돌 감지: AABB, OBB(SAT), 겹침 쌍 찾기(Sweep and Prune), 로봇 링크 자기충돌(AABB -> OBB 2단계) | 3d, CMesh, CURDF |
 | CEnv | 환경: 태양 위치 (날짜/시각/위치 -> 방위각, 고도, 일출/일몰) | 3d |
-| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상 / 힘·토크 센서: 관절 전달 하중 / IMU: 가속도·자이로·자세, 편향·잡음·포화) | CCollision, CDynamics, 3d |
+| CSensor | 센서 시뮬레이션 (2D/3D 라이다: 레이캐스트 부채꼴, 잡음, 범위 / 카메라: BGR 컬러 + 깊이 영상 / 힘·토크 센서: 관절 전달 하중 / IMU: 가속도·자이로·자세 / 엔코더·차동 구동 오도메트리: 휠·관절, 양자화·잡음, 위치 적분 / 모두 편향·잡음·포화) | CCollision, CDynamics, 3d |
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
@@ -281,6 +281,28 @@ s.link = "base_link";
 s.accelNoiseStdDev = 0.05f;
 simul::sensor::Imu imu(s);
 simul::sensor::ImuReading m = imu.Measure(robot, q);   // m.accel, m.gyro, m.orientation
+```
+
+## 엔코더와 오도메트리 (CSensor: Encoder.h, Odometry.h)
+
+**엔코더**는 관절 하나의 회전/이동을 정수 카운트로 셉니다. 구동륜(휠 엔코더)과 로봇암 관절(관절 엔코더)에 같이 씁니다.
+
+- 엔코더는 보통 모터 축에 달리므로 관절 1회전(이동 관절은 1 m)당 카운트 = `resolution * gearRatio` 입니다. 카운트는 내림으로 양자화하고, 증분형(기본)은 첫 측정 자리가 0, `absolute` 이면 관절 0 자리가 0 입니다 (`Reset()` 으로 영점을 다시 잡음).
+- `invert` 로 카운트 방향을 뒤집습니다. 결과(`EncoderReading`)의 `position`, `velocity` 는 카운트 방향 기준이라, 좌우 바퀴 축 방향이 반대인 모델도 `invert` 만 맞추면 "앞으로 구르면 +" 가 됩니다. `dt` 를 주면 속도는 카운트 차이로(양자화됨), 안 주면 `qd` 로 구합니다.
+- 잡음은 카운트 단위 표준편차(`noiseCounts`), 같은 시드면 같은 잡음.
+- URDF: `<gazebo reference="관절"><sensor type="encoder">` 의 `<encoder><resolution|gear_ratio|invert|absolute>`, `<noise><stddev>` (Gazebo 표준이 아닌 이 프로젝트의 확장) 를 `Robot::encoders` 에 읽고 `EncoderSettingsFromDef` 로 설정으로 바꿉니다.
+
+**차동 구동 오도메트리** (`DiffDriveOdometry`): 좌우 바퀴 회전 변화로 평면 위치 (x, y, yaw) 와 속도 (v, w) 를 중점법으로 적분합니다. 바퀴 반지름과 윤거를 줍니다. 바퀴 슬립은 없다고 보므로 실제와 어긋나는 만큼이 오도메트리 오차입니다. `Update(좌 엔코더 측정, 우 엔코더 측정, dt)` 로 엔코더 값을 바로 먹일 수 있습니다 (첫 호출은 기준만 잡음).
+
+- 검증: `tests/test_cencoder.cpp` (양자화, 방향, 증분/절대, 감속비, 속도, 이동 관절, 잡음, URDF, 직진/제자리 회전/반원 주행, 엔코더 -> 오도메트리 전체 경로).
+
+```cpp
+simul::sensor::EncoderSettings s;
+s.joint = "left_wheel"; s.resolution = 2048; s.gearRatio = 10; s.invert = true;
+simul::sensor::Encoder left(s);   // right 도 같은 방식
+simul::sensor::DiffDriveGeometry g; g.wheelRadius = 0.1; g.trackWidth = 0.5;
+simul::sensor::DiffDriveOdometry odom(g);
+odom.Update(left.Measure(robot, q, qd, dt), right.Measure(robot, q, qd, dt), dt);   // odom.Pose().x, .y, .yaw
 ```
 
 ## 태양 (CEnv: Sun.h)
