@@ -308,6 +308,20 @@ int main(int argc, char** argv) {
             v->RemoveModel(bx);
             CHECK(v->ModelCount() == before, "fall test box removed");
         }
+        // 회전 낙하 시험용 URDF (Data/Object/samples/fall_*.urdf): 모두 위에서 기울어진 채 떨어져 결국 멈추고, 바닥 아래로 들어가지 않는다
+        {
+            const char* names[] = {"fall_box_tilted", "fall_box_corner", "fall_plate", "fall_bar", "fall_cylinder"};
+            for (int i = 0; i < 5; i++) {
+                const QString path = QString(SIMUL_TEST_DATA_DIR) + "/Object/samples/" + names[i] + ".urdf";
+                const int before = v->ModelCount();
+                QString ferr;
+                CHECK(v->AddFile(path, &ferr), "load a fall test urdf");
+                const double t = v->SimulateFall(40.0);
+                CHECK(t < 39.0, "a fall test model comes to rest");
+                CHECK(v->ObjectBottom() > -2e-3f && v->ObjectBottom() < 3e-3f, "a fall test model rests on the floor, not above or inside it");
+                v->RemoveModel(before);
+            }
+        }
         // 길이 단위 변환: mm 로 만든 파일(1000 단위 상자)을 0.001 배 하면 1 m 가 된다
         {
             const QString objPath = QString::fromUtf8(tu::Tmp("simul_mm_cube.obj").c_str());
