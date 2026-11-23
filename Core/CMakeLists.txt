@@ -3,6 +3,8 @@
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 add_library(Core STATIC ${CORE_SOURCES})
+# 공유 라이브러리(simul_core)에 정적으로 들어가므로 위치 독립 코드로 만든다
+set_target_properties(Core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(Core PUBLIC include)
 # 외부에 공개하지 않는 내부 헤더 (FileUtil.h 등)
 target_include_directories(Core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal)

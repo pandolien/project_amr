@@ -16,6 +16,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# 정적 라이브러리(Core, CoreQt)가 공유 라이브러리(simul_core, simul_gui)에 들어가므로 위치 독립 코드로 만든다
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # 소스 파일은 UTF-8(한글 주석 포함). MSVC 는 지정하지 않으면 시스템 코드 페이지로 읽는다.
 if(MSVC)
@@ -42,6 +44,7 @@ set(SIMUL_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 
 # ---- 라이브러리 (의존 순서: Core <- CoreQt) ----
 add_subdirectory(Core)
+
 
 # ---- CorePy (선택): 내장 Python ----
 set(SIMUL_HAS_PYTHON OFF)
@@ -88,6 +91,9 @@ if(SIMUL_BUILD_QT)
     set(CMAKE_AUTORCC ON)
     add_subdirectory(Core/Qt)   # CoreQt: 재사용 Qt 위젯
 endif()
+
+# ---- 공유 라이브러리 simul_core (C API, Qt 없음) 와 simul_gui (3D 창, Qt) : python ctypes 가 불러 쓴다 ----
+add_subdirectory(api)
 
 if(SIMUL_BUILD_TESTS)
     enable_testing()

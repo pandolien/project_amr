@@ -415,6 +415,40 @@ register(update)                              # register(update, period=0.05) �
 
 메뉴 Python > "오브젝트 / 관절 값" (Ctrl+J, 시작할 때 `--object-panel`). 장면의 오브젝트마다 이름, 종류, 위치(m)와 방향(roll pitch yaw, 도)이 나오고, 펼치면 관절 이름, 지금 값(rad 또는 m), 한계가 나온다. 시뮬레이션이 도는 동안 값이 0.1 초마다 갱신된다. 이름이나 관절 행을 더블클릭하면 Python 편집기 커서 위치에 `"elbow_pitch"` 처럼 따옴표 붙은 이름이 들어간다.
 
+## python 에서 불러 쓰기 (simul_core / simul_gui, python/simul)
+
+시뮬레이션 코어가 공유 라이브러리(C 인터페이스)로 나와 있고, python 은 그것을 `ctypes` 로 불러 시뮬레이션을 직접 돌린다 (python 이 주인이다).
+
+| 라이브러리 | 내용 | 의존 |
+|---|---|---|
+| `simul_core` (`libsimul_core.so` / `simul_core.dll`) | 모델 올리기, 오브젝트·관절 상태, 충돌, 명령, 시간 진행, 이벤트. `api/include/simul_api.h` | Qt 없음 |
+| `simul_gui` (`libsimul_gui.so` / `simul_gui.dll`) | 3D 창 (보기 전용). `api/include/simul_gui.h` | Qt 5 (선택) |
+
+빌드하면 `build/lib` (Windows 는 `build/bin`)에 생긴다. python 쪽은 `python/simul` 패키지다 (설치 필요 없음: `PYTHONPATH=python` 또는 `sys.path` 에 넣는다). 라이브러리는 환경 변수 `SIMUL_LIB` (파일 또는 폴더)로 알려 준다.
+
+```python
+import math, simul
+
+sim = simul.Simulation()
+arm = sim.add_model("Data/Object/samples/arm.urdf", position=(0, 0, 0), rpy=(0, 0, 0))
+sim.show()                                   # 선택: 3D 창 (Qt 가 있어야 함)
+
+arm.move_joint("shoulder_pitch", 0.5, speed=1.0)   # 명령은 다음 step 시작에 적용된다
+for _ in range(100):
+    sim.step(0.01)
+print(arm.joints["shoulder_pitch"].value, sim.time, sim.collisions(), sim.events())
+
+def update(info):                            # 정보 묶음(시간, 오브젝트, 충돌)을 받고 움직임을 돌려준다
+    return {"arm": {"joints": {"base_yaw": 0.8 * math.sin(info.time)}}}
+sim.run(update, dt=0.02, duration=5.0, realtime=True)     # 창이 열려 있으면 매 step 갱신, 창을 닫으면 끝
+```
+
+- 단위: 길이 m, 각도 rad, 시간 s, 자세 쿼터니언 (x, y, z, w). 명령(`set_pose`, `set_joint`, `move_to`, `move_joint`, `stop`)은 큐에 들어가 다음 `step` 시작에 적용된다. 한계를 넘는 값이나 없는 관절은 `SimulError`.
+- `info`: `time`, `dt`, `objects[이름]` (`position`, `quaternion`, `joints[이름].value/.lower/.upper`), `collisions` (`Contact`: `a`, `b`, `link_a`, `link_b`, `same`), `collided(이름)`. 돌려주는 움직임: `{오브젝트: {"joints": {관절: 목표 또는 (목표, 속도)}, "position": (x, y, z), "speed": m/s}}`. 같은 목표는 다시 내지 않는다.
+- 충돌은 OBB 까지 겹친 링크 쌍이다 (`same` 이 True 면 같은 오브젝트 안의 자기충돌).
+- 창은 simul_core 의 상태를 그리는 보기 전용이다. 시뮬레이션은 창 없이도 돌고, 창은 `update_window()` 를 부르는 스레드에서만 다룬다.
+- C 에서 직접 쓰려면 `api/include/simul_api.h` 를 본다 (예: `tests/test_capi.cpp`). 예제: `python/examples/arm_swing.py`, 시험: `tests/test_python_api.py`.
+
 ## 프로젝트와 하나의 실행 파일 (project.simul, --pack)
 
 장면(모델), python 파일과 권한, 실행 설정을 프로젝트 폴더 하나로 묶고, 그것을 **실행 파일 하나**로 만들 수 있다. 받은 사람은 그 실행 파일만 실행하면 3D 화면이 뜨고 python 코드가 뒤에서 돌면서 시뮬레이션이 그대로 움직인다.
