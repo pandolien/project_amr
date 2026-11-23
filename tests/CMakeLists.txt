@@ -154,6 +154,12 @@ target_link_libraries(test_cmarker PRIVATE Core)
 simul_set_warnings(test_cmarker)
 add_test(NAME test_cmarker COMMAND test_cmarker)
 
+add_executable(test_crl test_crl.cpp)
+target_link_libraries(test_crl PRIVATE Core)
+simul_set_warnings(test_crl)
+target_compile_definitions(test_crl PRIVATE SIMUL_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/Data")
+add_test(NAME test_crl COMMAND test_crl)
+
 add_executable(test_csimul test_csimul.cpp)
 target_link_libraries(test_csimul PRIVATE Core)
 simul_set_warnings(test_csimul)

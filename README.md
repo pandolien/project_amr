@@ -45,6 +45,7 @@ project_simul/
 | CKinematics | 범용 수치 역기구학 (감쇠 최소제곱, 관절 한계, mimic) | 3d, CURDF |
 | CDynamics | 동역학: 중력 토크, 질량중심 (double 계산, SI 단위) | 3d, CURDF |
 | CSimul | 시뮬레이션 | CDynamics |
+| CRL | 강화학습 학습용 (feature/reinforcement-learning 브랜치): 난수, 환경 인터페이스, 로봇 팔 도달 환경(Engine 기반), Q-러닝, REINFORCE. 설명은 `docs/reinforcement_learning.md` | CSimul, CURDF, 3d |
 | CProcess | 물류 공정: 물건을 A 지점에서 B 지점으로 옮긴다 (로봇 없이 직선 이동, 상태/이벤트) | 3d |
 | CSock | 외부 통신 | - |
 

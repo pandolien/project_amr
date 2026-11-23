@@ -82,6 +82,12 @@ if(SIMUL_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+# 강화학습 학습용 예제 (Qt 없이 빌드된다): 로봇 팔 도달 환경에서 Q-러닝 / REINFORCE
+add_executable(rl_arm_reach examples/rl_arm_reach.cpp)
+target_link_libraries(rl_arm_reach PRIVATE Core)
+target_compile_definitions(rl_arm_reach PRIVATE SIMUL_DATA_DIR="${SIMUL_DATA_DIR}")
+simul_set_warnings(rl_arm_reach)
+
 # 다른 Qt 프로그램이 3D 뷰(SimulView)를 붙이는 최소 예
 if(SIMUL_BUILD_QT)
     add_executable(embed_host examples/embed_host.cpp)
