@@ -484,6 +484,7 @@ private:
     };
     mutable simul::Array<FallBodyState> modelBodies_;
     bool buildFallBody(int model) const;      // 모델의 지금 모양과 자세로 강체를 만든다
+    bool isRobotModel(int model) const;           // 움직이는 관절이 있는 모델 (충돌로 밀려나지 않는다)
     bool prepareRigid(int model, bool dragged);   // 모델의 강체를 지금 상태에 맞춘다 (강체로 다루는 모델이면 true)
     void commitRigid(int model, bool* moving);    // 강체가 움직였으면 그 자세를 모델에 쓴다
     simul::Scene scene_;
