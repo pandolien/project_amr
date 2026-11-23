@@ -14,6 +14,7 @@ import keyword
 import os
 import re
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, ".."))
@@ -162,6 +163,7 @@ class Editor(QMainWindow):
         self.project = None
         self.proc = None
         self.sim = None
+        self._last_tick = time.monotonic()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.tabs = QTabWidget()
@@ -384,7 +386,7 @@ class Editor(QMainWindow):
             apply(v)
         sl.valueChanged.connect(from_slider)
         sp.valueChanged.connect(from_spin)
-        w._spin, w._slider = sp, sl
+        w._spin, w._slider, w._lo, w._hi, w._obj, w._jn = sp, sl, lo, hi, obj, jn
         return w
 
     def tick(self):
@@ -392,12 +394,36 @@ class Editor(QMainWindow):
         if self.sim is None:
             return
         try:
-            self.sim.step(0.001)
+            now = time.monotonic()
+            dt = min(max(now - self._last_tick, 0.001), 0.1)      # 실제 시간만큼 시뮬레이션을 진행한다
+            self._last_tick = now
+            self.sim.step(dt)
+            self.sync_sliders()
             if self.sim.window_open:
                 self.sim.update_window()
         except Exception as e:
             self.timer.stop()
             self.log.appendPlainText("시뮬레이션 오류: %s" % e)
+
+    def sync_sliders(self):
+        """Python Command 나 코드가 바꾼 관절 값을 슬라이더에 되돌려 보여 준다 (사용자가 만지는 중인 것은 건드리지 않는다)."""
+        for i in range(self.objects.topLevelItemCount()):
+            top = self.objects.topLevelItem(i)
+            for k in range(top.childCount()):
+                w = self.objects.itemWidget(top.child(k), 1)
+                if w is None or w._spin.hasFocus() or w._slider.isSliderDown():
+                    continue
+                try:
+                    v = self.sim.objects[w._obj].joints[w._jn].value
+                except Exception:
+                    continue
+                if abs(v - w._spin.value()) > 1e-6:
+                    w._spin.blockSignals(True)
+                    w._slider.blockSignals(True)
+                    w._spin.setValue(v)
+                    w._slider.setValue(int(round((v - w._lo) / (w._hi - w._lo) * 1000)))
+                    w._spin.blockSignals(False)
+                    w._slider.blockSignals(False)
 
     def show_3d(self):
         """카메라를 모델 전체에 맞춘다 (3D 화면은 에디터 안에 있다)."""
