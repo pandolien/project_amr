@@ -456,7 +456,9 @@ bool NeedsUpgrade(const QString& dir) {
     if (!f.open(QIODevice::ReadOnly)) return false;
     const QString text = QString::fromUtf8(f.readAll());
     if (!text.contains(QStringLiteral("class Main")) || !text.contains(QStringLiteral("--editor"))) return true;
-    return !QFileInfo(dir + QStringLiteral("/Simul/Simul.py")).isFile() || !HasCoreLib(dir) || !QFileInfo(dir + QStringLiteral("/run.sh")).isFile();
+    QFile sp(dir + QStringLiteral("/Simul/Simul.py"));
+    if (!sp.open(QIODevice::ReadOnly) || !QString::fromUtf8(sp.readAll()).contains(QStringLiteral("SIMUL_FEED"))) return true;   // 없거나 에디터 연동 이전 버전
+    return !HasCoreLib(dir) || !QFileInfo(dir + QStringLiteral("/run.sh")).isFile();
 }
 
 // 예전 구조(함수형)의 프로젝트를 class 구조로 바꾼다. 바꾸는 파일은 .bak 으로 남긴다.

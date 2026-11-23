@@ -50,6 +50,7 @@ private:
     void buildMenus();
     bool closeAllTabs();
     void markTab(CodeEdit* ed);
+    bool offerUpgrade(const QString& dir);
     void log(const QString& text);
 
     SimulView* view_;
@@ -63,6 +64,7 @@ private:
     QString project_;
     QStringList modelNames_;   // 3D View 의 모델 순서 (오브젝트 이름 = URDF 파일 이름)
     QByteArray runBuf_;
+    bool feedSeen_ = false;
 };
 
 #endif

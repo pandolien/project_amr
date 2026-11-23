@@ -13,7 +13,9 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProcessEnvironment>
+#include <QTimer>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTreeView>
@@ -220,14 +222,7 @@ bool EditorWindow::OpenProject(const QString& dirIn) {
     }
     if (!closeAllTabs()) return false;
     StopMain();
-    if (projecttools::NeedsUpgrade(dir) &&
-        QMessageBox::question(this, K("프로젝트 갱신"), K("이 프로젝트는 Simul/ (DLL, Simul.py) 이 없거나 예전 구조입니다.\nSimul/ 을 채우고, 예전 구조라면 main.py 와 틀 그대로인 Code/*.py 도 class 구조로 바꿀까요?\n(바꾸는 파일은 .bak 으로 남기고, 직접 쓴 코드는 그대로 둡니다)")) == QMessageBox::Yes) {
-        QString uerr;
-        QStringList ulog;
-        if (!projecttools::UpgradeProject(dir, &uerr, &ulog)) QMessageBox::warning(this, K("프로젝트 갱신"), uerr);
-        bottom_->setCurrentWidget(log_);
-        log(ulog.join(QLatin1Char('\n')));
-    }
+    offerUpgrade(dir);
     project_ = dir;
     setWindowTitle(QStringLiteral("Simul Editor - ") + dir);
     fs_->setRootPath(dir);
@@ -237,6 +232,19 @@ bool EditorWindow::OpenProject(const QString& dirIn) {
     console_->Start(dir);
     statusBar()->showMessage(K("프로젝트: ") + dir);
     return true;
+}
+
+// 예전 구조이거나 Simul/ 이 비었거나 에디터 연동 이전 Simul.py 이면 갱신을 권한다. 갱신했거나 필요 없으면 true.
+bool EditorWindow::offerUpgrade(const QString& dir) {
+    if (!projecttools::NeedsUpgrade(dir)) return true;
+    if (QMessageBox::question(this, K("프로젝트 갱신"), K("이 프로젝트는 예전 구조이거나 Simul/ (DLL, Simul.py) 이 최신이 아닙니다.\n(3D View 에서 움직임을 보려면 갱신이 필요합니다)\nSimul/ 을 채우고, main.py 와 틀 그대로인 Code/*.py 도 class 구조로 바꿀까요?\n(바꾸는 파일은 .bak 으로 남기고, 직접 쓴 코드는 그대로 둡니다)")) != QMessageBox::Yes) return false;
+    QString uerr;
+    QStringList ulog;
+    const bool ok = projecttools::UpgradeProject(dir, &uerr, &ulog);
+    if (!ok) QMessageBox::warning(this, K("프로젝트 갱신"), uerr);
+    bottom_->setCurrentWidget(log_);
+    log(ulog.join(QLatin1Char('\n')));
+    return ok;
 }
 
 void EditorWindow::reloadModels() {
@@ -253,6 +261,7 @@ void EditorWindow::reloadModels() {
 
 // python(시뮬레이션)이 보낸 오브젝트 상태 {"o": {이름: {"p": [x,y,z,qx,qy,qz,qw], "j": {관절: 값}}}} 를 3D View 에 그대로 옮긴다
 void EditorWindow::applyFeed(const QString& json) {
+    feedSeen_ = true;
     const QJsonObject objs = QJsonDocument::fromJson(json.toUtf8()).object().value(QStringLiteral("o")).toObject();
     simul::urdf::JointValues q = view_->viewer()->CurrentJointValues();
     for (QJsonObject::const_iterator it = objs.begin(); it != objs.end(); ++it) {
@@ -342,6 +351,7 @@ void EditorWindow::RunMain(RunMode mode) {
     if (project_.isEmpty()) return;
     StopMain();
     SaveAll();
+    if (mode == InEditor && !offerUpgrade(project_)) { log(K("갱신하지 않아 3D View 로 실행하지 않습니다 (실행 > 별도 3D 창은 됩니다)")); bottom_->setCurrentWidget(log_); return; }
     if (mode == InEditor) reloadModels();   // 처음 자세에서 시작
     QString program;
     QStringList args;
@@ -376,7 +386,15 @@ void EditorWindow::RunMain(RunMode mode) {
     else if (mode == Headless) args << QStringLiteral("--no-window");
     bottom_->setCurrentWidget(log_);
     log(K("--- main.py 실행: ") + program + QLatin1Char(' ') + args.join(QLatin1Char(' ')) + QStringLiteral(" ---"));
+    feedSeen_ = false;
     proc_->start(program, args);
+    if (mode == InEditor) {
+        QPointer<QProcess> guard(proc_);
+        QTimer::singleShot(5000, this, [this, guard]() {
+            if (guard && guard == proc_ && guard->state() != QProcess::NotRunning && !feedSeen_)
+                log(K("[알림] 5초가 지나도 python 에서 오브젝트 상태가 오지 않습니다. 위 로그의 오류를 확인하세요. 오류가 없으면 main.py 에 --editor 처리(Main class)가 있는지, Simul/Simul.py 가 최신인지 확인하세요 (프로젝트를 다시 열어 갱신)."));
+        });
+    }
 }
 
 // 프로젝트 폴더에 venv 를 만들고(python -m venv), requirements.txt 에 패키지가 있으면 설치한다. 만들면 F5 와 Python CMD 가 그 python 을 쓴다.
