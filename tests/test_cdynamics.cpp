@@ -516,6 +516,127 @@ void testRigidFall() {
 }
 
 
+// ---- 강체끼리의 충돌 (볼록 껍질 접촉)
+namespace {
+double runBodies(simul::dynamics::RigidFall** b, size_t n, double maxSeconds) {
+    double t = 0;
+    const double dt = 1.0 / 240.0;
+    while (t < maxSeconds && simul::dynamics::StepRigidBodies(b, n, dt, -9.80665)) t += dt;
+    return t;
+}
+void placeBox(simul::dynamics::RigidFall& b, double x, double y, double z, double sx = 1.0, double sy = 1.0, double sz = 1.0) {
+    b.SetShape(unitCube(sx, sy, sz));
+    double r[9];
+    rotX(0.0, r);
+    const double p[3] = {x, y, z};
+    b.SetPose(p, r);
+}
+// 두 축 정렬 상자의 겹친 깊이(음수면 떨어져 있다): 가장 얕은 축 방향의 겹침
+double overlapDepth(const simul::dynamics::RigidFall& a, const simul::dynamics::RigidFall& b, double sa[3], double sb[3]) {
+    double best = 1e9;
+    for (int k = 0; k < 3; k++) {
+        const double o = 0.5 * (sa[k] + sb[k]) - simul::Abs(a.pos[k] - b.pos[k]);
+        best = simul::Min(best, o);
+    }
+    return best;
+}
+}  // namespace
+
+void testRigidCollisions() {
+    using simul::dynamics::RigidFall;
+    using simul::dynamics::StepRigidBodies;
+    // 바닥에 놓인 상자 위에 다른 상자를 떨어뜨린다: 위에 쌓여 멈춘다 (아래 상자는 그대로)
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 0.5);
+        placeBox(b, 0.1, -0.05, 3.0);
+        RigidFall* bodies[2] = {&a, &b};
+        runBodies(bodies, 2, 3.0);   // a 가 먼저 잠들 시간 (b 는 이미 떨어지는 중)
+        const double t = runBodies(bodies, 2, 30.0);
+        check(a.asleep && b.asleep && t < 29.0, "a box dropped on another box stacks and both come to rest");
+        check(nearly(b.pos[2], 1.5, 0.01), "the upper box rests on top of the lower one (center 1.5 m)");
+        check(nearly(a.pos[2], 0.5, 0.01) && simul::Abs(a.pos[0]) < 0.02 && simul::Abs(a.pos[1]) < 0.02, "the lower box stays");
+        check(faceDown(b, 2e-3), "the upper box lies flat");
+    }
+    // 가장자리 너머로 떨어뜨리면 쌓이지 못하고 미끄러져 바닥에 내려앉는다 (서로 겹치지 않는다)
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 0.5);
+        placeBox(b, 0.8, 0.0, 2.5);
+        RigidFall* bodies[2] = {&a, &b};
+        const double t = runBodies(bodies, 2, 40.0);
+        double sz[3] = {1, 1, 1};
+        check(a.asleep && b.asleep && t < 39.0, "a box dropped over the edge ends up resting");
+        check(overlapDepth(a, b, sz, sz) < 0.01, "the two boxes do not overlap at the end");
+        check(nearly(b.LowestPointZ(), 0.0, 2e-3) || nearly(b.pos[2], 1.5, 0.02), "the box is on the floor or on top, never inside");
+    }
+    // 달려와 부딪히면 잠든 상자가 깨어나 밀려난다 (운동량이 옮는다)
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 0.5);
+        placeBox(b, 1.6, 0.0, 0.5);
+        RigidFall* bodies[2] = {&a, &b};
+        runBodies(bodies, 2, 1.0);                      // 서로 멈춰 선다
+        check(a.asleep && b.asleep, "both boxes are asleep before the hit");
+        b.asleep = false;
+        const double lin[3] = {-4.0, 0.0, 0.0}, ang[3] = {0.0, 0.0, 0.0};
+        b.SetVelocity(lin, ang);
+        double maxV = 0.0;
+        for (int i = 0; i < 240 * 3; i++) {
+            StepRigidBodies(bodies, 2, 1.0 / 240.0, -9.80665);
+            maxV = simul::Max(maxV, -a.vel[0]);
+        }
+        check(maxV > 1.0, "the resting box is hit and pushed away (it woke up)");
+        check(a.pos[0] < -0.2, "the box that was hit has moved");
+        double sz[3] = {1, 1, 1};
+        check(overlapDepth(a, b, sz, sz) < 0.01, "they do not overlap after the hit");
+    }
+    // collide = false 이면 서로 통과한다
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 0.5);
+        placeBox(b, 0.0, 0.0, 2.0);
+        a.collide = b.collide = false;
+        RigidFall* bodies[2] = {&a, &b};
+        runBodies(bodies, 2, 20.0);
+        check(nearly(b.pos[2], 0.5, 0.01), "without collisions the boxes fall through each other");
+    }
+    // 고정된 몸체 위에도 쌓이고, 고정된 몸체는 밀리지 않는다
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 1.0, 2.0, 2.0, 0.2);   // 공중에 고정된 판 (윗면 1.1)
+        a.fixed = true;
+        placeBox(b, 0.2, 0.0, 3.0, 0.4, 0.4, 0.4);
+        RigidFall* bodies[2] = {&a, &b};
+        const double t = runBodies(bodies, 2, 30.0);
+        check(b.asleep && t < 29.0, "a box dropped on a fixed plate comes to rest");
+        check(nearly(b.pos[2], 1.3, 0.01) && nearly(a.pos[2], 1.0, 1e-12), "it rests on the plate and the plate did not move");
+    }
+    // 빠르게 떨어져도 얇은 판을 뚫지 않는다
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 0.05, 3.0, 3.0, 0.1);
+        placeBox(b, 0.0, 0.0, 6.0, 0.3, 0.3, 0.3);
+        RigidFall* bodies[2] = {&a, &b};
+        runBodies(bodies, 2, 20.0);
+        check(b.pos[2] > 0.1, "a fast box does not tunnel through a thin plate");
+    }
+    // 깊이 겹쳐 시작해도 서서히 밀려나 겹침이 풀린다 (튀어 오르지 않는다)
+    {
+        RigidFall a, b;
+        placeBox(a, 0.0, 0.0, 0.5);
+        placeBox(b, 0.0, 0.0, 1.3);                 // 0.2 겹침
+        RigidFall* bodies[2] = {&a, &b};
+        double maxV = 0.0;
+        for (int i = 0; i < 240 * 5; i++) {
+            StepRigidBodies(bodies, 2, 1.0 / 240.0, -9.80665);
+            maxV = simul::Max(maxV, b.vel[2]);
+        }
+        check(nearly(b.pos[2], 1.5, 0.02) && maxV < 1.6, "an initial overlap is pushed apart smoothly");
+    }
+}
+
+
 // ---- 바닥 위 자유낙하
 void testFreeFall() {
     using simul::dynamics::FallBody;
@@ -902,6 +1023,7 @@ int main() {
     testJointLimitImpact();
     testFreeFall();
     testRigidFall();
+    testRigidCollisions();
     testRneaAndMass();
     testCoriolisAgainstMassDerivative();
     testSimulator();
