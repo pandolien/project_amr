@@ -23,6 +23,9 @@ ModelInfo ReadModelInfo(const QString& urdfPath);
 // OBJECT/ 에 URDF 를 더한다 (mesh 는 OBJ/ 로, Code/<오브젝트>.py 가 없으면 틀을 만든다)
 // meshDirs: URDF 근처에서 못 찾는 mesh 를 찾아볼 폴더들, missing: 못 찾은 mesh 수
 bool AddModels(const QString& dir, const QStringList& urdfs, QString* error, QStringList* log, const QStringList& meshDirs = QStringList(), int* missing = nullptr);
+// 예전(함수형) 프로젝트인가 / class 구조로 바꾼다 (바꾸는 파일은 .bak 으로 남김)
+bool NeedsUpgrade(const QString& dir);
+bool UpgradeProject(const QString& dir, QString* error, QStringList* log);
 bool CreateProject(const QString& dir, const QStringList& urdfs, QString* error, QStringList* log);
 // 이 프로젝트가 쓸 python 실행 파일(과 앞에 붙일 인자). 못 찾으면 program 이 빈 문자열.
 void FindPython(QString* program, QStringList* args);

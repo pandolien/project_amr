@@ -209,6 +209,14 @@ bool EditorWindow::OpenProject(const QString& dirIn) {
     }
     if (!closeAllTabs()) return false;
     StopMain();
+    if (projecttools::NeedsUpgrade(dir) &&
+        QMessageBox::question(this, K("프로젝트 갱신"), K("이 프로젝트는 예전 구조입니다 (main.py 에 Main class 가 없습니다).\nmain.py 와 Simul/Simul.py, 틀 그대로인 Code/*.py 를 class 구조로 바꿀까요?\n(바꾸는 파일은 .bak 으로 남기고, 직접 쓴 코드는 그대로 둡니다)")) == QMessageBox::Yes) {
+        QString uerr;
+        QStringList ulog;
+        if (!projecttools::UpgradeProject(dir, &uerr, &ulog)) QMessageBox::warning(this, K("프로젝트 갱신"), uerr);
+        bottom_->setCurrentWidget(log_);
+        log(ulog.join(QLatin1Char('\n')));
+    }
     project_ = dir;
     setWindowTitle(QStringLiteral("Simul Editor - ") + dir);
     fs_->setRootPath(dir);

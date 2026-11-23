@@ -384,6 +384,68 @@ bool CreateProject(const QString& dirIn, const QStringList& urdfs, QString* erro
     return true;
 }
 
+bool NeedsUpgrade(const QString& dir) {
+    QFile f(dir + QStringLiteral("/main.py"));
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    return !QString::fromUtf8(f.readAll()).contains(QStringLiteral("class Main"));
+}
+
+// 예전 구조(함수형)의 프로젝트를 class 구조로 바꾼다. 바꾸는 파일은 .bak 으로 남긴다.
+// 직접 고친 Code/<오브젝트>.py 는 건드리지 않는다 (함수형 update(info) 도 그대로 돈다).
+bool UpgradeProject(const QString& dirIn, QString* error, QStringList* log) {
+    const QString dir = QDir::cleanPath(QFileInfo(dirIn).absoluteFilePath());
+    auto backup = [&](const QString& path) {
+        QFile::remove(path + QStringLiteral(".bak"));
+        QFile::copy(path, path + QStringLiteral(".bak"));
+    };
+    const QString pySrc = QString::fromUtf8(SIMUL_SOURCE_DIR) + QStringLiteral("/python/Simul/Simul.py");
+    const QString pyDst = dir + QStringLiteral("/Simul/Simul.py");
+    if (QFileInfo(pySrc).isFile() && QFileInfo(dir + QStringLiteral("/Simul")).isDir()) {
+        QFile::remove(pyDst);
+        QFile::copy(pySrc, pyDst);
+        if (log) *log << Utf8("Simul/Simul.py 갱신");
+    }
+    if (NeedsUpgrade(dir)) {
+        backup(dir + QStringLiteral("/main.py"));
+        if (!WriteText(dir + QStringLiteral("/main.py"), QString::fromUtf8(kMain).arg(QFileInfo(dir).fileName()), error)) return false;
+        if (log) *log << Utf8("main.py 를 Main class 로 바꿈 (예전 것은 main.py.bak)");
+    }
+    const QString codeDir = dir + QStringLiteral("/Code");
+    {
+        QFile of(codeDir + QStringLiteral("/object.py"));
+        const bool has = of.open(QIODevice::ReadOnly);
+        const bool ok = has && QString::fromUtf8(of.readAll()).contains(QStringLiteral("Simul.Controller"));
+        of.close();
+        if (!ok) {
+            if (has) backup(codeDir + QStringLiteral("/object.py"));
+            QDir().mkpath(codeDir);
+            if (!WriteText(codeDir + QStringLiteral("/object.py"), QString::fromUtf8(kTemplate), error)) return false;
+        }
+    }
+    const QStringList urdfs = ProjectModels(dir);
+    for (int i = 0; i < urdfs.size(); i++) {
+        const ModelInfo mi = ReadModelInfo(urdfs[i]);
+        const QString py = codeDir + QLatin1Char('/') + mi.object + QStringLiteral(".py");
+        QFile pf(py);
+        QString cur;
+        const bool exists = pf.open(QIODevice::ReadOnly);
+        if (exists) { cur = QString::fromUtf8(pf.readAll()); pf.close(); }
+        if (exists && cur.contains(QStringLiteral("Simul.Controller"))) continue;
+        // 틀 그대로(update 가 None 만 돌려줌)이면 class 틀로 바꾼다. 직접 쓴 코드가 있으면 그대로 둔다.
+        QString body = cur;
+        body.remove(QRegularExpression(QStringLiteral("\"\"\"[\\s\\S]*?\"\"\"")));
+        body.remove(QRegularExpression(QStringLiteral("#[^\n]*")));
+        body.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
+        if (!exists || body.trimmed() == QStringLiteral("def update(info): return None")) {
+            if (exists) backup(py);
+            const QString joints = mi.joints.isEmpty() ? Utf8("(없음)") : mi.joints.join(QStringLiteral(", "));
+            if (!WriteText(py, QString::fromUtf8(kObject).arg(mi.object, joints, ClassName(mi.object)), error)) return false;
+            if (log) *log << QStringLiteral("Code/") + mi.object + Utf8(".py 를 class 틀로 바꿈");
+        } else if (log) *log << QStringLiteral("Code/") + mi.object + Utf8(".py 는 직접 쓴 코드라 그대로 둠 (함수형 update(info) 도 돌아갑니다. class 로 옮기려면 Code/object.py 견본을 보세요)");
+    }
+    return true;
+}
+
 void FindPython(QString* program, QStringList* args) {
     args->clear();
     program->clear();
