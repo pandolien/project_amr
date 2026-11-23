@@ -3,6 +3,7 @@
 """새 프로젝트 폴더를 만든다.   python3 tools/new_project.py <폴더> <모델.urdf> [<모델2.urdf> ...] [--lib 빌드/lib]
 
     <폴더>/main.py                  <- 이것을 실행한다 (DLL 을 불러 시뮬레이션을 돌린다)
+    <폴더>/simul/                   <- DLL 과 연결하는 python 파일 (python/simul 복사본: ctypes 로 simul_core 를 부른다)
     <폴더>/models/<이름>/...        <- URDF 와 그 mesh (원본 폴더째 복사)
     <폴더>/objects/<이름>.py        <- 그 오브젝트의 python 코드 (update(info))
 """
@@ -14,13 +15,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 sys.path.insert(0, os.path.join(ROOT, "python"))
 
 MAIN = '''# -*- coding: utf-8 -*-
-"""프로젝트 시작 파일.  python main.py  (SIMUL_LIB 에 simul_core/simul_gui 가 있는 폴더, SIMUL_HOME 에 저장소 폴더)"""
+"""프로젝트 시작 파일.  python main.py   (DLL 은 환경 변수 SIMUL_LIB 폴더, 없으면 아래 기본값)"""
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HOME = os.environ.get("SIMUL_HOME", {home!r})            # simul 패키지(python/simul)가 있는 저장소 폴더
-sys.path.insert(0, os.path.join(HOME, "python"))
+sys.path.insert(0, HERE)                                 # HERE/simul : DLL 과 연결하는 python 파일
 os.environ.setdefault("SIMUL_LIB", {lib!r})              # 빌드한 DLL 이 있는 폴더 (이미 환경 변수가 있으면 그대로)
 import simul  # noqa: E402
 
@@ -63,6 +63,10 @@ def main():
     os.environ["SIMUL_LIB"] = lib
     import simul
     os.makedirs(os.path.join(dest, "objects"), exist_ok=True)
+    pkg = os.path.join(dest, "simul")
+    if os.path.isdir(pkg):
+        shutil.rmtree(pkg)
+    shutil.copytree(os.path.join(ROOT, "python", "simul"), pkg, ignore=shutil.ignore_patterns("__pycache__"))
     sim = simul.Simulation()
     lines = []
     for u in urdfs:
