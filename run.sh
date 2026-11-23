@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 필요한 패키지를 확인/설치하고, 빌드한 뒤 실행한다 (Ubuntu 20.04 기준, apt 사용).
 #
-# 사용법: ./run.sh [옵션] [-- simul_main 에 넘길 인자...]
+# 기본: 빌드한 뒤 python 에디터(editor/simul_editor.py, .venv 의 PyQt5)를 실행한다.
+# 사용법: ./run.sh [옵션] [-- 에디터/simul_main 에 넘길 인자...]
+#   --viewer      python 에디터 대신 예전 C++ 뷰어(simul_main)를 실행한다
 #   --test        실행 대신 테스트(ctest)만 돌린다
 #   --no-qt       Qt(CoreQt)를 빌드하지 않는다 (qtbase5-dev 설치도 건너뜀)
 #   --no-install  패키지를 설치하지 않는다 (없으면 목록만 알려주고 종료)
@@ -16,13 +18,15 @@ BUILD_TYPE=Release
 USE_QT=ON
 DO_INSTALL=1
 DO_TEST=0
+DO_VIEWER=0
 DO_CLEAN=0
 APP_ARGS=()
 
-usage() { sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --viewer) DO_VIEWER=1 ;;
         --test) DO_TEST=1 ;;
         --no-qt) USE_QT=OFF ;;
         --no-install) DO_INSTALL=0 ;;
@@ -100,6 +104,15 @@ if [ "$DO_TEST" = 1 ]; then
     log "테스트 실행"
     (cd "$BUILD" && ctest --output-on-failure)
     exit $?
+fi
+
+if [ "$DO_VIEWER" = 0 ]; then
+    cd "$ROOT"
+    [ -x .venv/bin/python ] || python3 -m venv .venv || { log ".venv 를 만들 수 없습니다 (sudo apt install python3-venv)"; exit 1; }
+    .venv/bin/python -c "import PyQt5" 2>/dev/null || .venv/bin/python -m pip install "PyQt5>=5.12,<5.16" || exit 1
+    export SIMUL_LIB="$BUILD/lib"
+    log "에디터: SIMUL_LIB=$SIMUL_LIB"
+    exec .venv/bin/python editor/simul_editor.py "${APP_ARGS[@]+"${APP_ARGS[@]}"}"
 fi
 
 APP="$BUILD/bin/simul_main"

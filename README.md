@@ -420,11 +420,12 @@ my_project/
 우리 라이브러리(simul)를 연동해 쓰는 python 기반 에디터. 프로젝트 폴더를 열어 python 을 고치고, 불러온 URDF 를 움직여 본다.
 
 ```
-editor\run_editor.bat [프로젝트 폴더]      # Windows  (처음 한 번 .venv + PyQt5 5.12 설치, DLL 은 build\bin 의 simul_core/simul_gui)
-editor/run_editor.sh  [프로젝트 폴더]      # Linux
+run.bat [-- 프로젝트 폴더]      # Windows: 빌드 후 에디터 실행 (처음 한 번 .venv + PyQt5 설치)
+./run.sh [-- 프로젝트 폴더]     # Linux
+run.bat --viewer               # 예전 C++ 뷰어(simul_main)를 실행하려면
 ```
 
-주의: `simul_main`(Project Simul 창, 메뉴 파일/보기/물리/센서)은 C++ 뷰어이고 에디터가 아니다. 에디터는 위 스크립트(python)로 실행한다. DLL 위치는 환경 변수 `SIMUL_LIB`.
+주의: `simul_main`(Project Simul 창, 메뉴 파일/보기/물리/센서)은 C++ 뷰어이고 에디터가 아니다. 에디터는 `run.bat`/`run.sh` 가 python 으로 실행한다 (기본 동작). 직접 실행: `.venv\Scripts\python editor\simul_editor.py` (DLL 위치는 환경 변수 `SIMUL_LIB`).
 
 - 화면 배치: **왼쪽 솔루션 탭**(프로젝트 파일 트리 + 오브젝트/관절), **가운데 위 3D View**, **가운데 아래 Python Command**(탭: 실행 결과), **오른쪽 Editor**(python 편집기: 문법 색, 자동 들여쓰기, Ctrl+S).
 - **Python Command**: 대화형 python. `sim`, 오브젝트 이름(`arm` 등), `step(n, dt)`, `simul` 을 바로 쓴다. 예) `arm.set_joint("base_yaw", 1.0)`, `step(100)`, `arm.joints["base_yaw"].value`. ↑↓ 로 이전 명령.
