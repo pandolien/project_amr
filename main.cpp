@@ -582,6 +582,7 @@ int PrintInfo(const Options& o) {
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QCheckBox>
+#include <QPushButton>
 #include <QHBoxLayout>
 #include <QSpinBox>
 #include <QMessageBox>
@@ -1015,6 +1016,13 @@ public:
         // 주민을 클릭하면 그 주민 시점으로 본다 (Esc 로 원래 시점으로)
         fpTimer_ = new QTimer(this);
         fpTimer_->setInterval(16);
+        fpBack_ = new QPushButton(QString::fromUtf8("◀ 원래 시점으로  (Esc)"), viewer_);   // 주민 시점 중에만 3D 화면 오른쪽 위에 보인다
+        fpBack_->setCursor(Qt::PointingHandCursor);
+        fpBack_->setStyleSheet("QPushButton { background: rgba(20,24,32,215); color: #ffffff; border: 1px solid rgba(255,255,255,90); border-radius: 6px; padding: 7px 14px; font-weight: bold; }"
+                               "QPushButton:hover { background: rgba(60,110,200,230); }");
+        fpBack_->adjustSize();
+        fpBack_->hide();
+        QObject::connect(fpBack_, &QPushButton::clicked, this, [this]() { leaveFirstPerson(); });
         QObject::connect(fpTimer_, &QTimer::timeout, this, [this]() { updateFirstPerson(); });
         QObject::connect(viewer_, &ModelViewer::selectionPicked, this, [this](int link, bool) {
             if (link < 0 || !patrol_) return;
@@ -1072,18 +1080,22 @@ public:
         fpYawInit_ = false;
         updateFirstPerson();
         fpTimer_->start();
+        fpBack_->show();
+        fpBack_->raise();
         statusBar()->showMessage(QString::fromUtf8("%1 시점 (Esc: 돌아가기)").arg(viewer_->ModelName(model)));
     }
     void leaveFirstPerson() {
         if (fpModel_ < 0) return;
         fpModel_ = -1;
         fpTimer_->stop();
+        fpBack_->hide();
         viewer_->SetCamera(fpSavedTarget_, fpSavedDist_, fpSavedYaw_, fpSavedPitch_);
         statusBar()->clearMessage();
     }
     void updateFirstPerson() {
         if (fpModel_ < 0) return;
         if (fpModel_ >= viewer_->ModelCount()) { leaveFirstPerson(); return; }
+        fpBack_->move(viewer_->width() - fpBack_->width() - 14, 14);   // 창 크기가 바뀌어도 오른쪽 위에 둔다
         const dhPose pose = viewer_->ModelPlacementPose(fpModel_);
         const dhVector f = pose.orientation.Rotate(dhVector(0, -1, 0));   // 모델 앞쪽
         const double want = atan2(static_cast<double>(f.y), static_cast<double>(f.x));
@@ -1816,6 +1828,7 @@ private:
     QTimer* astarTimer_ = nullptr;
     int astarSerial_ = 0;
     QElapsedTimer astarIdle_;                // 마지막으로 재생 중이던 때부터 지난 시간
+    QPushButton* fpBack_ = nullptr;          // "원래 시점으로" 버튼
     QTimer* fpTimer_ = nullptr;              // 주민 시점으로 보는 중
     int fpModel_ = -1;
     bool fpYawInit_ = false;
