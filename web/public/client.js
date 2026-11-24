@@ -14,7 +14,8 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xbfe6ff);
 scene.fog = new THREE.Fog(0xbfe6ff, 60, 220);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x88a070, 1.0));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x88a070, 1.0);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2d8, 1.6);
 sun.position.set(30, 60, 20);
 scene.add(sun);
@@ -28,8 +29,69 @@ window.addEventListener('resize', () => {
 const loader = new GLTFLoader();
 function load(url) { return new Promise((res, rej) => loader.load(url, res, undefined, rej)); }
 const villagerTemplates = [];
-const mapReady = load('/assets/merchen_village.glb').then((g) => scene.add(g.scene)).catch((e) => console.warn('마을 지도를 못 읽었습니다', e));
+const mapReady = load('/assets/merchen_village.glb').then((g) => { scene.add(g.scene); setupLamps(g.scene); }).catch((e) => console.warn('마을 지도를 못 읽었습니다', e));
 const modelsReady = Promise.all([1, 2, 3, 4].map((n) => load('/assets/villager_' + n + '.glb').then((g) => { villagerTemplates[n - 1] = g.scene; }).catch(() => {})));
+
+// ---- 가로등 불 + 낮/노을/밤 ----
+// 가로등 전구(지도의 Lanterns 메쉬 꼭대기)마다 빛무리와 실제 조명을 단다. 낮에는 은은하게, 밤에는 환하게 켜진다.
+const lamps = [];   // { light, glow }
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,236,170,1)'); grad.addColorStop(0.25, 'rgba(255,214,120,0.55)'); grad.addColorStop(1, 'rgba(255,200,90,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+function setupLamps(root) {
+  const node = root.getObjectByName('Lanterns');
+  if (!node) return;
+  node.updateWorldMatrix(true, true);
+  const clusters = [];   // 가로등 한 개 = 가까운 꼭짓점 무리 (xz 0.6 m 안)
+  const v = new THREE.Vector3();
+  node.traverse((o) => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      let c = clusters.find((k) => Math.hypot(k.x - v.x, k.z - v.z) < 0.6);
+      if (!c) { c = { x: v.x, z: v.z, top: -1e9 }; clusters.push(c); }
+      if (v.y > c.top) c.top = v.y;
+    }
+  });
+  const tex = glowTexture();
+  for (const c of clusters) {
+    const y = c.top - 0.2;   // 전구 중심 (전구 반지름 0.22 m)
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.position.set(c.x, y, c.z);
+    glow.scale.set(1.9, 1.9, 1);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.23, 12, 10), new THREE.MeshBasicMaterial({ color: 0xffe9a8 }));   // 조명과 상관없이 늘 밝은 전구
+    bulb.position.set(c.x, y, c.z);
+    scene.add(bulb);
+    scene.add(glow);
+    const light = new THREE.PointLight(0xffd27a, 1, 11, 1.6);
+    light.position.set(c.x, y, c.z);
+    scene.add(light);
+    lamps.push({ light, glow });
+  }
+  applyTime();
+}
+const TIMES = [
+  { name: '낮',   sky: 0xbfe6ff, hemi: [0xffffff, 0x88a070, 1.0], sun: [0xfff2d8, 1.6], sunPos: [30, 60, 20], lamp: 0.5, glow: 0.45 },
+  { name: '노을', sky: 0xf2a98f, hemi: [0xffd6c0, 0x7b6a9a, 0.8], sun: [0xff9a6a, 1.0], sunPos: [60, 20, 10], lamp: 1.4, glow: 0.85 },
+  { name: '밤',   sky: 0x0d1330, hemi: [0x8fa0d8, 0x2a2f4a, 0.45], sun: [0x8fa6ff, 0.25], sunPos: [-30, 50, 20], lamp: 2.4, glow: 1.0 },
+];
+let timeIdx = 0;
+function applyTime() {
+  const t = TIMES[timeIdx];
+  scene.background.set(t.sky); scene.fog.color.set(t.sky);
+  hemi.color.set(t.hemi[0]); hemi.groundColor.set(t.hemi[1]); hemi.intensity = t.hemi[2];
+  sun.color.set(t.sun[0]); sun.intensity = t.sun[1]; sun.position.set(...t.sunPos);
+  for (const l of lamps) { l.light.intensity = t.lamp; l.glow.material.opacity = t.glow; }
+  document.body.style.background = '#' + t.sky.toString(16).padStart(6, '0');
+}
+function nextTime() { timeIdx = (timeIdx + 1) % TIMES.length; applyTime(); }
 
 // ---- 접속자 ----
 const players = new Map();   // id -> { group, model, label, tx, ty, tz, x, y, z, yaw, name }
@@ -126,7 +188,7 @@ function onState(s) {
   }
   for (const [id, e] of players) if (!seen.has(id)) { scene.remove(e.group); players.delete(id); }
   const me = players.get(myId);
-  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · Enter 채팅 · Esc 마우스 풀기';
+  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
 }
 
 // ---- 입력 ----
@@ -154,6 +216,7 @@ window.addEventListener('keydown', (e) => {
   if (typing) return;
   if (e.code === 'Enter' && myId) { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyV' && !e.repeat) { third = !third; return; }
+  if (e.code === 'KeyN' && !e.repeat) { nextTime(); return; }
   keys.add(e.code);
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
 });
@@ -255,4 +318,4 @@ function frame() {
   renderer.render(scene, camera);
 }
 frame();
-window.__game = { players, get myId() { return myId; }, get state() { return lastState; } };   // 시험용
+window.__game = { players, look: (y, p) => { yaw = y; pitch = p || 0; }, setTime: (i) => { timeIdx = i; applyTime(); }, lamps, get myId() { return myId; }, get state() { return lastState; } };   // 시험용
