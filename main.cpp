@@ -44,7 +44,7 @@ struct Options {
     struct Scale { simul::String model; double factor; };   // --scale 모델=배율
     simul::Array<Scale> scales;
     simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
-    simul::String patrolFile;   // --patrol 파일: 지점 파일대로 이름이 같은 모델이 걷는다 (길 찾기 없음)
+    simul::String patrolFile;   // --patrol 파일: 지점 파일대로 이름이 같은 모델이 걷는다 (막히면 A* 로 비킴)
     bool empty = false;         // --empty: 아무것도 열지 않고 시작 (기본은 파일을 안 주면 마을을 연다)
     bool onlyView;             // 기본: 메뉴/도크/상태바 없이 3D 화면만 (메뉴, 구조 트리, 오브젝트 뷰는 3D 화면 안에 뜬다). --classic 이면 예전 창 구성
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
@@ -997,6 +997,16 @@ public:
             patrol_ = nullptr;
             return;
         }
+        {   // 지점 파일과 같은 폴더의 obstacles.txt (나무, 집 등)가 있으면 그것도 피한다
+            const size_t cut = o.patrolFile.find_last_of("/\\");
+            const simul::String obsFile = (cut == simul::String::npos ? simul::String() : o.patrolFile.substr(0, cut + 1)) + "obstacles.txt";
+            simul::Array<unsigned char> ob;
+            simul::String oerr;
+            if (simul::ReadAllBytes(obsFile, &ob, &oerr) && !ob.empty()) {
+                if (!patrol_->ParseObstacles(simul::String(reinterpret_cast<const char*>(&ob[0]), ob.size()), &oerr))
+                    logError(simulqt::ToQ(oerr));
+            }
+        }
         if (!backend_) backend_ = new ViewerBackend(viewer_);
         engine_ = new simul::sim::Engine(backend_);
         engine_->SetListener(patrol_);
@@ -1047,7 +1057,7 @@ public:
         });
         astarIdle_.start();
         astarTimer_->start();
-        log_->Info(QString::fromUtf8("순찰 시작: %1 (길 %2개)").arg(simulqt::ToQ(o.patrolFile)).arg(patrol_->RouteCount()));
+        log_->Info(QString::fromUtf8("순찰 시작: %1 (길 %2개, 장애물 %3개)").arg(simulqt::ToQ(o.patrolFile)).arg(patrol_->RouteCount()).arg(patrol_->ObstacleCount()));
     }
 
     // 주민 시점: 눈 높이(발 + 0.78 m)에서 앞쪽(모델 -Y 방향)을 본다. 매 프레임 따라가고, 방향은 부드럽게 돌린다.

@@ -166,11 +166,41 @@ void testAvoid() {
     check(p.Arrivals(0) >= 1 && p.Arrivals(1) >= 1, "비켜 간 뒤에도 둘 다 목표에 도착한다");
 }
 
+void testObstacles() {
+    Patrol p;
+    String err;
+    check(p.ParseObstacles("# 주석\n5 0 1\n\n7.5 -3 0.5\r\n", &err) && p.ObstacleCount() == 2 && near(p.Obstacle(1).r, 0.5), "장애물 파일을 읽는다");
+    check(!p.ParseObstacles("5 0\n", &err) && err.find("1번째 줄") != String::npos, "숫자가 모자라면 줄 번호와 함께 오류");
+    check(!p.ParseObstacles("5 0 0\n", &err), "반지름이 0 이면 오류");
+    check(!p.ParseObstacles("5 0 1 9\n", &err), "숫자가 넘치면 오류");
+    check(p.ObstacleCount() == 2, "실패하면 이전 내용을 유지");
+
+    // 길 한가운데 나무: 곧장 가면 뚫고 지나가고, 장애물을 주면 나무 둘레 (반지름 + 0.4) 밖으로 돌아간다
+    FakeBackend b;
+    b.add("a", false);
+    Patrol q;
+    q.Parse("[a]\nspeed 1\n0 0 0\n12 0 0\n", &err);
+    q.ParseObstacles("6 0 1\n", &err);
+    Engine e(&b);
+    e.SetListener(&q);
+    e.Start();
+    double best = 1e9;
+    for (double t = 0; t < 14.0; t += 0.01) {
+        e.Step(0.01);
+        const dhVector v = posOf(e, "a");
+        const double d = hypot(static_cast<double>(v.x) - 6.0, static_cast<double>(v.y));
+        if (d < best) best = d;
+    }
+    check(best > 1.3, "나무 둘레(1.4 m) 안으로 거의 들어가지 않는다");
+    check(q.Arrivals(0) >= 1, "돌아가서도 목표에 도착한다");
+}
+
 }  // namespace
 
 int main() {
     testParse();
     testAvoid();
+    testObstacles();
     testWalk();
     testLateAndRemoved();
     if (g_fail) {

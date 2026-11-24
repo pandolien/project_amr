@@ -1,5 +1,5 @@
 // 순찰: 정해 둔 지점들을 위에서 아래로 차례로 걷는다. 끝에 닿으면 처음으로 돌아간다.
-// 다른 주민과 겹칠 것 같으면 A* (AStar.h) 로 비켜 간다. SetAvoidance(false) 로 끄면 곧장 걷는다.
+// 다른 주민이나 움직이지 않는 장애물(ParseObstacles)에 닿을 것 같으면 A* (AStar.h) 로 비켜 간다. SetAvoidance(false) 로 끄면 곧장 걷는다.
 // (Qt 와 Python 에 의존하지 않는다)
 //
 //   Engine 의 Listener 로 붙인다. 엔진이 시작되면 이름이 맞는 오브젝트를 첫 지점에 놓고, 다음 지점으로 move_to 를 보낸다.
@@ -45,6 +45,10 @@ public:
     // 피하기: 다른 주민 둘레 radius(m) 안으로 들어가지 않는 길을 찾는다. 기본은 켜짐, 0.9 m.
     void SetAvoidance(bool on, double radius = 0.9) { avoid_ = on; radius_ = radius; }
     bool Avoidance() const { return avoid_; }
+    // 움직이지 않는 장애물(나무, 집 등): 한 줄에 "x y 반지름" (m, Z-up, # 주석). 주민 몸 반지름 0.4 m 를 더해서 피한다.
+    bool ParseObstacles(const String& text, String* error);
+    int ObstacleCount() const { return static_cast<int>(fixed_.size()); }
+    const Circle2& Obstacle(int i) const { return fixed_[static_cast<size_t>(i)]; }
     int Detours() const { return detours_; }   // 지금까지 길을 새로 짠 횟수
     // 시각화용: 켜 두면 A* 로 길을 새로 짤 때마다 탐색 과정을 남긴다 (꺼져 있으면 비용 없음).
     void SetTracing(bool on) { tracing_ = on; }
@@ -72,6 +76,7 @@ private:
     void go(Engine& e, Handle h, int route, int from, int to);
     void steer(Engine& e, Handle h, int route, const dhVector& from, const dhVector& to);   // from 에서 to 로 걷기 (자세 맞춤)
 
+    Array<Circle2> fixed_;
     bool avoid_ = true;
     double radius_ = 0.9;
     double time_ = 0.0;

@@ -78,6 +78,37 @@ bool Patrol::Parse(const String& text, String* error) {
     return true;
 }
 
+bool Patrol::ParseObstacles(const String& text, String* error) {
+    Array<Circle2> list;
+    Lines lines(text);
+    String raw;
+    int no = 0;
+    while (lines.Next(&raw)) {
+        no++;
+        const String line = Trim(raw);
+        if (line.empty() || line[0] == '#') continue;
+        double v[3] = {0, 0, 0};
+        const char* p = line.c_str();
+        for (int k = 0; k < 3; k++) {
+            const char* end = p;
+            if (!ParseDouble(p, &v[k], &end) || !(fabs(v[k]) < 1e9)) {
+                if (error) *error = "장애물 파일 " + ToString(no) + "번째 줄: x y 반지름 숫자 세 개여야 합니다";
+                return false;
+            }
+            p = end;
+        }
+        double extra = 0;
+        const char* end = p;
+        if (ParseDouble(p, &extra, &end) || !(v[2] > 0)) {
+            if (error) *error = "장애물 파일 " + ToString(no) + "번째 줄: x y 반지름 (반지름은 0 보다 커야 함) 세 개여야 합니다";
+            return false;
+        }
+        list.push_back(Circle2(v[0], v[1], v[2]));
+    }
+    fixed_ = list;
+    return true;
+}
+
 int Patrol::find(const String& name) const {
     for (size_t i = 0; i < routes_.size(); i++)
         if (routes_[i].name == name) return static_cast<int>(i);
@@ -148,6 +179,10 @@ void Patrol::OnTick(Engine& e, double time, double) {
             if (k == i || !alive[k]) continue;
             const double ox = static_cast<double>(pos[k].x), oy = static_cast<double>(pos[k].y);
             if (hypot(ox - here.x, oy - here.y) < 8.0) obs.push_back(Circle2(ox, oy, radius_));
+        }
+        for (size_t k = 0; k < fixed_.size(); k++) {   // 움직이지 않는 장애물: 몸 반지름 0.4 m 를 더한다
+            const Circle2& c = fixed_[k];
+            if (hypot(c.x - here.x, c.y - here.y) < 8.0 + c.r) obs.push_back(Circle2(c.x, c.y, c.r + 0.4));
         }
         const dhVector goal3 = routes_[i].points[static_cast<size_t>(s.next)];
         const Point2 goal(static_cast<double>(goal3.x), static_cast<double>(goal3.y));
