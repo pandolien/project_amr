@@ -141,6 +141,7 @@ bool Patrol::begin(Engine& e, int route) {
     if (h.slot < 0) return false;
     State& s = state_[static_cast<size_t>(route)];
     s.started = true;
+    s.fresh = true;
     go(e, h, route, 0, 1);
     return true;
 }
@@ -153,7 +154,7 @@ void Patrol::OnStart(Engine& e) {
 }
 
 // 틱마다 (0.25 초에 한 번) 앞길이 다른 주민에게 막히는지 보고, 막히면 A* 로 비켜 가는 길을 다시 짠다.
-void Patrol::OnTick(Engine& e, double time, double) {
+void Patrol::OnTick(Engine& e, double time, double dt) {
     time_ = time;
     if (!avoid_) return;
     const size_t n = routes_.size();
@@ -164,14 +165,59 @@ void Patrol::OnTick(Engine& e, double time, double) {
         if (!state_[i].started) continue;
         hs[i] = e.Find(routes_[i].name);
         ObjectInfo info;
+        if (state_[i].fresh) {   // 방금 출발시킨 주민은 이번 틱에는 건너뛴다
+            state_[i].fresh = false;
+            continue;
+        }
         if (hs[i].slot >= 0 && e.Info(hs[i], &info)) {
             pos[i] = info.pose.position;
             alive[i] = 1;
         }
     }
+    // 1) 떼어 놓기: 서로 sep_ 보다 가까우면 번호가 작은 쪽은 한쪽으로, 큰 쪽은 반대쪽으로 민다.
+    //    둘이 똑같은 자리면 방향을 못 정하므로, 번호가 작은 쪽의 가는 방향에 수직으로 가른다 (같은 입력이면 같은 결과가 되는 대칭을 깬다).
+    if (sep_ > 0.0) {
+        Array<char> moved(n, 0);
+        const double step = 1.5 * dt;   // 한 틱에 한 명이 움직일 최대 거리
+        for (size_t i = 0; i < n; i++) {
+            for (size_t j = i + 1; j < n; j++) {
+                if (!alive[i] || !alive[j]) continue;
+                double dx = static_cast<double>(pos[j].x) - static_cast<double>(pos[i].x);
+                double dy = static_cast<double>(pos[j].y) - static_cast<double>(pos[i].y);
+                double d = hypot(dx, dy);
+                if (d >= sep_) continue;
+                if (d < 1e-6) {
+                    const double yaw = state_[i].yaw;
+                    dx = cos(yaw);
+                    dy = sin(yaw);
+                    d = 1.0;
+                }
+                double push = (sep_ - hypot(static_cast<double>(pos[j].x) - static_cast<double>(pos[i].x), static_cast<double>(pos[j].y) - static_cast<double>(pos[i].y))) * 0.5;
+                if (push > step) push = step;
+                const double ux = dx / d, uy = dy / d;
+                pos[i].x = static_cast<float>(static_cast<double>(pos[i].x) - ux * push);
+                pos[i].y = static_cast<float>(static_cast<double>(pos[i].y) - uy * push);
+                pos[j].x = static_cast<float>(static_cast<double>(pos[j].x) + ux * push);
+                pos[j].y = static_cast<float>(static_cast<double>(pos[j].y) + uy * push);
+                moved[i] = moved[j] = 1;
+            }
+        }
+        for (size_t i = 0; i < n; i++) {
+            if (!moved[i] || state_[i].path.empty()) continue;
+            steer(e, hs[i], static_cast<int>(i), pos[i], state_[i].path[state_[i].pathPos]);   // 밀린 자리에서 같은 곳으로 다시 걷기
+        }
+    }
+    // 2) 앞길 확인: 0.25 초마다 (누가 sep 안쪽으로 붙어 있으면 0.05 초마다)
     for (size_t i = 0; i < n; i++) {
         State& s = state_[i];
-        if (!alive[i] || s.path.empty() || time - s.lastPlan < 0.25) continue;
+        if (!alive[i] || s.path.empty()) continue;
+        double nearest = 1e9;
+        for (size_t k = 0; k < n; k++)
+            if (k != i && alive[k]) {
+                const double d = hypot(static_cast<double>(pos[k].x) - static_cast<double>(pos[i].x), static_cast<double>(pos[k].y) - static_cast<double>(pos[i].y));
+                if (d < nearest) nearest = d;
+            }
+        if (time - s.lastPlan < (nearest < radius_ ? 0.05 : 0.25)) continue;
         s.lastPlan = time;
         const Point2 here(static_cast<double>(pos[i].x), static_cast<double>(pos[i].y));
         Array<Circle2> obs;

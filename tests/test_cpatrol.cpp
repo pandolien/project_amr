@@ -195,12 +195,63 @@ void testObstacles() {
     check(q.Arrivals(0) >= 1, "돌아가서도 목표에 도착한다");
 }
 
+// 겹치거나 붙어서 출발한 둘: 0.2 초 안에 0.6 m 이상 벌어지고, 그 뒤로는 그 밑으로 다시 좁혀지지 않는다
+void gapAfterSeparation(const char* routes, double* tSep, double* minAfter, int* arrivedA, int* arrivedB) {
+    FakeBackend b;
+    b.add("a", false);
+    b.add("b", false);
+    Patrol p;
+    String err;
+    p.Parse(routes, &err);
+    Engine e(&b);
+    e.SetListener(&p);
+    e.Start();
+    *tSep = -1;
+    *minAfter = 1e9;
+    for (double t = 0; t < 14.0; t += 0.01) {
+        e.Step(0.01);
+        const dhVector pa = posOf(e, "a"), pb = posOf(e, "b");
+        const double d = hypot(static_cast<double>(pa.x - pb.x), static_cast<double>(pa.y - pb.y));
+        if (*tSep < 0 && d >= 0.6) *tSep = t;
+        if (*tSep >= 0 && d < *minAfter) *minAfter = d;
+    }
+    *arrivedA = p.Arrivals(0);
+    *arrivedB = p.Arrivals(1);
+}
+
+void testSeparation() {
+    double t, m;
+    int a, b;
+    gapAfterSeparation("[a]\nspeed 1\n0 0 0\n10 0 0\n[b]\nspeed 1\n0 0 0\n10 0 0\n", &t, &m, &a, &b);
+    check(t >= 0 && t < 0.3 && m > 0.55 && a >= 1 && b >= 1, "정확히 같은 자리에서 출발해도 갈라져서 둘 다 도착한다");
+    gapAfterSeparation("[a]\nspeed 1\n0 0 0\n10 0 0\n[b]\nspeed 1\n0.3 0 0\n-10 0 0\n", &t, &m, &a, &b);
+    check(t >= 0 && t < 0.3 && m > 0.55 && a >= 1 && b >= 1, "붙어서 마주 보고 출발해도 통과하지 않고 엇갈린다");
+    gapAfterSeparation("[a]\nspeed 1\n0 0 0\n10 0 0\n[b]\nspeed 1\n0.3 0.1 0\n10 0 0\n", &t, &m, &a, &b);
+    check(t >= 0 && t < 0.3 && m > 0.55 && a >= 1 && b >= 1, "붙어서 같은 목표로 가도 갈라진다");
+
+    FakeBackend fb;   // 끄면 그대로 겹쳐 걷는다
+    fb.add("a", false);
+    fb.add("b", false);
+    Patrol off;
+    String err;
+    off.Parse("[a]\nspeed 1\n0 0 0\n10 0 0\n[b]\nspeed 1\n0 0 0\n10 0 0\n", &err);
+    off.SetSeparation(0.0);
+    off.SetAvoidance(false);
+    Engine e(&fb);
+    e.SetListener(&off);
+    e.Start();
+    stepFor(e, 3.0);
+    const dhVector pa = posOf(e, "a"), pb = posOf(e, "b");
+    check(hypot(static_cast<double>(pa.x - pb.x), static_cast<double>(pa.y - pb.y)) < 0.01, "피하기를 끄면 겹친 채로 걷는다");
+}
+
 }  // namespace
 
 int main() {
     testParse();
     testAvoid();
     testObstacles();
+    testSeparation();
     testWalk();
     testLateAndRemoved();
     if (g_fail) {
