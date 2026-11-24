@@ -22,6 +22,11 @@ target_link_libraries(test_cforcetorque PRIVATE Core)
 simul_set_warnings(test_cforcetorque)
 add_test(NAME test_cforcetorque COMMAND test_cforcetorque)
 
+add_executable(test_castar test_castar.cpp)
+target_link_libraries(test_castar PRIVATE Core)
+simul_set_warnings(test_castar)
+add_test(NAME test_castar COMMAND test_castar)
+
 add_executable(test_cpatrol test_cpatrol.cpp)
 target_link_libraries(test_cpatrol PRIVATE Core)
 simul_set_warnings(test_cpatrol)

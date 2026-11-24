@@ -84,18 +84,25 @@ int Patrol::find(const String& name) const {
     return -1;
 }
 
-// from 지점에 놓고(자세는 to 쪽을 바라봄) to 로 직선 이동을 건다.
-void Patrol::go(Engine& e, Handle h, int route, int from, int to) {
-    const PatrolRoute& r = routes_[static_cast<size_t>(route)];
+void Patrol::steer(Engine& e, Handle h, int route, const dhVector& a, const dhVector& b) {
     State& s = state_[static_cast<size_t>(route)];
-    const dhVector a = r.points[static_cast<size_t>(from)];
-    const dhVector b = r.points[static_cast<size_t>(to)];
     const double dx = static_cast<double>(b.x) - static_cast<double>(a.x);
     const double dy = static_cast<double>(b.y) - static_cast<double>(a.y);
     if (dx * dx + dy * dy > 1e-12) s.yaw = atan2(dx, -dy);   // 앞쪽(-Y)이 가는 방향을 본다
     e.SetPose(h, dhPose(a, dhQuat::FromAxisAngle(static_cast<float>(s.yaw), dhVector(0, 0, 1))));
-    e.MoveTo(h, b, r.speed);
+    e.MoveTo(h, b, routes_[static_cast<size_t>(route)].speed);
+}
+
+// from 지점에 놓고(자세는 to 쪽을 바라봄) to 로 직선 이동을 건다.
+void Patrol::go(Engine& e, Handle h, int route, int from, int to) {
+    const PatrolRoute& r = routes_[static_cast<size_t>(route)];
+    State& s = state_[static_cast<size_t>(route)];
     s.next = to;
+    s.lastPlan = time_;   // SetPose 는 다음 틱에 적용되니, 그동안은 옛 위치로 길을 다시 짜지 않는다
+    s.path.clear();
+    s.path.push_back(r.points[static_cast<size_t>(to)]);
+    s.pathPos = 0;
+    steer(e, h, route, r.points[static_cast<size_t>(from)], r.points[static_cast<size_t>(to)]);
 }
 
 bool Patrol::begin(Engine& e, int route) {
@@ -114,6 +121,75 @@ void Patrol::OnStart(Engine& e) {
     }
 }
 
+// 틱마다 (0.25 초에 한 번) 앞길이 다른 주민에게 막히는지 보고, 막히면 A* 로 비켜 가는 길을 다시 짠다.
+void Patrol::OnTick(Engine& e, double time, double) {
+    time_ = time;
+    if (!avoid_) return;
+    const size_t n = routes_.size();
+    Array<dhVector> pos(n);
+    Array<char> alive(n, 0);
+    Array<Handle> hs(n);
+    for (size_t i = 0; i < n; i++) {
+        if (!state_[i].started) continue;
+        hs[i] = e.Find(routes_[i].name);
+        ObjectInfo info;
+        if (hs[i].slot >= 0 && e.Info(hs[i], &info)) {
+            pos[i] = info.pose.position;
+            alive[i] = 1;
+        }
+    }
+    for (size_t i = 0; i < n; i++) {
+        State& s = state_[i];
+        if (!alive[i] || s.path.empty() || time - s.lastPlan < 0.25) continue;
+        s.lastPlan = time;
+        const Point2 here(static_cast<double>(pos[i].x), static_cast<double>(pos[i].y));
+        Array<Circle2> obs;
+        for (size_t k = 0; k < n; k++) {
+            if (k == i || !alive[k]) continue;
+            const double ox = static_cast<double>(pos[k].x), oy = static_cast<double>(pos[k].y);
+            if (hypot(ox - here.x, oy - here.y) < 8.0) obs.push_back(Circle2(ox, oy, radius_));
+        }
+        const dhVector goal3 = routes_[i].points[static_cast<size_t>(s.next)];
+        const Point2 goal(static_cast<double>(goal3.x), static_cast<double>(goal3.y));
+
+        // 지금 가는 길(남은 꺾임점들)이 아직 비어 있으면 그대로 간다
+        bool clear = true;
+        Point2 a = here;
+        for (size_t k = s.pathPos; k < s.path.size() && clear; k++) {
+            const Point2 b(static_cast<double>(s.path[k].x), static_cast<double>(s.path[k].y));
+            clear = SegmentClear(a, b, obs);
+            a = b;
+        }
+        const bool detouring = s.path.size() > 1;
+        if (clear && !detouring) continue;
+        Array<Point2> found;
+        if (SegmentClear(here, goal, obs)) {
+            if (!detouring) continue;
+            found.push_back(goal);      // 비키던 중인데 곧장 가도 되게 됐다
+        } else if (clear) {
+            continue;                    // 비켜 가는 길이 아직 비어 있다
+        } else if (!FindPath2D(here, goal, obs, 0.25, 3.0, 0.15, &found)) {
+            continue;                    // 못 찾으면 가던 대로
+        }
+        // z 는 현재 높이에서 지점 높이까지 거리에 비례해 잇는다
+        const double total = hypot(goal.x - here.x, goal.y - here.y);
+        Array<dhVector> np;
+        Point2 prev = here;
+        double walked = 0.0;
+        for (size_t k = 0; k < found.size(); k++) {
+            walked += hypot(found[k].x - prev.x, found[k].y - prev.y);
+            prev = found[k];
+            const double t = total > 1e-9 ? (walked > total ? 1.0 : walked / total) : 1.0;
+            const float z = static_cast<float>(static_cast<double>(pos[i].z) + (static_cast<double>(goal3.z) - static_cast<double>(pos[i].z)) * t);
+            np.push_back(k + 1 == found.size() ? goal3 : dhVector(static_cast<float>(found[k].x), static_cast<float>(found[k].y), z));
+        }
+        s.path = np;
+        s.pathPos = 0;
+        detours_++;
+        steer(e, hs[i], static_cast<int>(i), pos[i], s.path[0]);
+    }
+}
+
 void Patrol::OnEvent(Engine& e, const Event& ev) {
     const int r = find(ev.name);
     if (r < 0) return;
@@ -123,6 +199,12 @@ void Patrol::OnEvent(Engine& e, const Event& ev) {
     } else if (ev.type == kEventRemoved) {
         s.started = false;
     } else if (ev.type == kEventArrived && s.started) {
+        if (s.pathPos + 1 < s.path.size()) {     // 비켜 가는 중간 지점: 다음 꺾임점으로
+            const dhVector from = s.path[s.pathPos];
+            s.pathPos++;
+            steer(e, ev.object, r, from, s.path[s.pathPos]);
+            return;
+        }
         s.reached++;
         const int here = s.next;
         const int next = (here + 1) % static_cast<int>(routes_[static_cast<size_t>(r)].points.size());

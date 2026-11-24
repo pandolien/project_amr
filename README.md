@@ -594,7 +594,9 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 
 `simul_main` 을 인자 없이 켜면(`./run.sh` 도 같다) `Data/Object/merchen_village.glb`(동화풍 마을 지도)와 주민 4명(`Data/Object/villagers/villager_N.glb`)이 열리고, 주민이 바로 걷기 시작한다. 빈 뷰어로 켜려면 `--empty`. 주민은 엔진이 움직이므로 이 기본 장면에서는 중력 낙하가 꺼져 있다.
 
-이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아가고, 가는 방향을 바라본다. 길 찾기는 없다.
+이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아가고, 가는 방향을 바라본다.
+
+주민끼리 겹칠 것 같으면 A*(`Core/include/CSimul/AStar.h`, 0.25 m 격자)로 비켜 간다. 0.25초마다 앞길이 다른 주민(반지름 0.9 m)에게 막혔는지 보고, 막히면 가는 방향의 오른쪽으로 둘러 가는 길을 다시 짠다. 마주 오는 둘이 서로 오른쪽으로 비켜 엇갈린다. 나무와 집 같은 지형 장애물은 피하지 않는다. 마을 기본 경로 4명을 300초 돌려 본 최소 간격은 피하기를 끄면 0.00 m(겹침), 켜면 약 0.65 m 였다. 서로 다른 방향에서 동시에 모이는 경우에는 지금 위치만 보고 짜므로 0.9 m 까지는 못 벌린다. 코드에서 `patrol.SetAvoidance(false)` 로 끈다.
 주민을 늘리거나 길을 바꾸려면 지점 파일에 `[모델 이름]`, `speed`(m/s), 지점 줄을 더하면 된다. 모델 이름은 파일 이름이다.
 
 ```
@@ -603,7 +605,7 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 ./build/bin/villager_patrol Data/Object 60                          # 창 없이 60초 걷게 하고 1초마다 위치를 찍는다
 ```
 
-코드: `Core/include/CSimul/Patrol.h`(엔진 `Listener`, 지점 파일 읽기 + `move_to` 연결, 시험은 `tests/test_cpatrol.cpp`), 뷰어 연결은 `main.cpp` 의 `startPatrol`, 창 없는 예제는 `examples/villager_patrol.cpp`.
+코드: `Core/include/CSimul/Patrol.h`(엔진 `Listener`, 지점 파일 읽기 + `move_to` 연결 + 비켜 가기, 시험은 `tests/test_cpatrol.cpp`, `tests/test_castar.cpp`), 뷰어 연결은 `main.cpp` 의 `startPatrol`, 창 없는 예제는 `examples/villager_patrol.cpp`.
 
 ## 바닥 모델 지정
 

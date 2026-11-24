@@ -115,10 +115,62 @@ void testLateAndRemoved() {
     check(near(posOf(e, "walker").y, 0.0, 0.6) || posOf(e, "walker").x > 1.0, "원래 있던 모델은 계속 걷는다");
 }
 
+
+// 마주 오는 둘, 앞질러 가는 둘: 피하기를 켜면 가까워져도 0.75 m 이상 떨어지고, 끄면 겹친다
+double minGap(bool avoid, const char* routes, double seconds, int* detours) {
+    FakeBackend b;
+    b.add("a", false);
+    b.add("b", false);
+    Patrol p;
+    String err;
+    if (!p.Parse(routes, &err)) return -1;
+    p.SetAvoidance(avoid);
+    Engine e(&b);
+    e.SetListener(&p);
+    e.Start();
+    double best = 1e9;
+    for (double t = 0; t < seconds; t += 0.01) {
+        e.Step(0.01);
+        const dhVector pa = posOf(e, "a"), pb = posOf(e, "b");
+        const double d = hypot(static_cast<double>(pa.x - pb.x), static_cast<double>(pa.y - pb.y));
+        if (d < best) best = d;
+    }
+    if (detours) *detours = p.Detours();
+    return best;
+}
+
+void testAvoid() {
+    const char* headOn = "[a]\nspeed 1\n0 0 0\n12 0 0\n[b]\nspeed 1\n12 0 0\n0 0 0\n";
+    int d = 0;
+    const double off = minGap(false, headOn, 10.0, &d);
+    check(off < 0.2 && d == 0, "끄면 마주 오는 둘이 겹친다 (길을 새로 짜지도 않는다)");
+    const double on = minGap(true, headOn, 14.0, &d);
+    check(on > 0.75, "켜면 마주 오는 둘이 0.75 m 이상 떨어져 엇갈린다");
+    check(d > 0, "길을 새로 짠 기록이 있다");
+
+    const char* overtake = "[a]\nspeed 2\n0 0 0\n20 0 0\n[b]\nspeed 0.5\n3 0 0\n20 0 0\n";
+    const double over = minGap(true, overtake, 12.0, &d);
+    check(over > 0.75, "빠른 쪽이 느린 쪽을 앞지를 때도 0.75 m 이상");
+
+    // 끝까지 닿는다: 비키고 나서 원래 길로 돌아와 목표에 도착
+    FakeBackend b;
+    b.add("a", false);
+    b.add("b", false);
+    Patrol p;
+    String err;
+    p.Parse(headOn, &err);
+    Engine e(&b);
+    e.SetListener(&p);
+    e.Start();
+    stepFor(e, 16.0);
+    check(p.Arrivals(0) >= 1 && p.Arrivals(1) >= 1, "비켜 간 뒤에도 둘 다 목표에 도착한다");
+}
+
 }  // namespace
 
 int main() {
     testParse();
+    testAvoid();
     testWalk();
     testLateAndRemoved();
     if (g_fail) {
