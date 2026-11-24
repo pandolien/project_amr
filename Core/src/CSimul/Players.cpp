@@ -18,6 +18,8 @@ const double kBody = 0.4;          // 접속자 몸 반지름 (장애물에 더�
 const double kPlayerGap = 0.8;     // 접속자끼리, 접속자와 NPC 의 중심 거리 최소값
 const double kMinGround = 0.65;    // 이보다 낮은 땅(물가, 바다)에는 올라서지 못한다
 const double kPi = 3.14159265358979323846;
+const double kWallGap = 0.45;      // 방 안에서 벽에서 떨어져 서는 거리
+const double kDoorReach = 2.4;     // 문 앞에서 이 거리 안이면 B 가 먹는다
 
 void PushOut(double* x, double* y, double cx, double cy, double r) {
     const double dx = *x - cx, dy = *y - cy, d2 = dx * dx + dy * dy;
@@ -98,7 +100,99 @@ bool PlayerWorld::ParseObstacles(const String& text, String* error) {
     return true;
 }
 
+int PlayerWorld::RoomAt(double x, double y) const {
+    for (size_t i = 0; i < rooms_.size(); i++) {
+        const Room& r = rooms_[i];
+        if (fabs(x - r.cx) <= r.hw && fabs(y - r.cy) <= r.hd) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool PlayerWorld::ParsePortals(const String& text, String* error) {
+    rooms_.clear();
+    size_t pos = 0;
+    String line;
+    Array<Circle2> blocks;
+    while (NextLine(text, &pos, &line)) {
+        if (line.empty() || line[0] == '#') continue;
+        char kind[8] = "", name[40] = "", type[24] = "";
+        if (strncmp(line.c_str(), "room ", 5) == 0) {
+            Room r;
+            double wall = 0;
+            char w[16] = "", f[16] = "";
+            if (sscanf(line.c_str(), "%7s %39s %23s %lf %lf %lf %lf %lf %lf %lf %lf %lf %15s %15s", kind, name, type, &r.outX, &r.outY, &r.outYaw,
+                       &r.cx, &r.cy, &r.hw, &r.hd, &r.ceil, &r.floorZ, w, f) < 12) {
+                if (error) *error = "portals: room 줄이 이상합니다: " + line;
+                return false;
+            }
+            (void)wall;
+            r.name = name;
+            r.kind = type;
+            rooms_.push_back(r);
+        } else if (strncmp(line.c_str(), "furn ", 5) == 0) {
+            double x, y, w, d, h;
+            char col[16] = "";
+            int solid = 0, glow = 0;
+            if (sscanf(line.c_str(), "%7s %39s %lf %lf %lf %lf %lf %15s %d %d", kind, name, &x, &y, &w, &d, &h, col, &solid, &glow) < 9) {
+                if (error) *error = "portals: furn 줄이 이상합니다: " + line;
+                return false;
+            }
+            if (!solid) continue;
+            // 긴 가구는 짧은 변을 지름으로 하는 원 여러 개로 막는다
+            const bool alongX = w >= d;
+            const double shortS = alongX ? d : w, longS = alongX ? w : d, r = shortS / 2;
+            const int n = longS - shortS < 1e-6 ? 1 : static_cast<int>(ceil((longS - shortS) / (shortS * 0.8))) + 1;
+            for (int k = 0; k < n; k++) {
+                const double t = n == 1 ? 0.0 : -(longS - shortS) / 2 + (longS - shortS) * k / (n - 1);
+                blocks.push_back(alongX ? Circle2(x + t, y, r) : Circle2(x, y + t, r));
+            }
+        }
+    }
+    for (size_t i = 0; i < blocks.size(); i++) obs_.push_back(blocks[i]);
+    return true;
+}
+
+bool PlayerWorld::teleport(Player* p, double x, double y) const {
+    for (int ring = 0; ring < 8; ring++) {
+        const double r = ring * 0.5;
+        const int n = ring == 0 ? 1 : 6 + ring * 3;
+        for (int k = 0; k < n; k++) {
+            const double a = 2.0 * kPi * k / n;
+            const double tx = x + r * cos(a), ty = y + r * sin(a);
+            if (GroundAt(tx, ty) >= kMinGround && isFree(tx, ty, p->id, 0.2)) {
+                p->x = tx;
+                p->y = ty;
+                p->z = GroundAt(tx, ty);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool PlayerWorld::Enter(int id) {
+    Player* p = Find(id);
+    if (!p) return false;
+    const int in = RoomAt(p->x, p->y);
+    if (in >= 0) {   // 방 안: 남쪽 벽의 문 앞이면 나간다
+        const Room& r = rooms_[static_cast<size_t>(in)];
+        const double dx = p->x - r.cx, dy = p->y - (r.cy - r.hd);
+        if (dx * dx + dy * dy > kDoorReach * kDoorReach) return false;
+        return teleport(p, r.outX, r.outY);
+    }
+    for (size_t i = 0; i < rooms_.size(); i++) {   // 밖: 어느 건물 문 앞이면 들어간다
+        const Room& r = rooms_[i];
+        const double dx = p->x - r.outX, dy = p->y - r.outY;
+        if (dx * dx + dy * dy <= kDoorReach * kDoorReach) return teleport(p, r.cx, r.cy - r.hd + 1.5);
+    }
+    return false;
+}
+
 double PlayerWorld::GroundAt(double x, double y) const {
+    for (size_t i = 0; i < rooms_.size(); i++) {   // 방 바닥 (벽에서 조금 떨어진 안쪽만 걸을 수 있다)
+        const Room& r = rooms_[i];
+        if (fabs(x - r.cx) <= r.hw - kWallGap && fabs(y - r.cy) <= r.hd - kWallGap) return r.floorZ;
+    }
     if (gw_ <= 0) return 1.0;   // 표가 없으면 어디나 걸을 수 있는 평평한 땅(높이 1 m)
     const double gx = (x - ox_) / cell_, gy = (y - oy_) / cell_;
     if (gx < 0 || gy < 0 || gx > gw_ - 1 || gy > gh_ - 1) return -99.0;
@@ -296,6 +390,8 @@ bool Players::Command(const String& line) {
         int fwd = 0, side = 0, run = 0;
         double yaw = 0;
         if (sscanf(line.c_str(), "%*s %d %d %d %d %lf", &id, &fwd, &side, &run, &yaw) == 5) return world_.SetInput(id, fwd, side, run, yaw);
+    } else if (strcmp(cmd, "enter") == 0) {
+        if (sscanf(line.c_str(), "%*s %d", &id) == 1) return world_.Enter(id);
     }
     return false;
 }

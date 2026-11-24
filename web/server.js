@@ -49,6 +49,7 @@ function fileFor(url) {
   if (u === '/') u = '/index.html';
   if (u.startsWith('/three/')) return resolveUnder(THREE, u.slice(7));
   if (u === '/assets/merchen_village.glb') return path.join(DATA, 'merchen_village.glb');
+  if (u === '/assets/portals.txt') return path.join(DATA, 'villagers', 'portals.txt');
   const m = /^\/assets\/(villager_[1-4]\.glb)$/.exec(u);
   if (m) return path.join(DATA, 'villagers', m[1]);
   return resolveUnder(PUBLIC, u.slice(1));
@@ -178,6 +179,11 @@ wss.on('connection', function (ws, req) {
       if (!text) return;
       c.lastChat = now;
       toChild('chat ' + c.id + ' ' + text);
+    } else if (m.type === 'enter' && c.id) {   // 문 앞에서 B: 건물에 들어가고 나온다 (0.4 초에 한 번까지)
+      const now = Date.now();
+      if (now - (c.lastEnter || 0) < 400) return;
+      c.lastEnter = now;
+      toChild('enter ' + c.id);
     } else if (m.type === 'input' && c.id) {
       const now = Date.now();   // 초당 40개까지만 받는다
       c.tokens = Math.min(40, c.tokens + (now - c.last) * 0.04);

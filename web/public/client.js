@@ -95,7 +95,7 @@ function nextTime() { timeIdx = (timeIdx + 1) % TIMES.length; applyTime(); }
 
 // ---- 접속자 ----
 const players = new Map();   // id -> { group, model, label, tx, ty, tz, x, y, z, yaw, name }
-let myId = 0, third = false;
+let myId = 0, third = false, myZoneInit = false, lastZone = -1;
 let lastState = null;
 
 function makeLabel(text) {
@@ -171,7 +171,9 @@ function onState(s) {
   for (const p of s.p) {
     seen.add(p.id);
     const e = players.get(p.id) || makePlayer(p);
+    if (Math.hypot(p.x - e.x, p.y - e.y) > 15) { e.x = p.x; e.y = p.y; e.z = p.z; e.yaw = p.yaw; }   // 건물 안팎으로 옮겨졌다: 미끄러지지 않고 바로
     e.tx = p.x; e.ty = p.y; e.tz = p.z; e.tyaw = p.yaw;
+    e.zone = zoneAt(p.x, p.y);
     if (p.s) {
       if (p.s !== e.bubbleText) {   // 새 말이면 풍선을 다시 그린다
         if (e.bubble) { e.group.remove(e.bubble); e.bubble.material.map.dispose(); e.bubble.material.dispose(); }
@@ -188,7 +190,96 @@ function onState(s) {
   }
   for (const [id, e] of players) if (!seen.has(id)) { scene.remove(e.group); players.delete(id); }
   const me = players.get(myId);
-  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
+  if (me && me.zone !== myZone) {   // 건물에 들어가거나 나왔다: 방을 보이게 하고 바라보는 방향을 맞춘다
+    const entering = me.zone >= 0;
+    setZone(me.zone);
+    if (myZoneInit) { yaw = entering ? Math.PI : (rooms.find((r, i) => i === lastZone) || { outYaw: yaw }).outYaw; pitch = 0; sendInput(true); }
+    lastZone = me.zone;
+  }
+  myZoneInit = true;
+  const dp = doorPrompt(me);
+  $('prompt').hidden = !dp;
+  if (dp) $('prompt').textContent = dp;
+  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · B 문 앞에서 들어가기/나가기 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
+}
+
+
+// ---- 건물 내부 ----
+// 방은 지도 밖(x=200~)에 따로 놓여 있다. portals.txt (서버와 같은 파일)로 그리고, 문 앞에서 B 를 누르면 서버가 방 안으로 옮겨 준다.
+const rooms = [];   // { name, kind, outX, outY, outYaw, cx, cy, hw, hd, ceil, floorZ, group }
+const roomLight = new THREE.PointLight(0xffe2b0, 2.6, 18, 1.2);   // 지금 내가 들어 있는 방으로 옮겨 다닌다 (조명 개수는 늘 같게)
+roomLight.position.set(0, -100, 0);
+scene.add(roomLight);
+function hexColor(s) { return new THREE.Color(parseInt(s, 16)); }
+function buildRooms(text) {
+  const furn = [];
+  for (const raw of text.split('\n')) {
+    const t = raw.trim().split(/\s+/);
+    if (t[0] === 'room' && t.length >= 14) {
+      const n = (i) => parseFloat(t[i]);
+      rooms.push({ name: t[1], kind: t[2], outX: n(3), outY: n(4), outYaw: n(5), cx: n(6), cy: n(7), hw: n(8), hd: n(9), ceil: n(10), floorZ: n(11), wall: t[12], floor: t[13], group: null });
+    } else if (t[0] === 'furn' && t.length >= 10) furn.push(t);
+  }
+  for (const r of rooms) {
+    const g = new THREE.Group();
+    g.position.set(r.cx, 0, -r.cy);   // 방 중심 (엔진 x, y -> three x, -y)
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(r.hw * 2, r.ceil, r.hd * 2), new THREE.MeshLambertMaterial({ color: hexColor(r.wall), side: THREE.BackSide }));
+    shell.position.y = r.floorZ + r.ceil / 2;
+    g.add(shell);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(r.hw * 2, r.hd * 2), new THREE.MeshLambertMaterial({ color: hexColor(r.floor) }));
+    floor.rotation.x = -Math.PI / 2; floor.position.y = r.floorZ + 0.005;
+    g.add(floor);
+    // 문: 남쪽 벽(엔진 y 가 작은 쪽 = three +z)
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.1, 0.08), new THREE.MeshLambertMaterial({ color: 0x7a4f35 }));
+    door.position.set(0, r.floorZ + 1.05, r.hd - 0.05);
+    g.add(door);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.25, 0.05), new THREE.MeshLambertMaterial({ color: 0xe9dcc3 }));
+    frame.position.set(0, r.floorZ + 1.125, r.hd - 0.03);
+    g.add(frame);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd35c }));
+    knob.position.set(0.42, r.floorZ + 1.0, r.hd - 0.12);
+    g.add(knob);
+    // 벽 장식: 천장 쪽 굵은 띠(몰딩)와 바닥 걸레받이로 방이 덜 밋밋하게
+    for (const [y, hgt, col] of [[r.floorZ + 0.07, 0.14, 0x9a7a58], [r.floorZ + r.ceil - 0.07, 0.12, 0xffffff]]) {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(r.hw * 2 - 0.02, hgt, r.hd * 2 - 0.02), (col === 0xffffff ? new THREE.MeshBasicMaterial({ color: 0xfff6e6, side: THREE.BackSide }) : new THREE.MeshLambertMaterial({ color: col, side: THREE.BackSide })));   // 천장은 시간대와 상관없이 밝은 크림색
+      band.position.y = y; g.add(band);
+    }
+    g.visible = false;
+    scene.add(g);
+    r.group = g;
+  }
+  for (const t of furn) {
+    const r = rooms.find((q) => q.name === t[1]);
+    if (!r) continue;
+    const [x, y, w, d, h] = [2, 3, 4, 5, 6].map((i) => parseFloat(t[i]));
+    const glow = t[9] === '1';
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glow ? new THREE.MeshBasicMaterial({ color: hexColor(t[7]) }) : new THREE.MeshLambertMaterial({ color: hexColor(t[7]) }));
+    m.position.set(x - r.cx, r.floorZ + h / 2, -(y - r.cy));
+    r.group.add(m);
+  }
+}
+const roomsReady = fetch('/assets/portals.txt').then((r) => (r.ok ? r.text() : '')).then(buildRooms).catch((e) => console.warn('건물 내부를 못 읽었습니다', e));
+function zoneAt(x, y) {   // 이 자리가 들어 있는 방 번호, 밖이면 -1
+  for (let i = 0; i < rooms.length; i++) { const r = rooms[i]; if (Math.abs(x - r.cx) <= r.hw && Math.abs(y - r.cy) <= r.hd) return i; }
+  return -1;
+}
+let myZone = -1;
+function setZone(z) {
+  myZone = z;
+  rooms.forEach((r, i) => { r.group.visible = i === z; });
+  if (z >= 0) { const r = rooms[z]; roomLight.position.set(r.cx, r.floorZ + r.ceil - 0.5, -r.cy); }
+  else roomLight.position.set(0, -100, 0);
+}
+// 문 앞이면 어떤 안내를 보일지: { text, zone }
+function doorPrompt(me) {
+  if (!me) return null;
+  const z = zoneAt(me.tx, me.ty);
+  if (z >= 0) {
+    const r = rooms[z];
+    return Math.hypot(me.tx - r.cx, me.ty - (r.cy - r.hd)) <= 2.2 ? '문 앞 — B 키: 밖으로 나가기' : null;
+  }
+  for (const r of rooms) if (Math.hypot(me.tx - r.outX, me.ty - r.outY) <= 2.2) return 'B 키: ' + (r.kind === 'castle' ? '성' : '집') + ' 안으로 들어가기';
+  return null;
 }
 
 // ---- 입력 ----
@@ -217,6 +308,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && myId) { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyV' && !e.repeat) { third = !third; return; }
   if (e.code === 'KeyN' && !e.repeat) { nextTime(); return; }
+  if (e.code === 'KeyB' && !e.repeat) { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'enter' })); return; }
   keys.add(e.code);
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
 });
@@ -257,7 +349,7 @@ setInterval(() => sendInput(true), 500);   // 상태가 어긋나도 곧 맞춰�
 async function join() {
   const name = $('name').value.trim() || '손님';
   $('msg').textContent = '접속하는 중…';
-  await Promise.all([mapReady, modelsReady]);
+  await Promise.all([mapReady, modelsReady, roomsReady]);
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.onopen = () => ws.send(JSON.stringify({ type: 'join', name }));
   ws.onmessage = (ev) => {
@@ -293,6 +385,7 @@ function frame() {
     while (d > Math.PI) d -= 2 * Math.PI;
     while (d < -Math.PI) d += 2 * Math.PI;
     e.yaw += d * k;
+    e.group.visible = id === myId || e.zone === myZone;   // 다른 건물 안/밖에 있는 사람은 안 보인다
     e.group.position.set(e.x, e.z, -e.y);   // 엔진(x, y, 높이 z) -> three(x, 높이, -y)
     e.model.rotation.y = id === myId ? yaw : e.yaw;
     e.model.visible = !(id === myId && !third);
@@ -308,6 +401,12 @@ function frame() {
     } else {
       const back = 3.2;
       camera.position.set(me.x - fx * back, me.z + 1.7 + pitch * -1.5, -me.y - fz * back);
+      if (myZone >= 0) {   // 방 안에서는 카메라가 벽/천장을 뚫지 않게
+        const r = rooms[myZone];
+        camera.position.x = Math.max(r.cx - r.hw + 0.3, Math.min(r.cx + r.hw - 0.3, camera.position.x));
+        camera.position.z = Math.max(-r.cy - r.hd + 0.3, Math.min(-r.cy + r.hd - 0.3, camera.position.z));
+        camera.position.y = Math.min(camera.position.y, r.floorZ + r.ceil - 0.2);
+      }
       camera.lookAt(me.x, me.z + 0.7, -me.y);
     }
   } else {   // 접속 전: 마을을 천천히 돈다
@@ -318,4 +417,4 @@ function frame() {
   renderer.render(scene, camera);
 }
 frame();
-window.__game = { players, look: (y, p) => { yaw = y; pitch = p || 0; }, setTime: (i) => { timeIdx = i; applyTime(); }, lamps, get myId() { return myId; }, get state() { return lastState; } };   // 시험용
+window.__game = { players, rooms, get zone() { return myZone; }, enter: () => ws.send(JSON.stringify({ type: 'enter' })), look: (y, p) => { yaw = y; pitch = p || 0; }, setTime: (i) => { timeIdx = i; applyTime(); }, lamps, get myId() { return myId; }, get state() { return lastState; } };   // 시험용

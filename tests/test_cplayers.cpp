@@ -132,10 +132,57 @@ void testCommands() {
     check(g.World().At(0).fwd == 1, "입력이 들어갔다");
     check(!g.Command("input 5 1 0"), "모자란 인자는 거절");
     check(!g.Command("nonsense"), "모르는 명령");
+    check(!g.Command("enter 5"), "문 앞이 아니면 enter 는 false");
     check(g.Command("leave 5") && g.World().Count() == 0, "leave 명령");
     g.World().SetMaxPlayers(2);
     g.Command("join 1 a"); g.Command("join 2 b");
     check(!g.Command("join 3 c"), "가득 차면 못 들어온다");
+}
+
+
+// 건물 내부: 문 앞에서 B 로 방에 들어가고 나온다. 방 안은 벽과 가구에 막힌다.
+const char* kPortals =
+    "room h1 house 0 -1 0 100 0 3 3 2.7 1 fff0d6 c9a37a\n"
+    "furn h1 100 1.5 1 1 0.75 8a5a3c 1 0\n"
+    "furn h1 100 0 2 2 0.03 e86a5f 0 0\n";
+
+void testRooms() {
+    PlayerWorld w;
+    String err;
+    check(w.LoadGround(kGround, &err), "ground");
+    check(w.ParsePortals(kPortals, &err), "portals 읽기");
+    check(w.RoomCount() == 1 && w.RoomInfo(0).name == "h1", "방 하나");
+    check(w.ObstacleCount() == 1, "막히는 가구만 장애물이 된다 (깔개는 아님)");
+    w.SetSpawn(0, 0);
+    w.Join(1, "a");
+    w.Find(1)->x = -1.5; w.Find(1)->y = 1.0;   // 문 앞(0, -1) 에서 2.5 m
+    check(!w.Enter(1), "문에서 멀면 아무 일도 없다");
+    w.Find(1)->x = 0.5; w.Find(1)->y = -1;
+    check(w.Enter(1), "문 앞에서 B");
+    const Player& p = *w.Find(1);
+    check(w.RoomAt(p.x, p.y) == 0, "방 안에 들어왔다");
+    check(near(p.x, 100, 0.6) && near(p.y, -1.5, 0.6), "방 남쪽 문 안쪽");
+    check(near(p.z, 1.0), "바닥 높이");
+    check(!w.Enter(2), "없는 접속자");
+    // 방 안: 문에서 멀어지면 B 가 안 먹고, 벽 너머로는 못 간다
+    w.Find(1)->x = 100; w.Find(1)->y = 0;
+    check(!w.Enter(1), "방 한가운데서는 나갈 수 없다");
+    w.SetInput(1, 1, 0, 1, 3.14159265);   // 방 안쪽(+y) 으로 달린다
+    walk(w, 6);
+    check(w.Find(1)->y < 3.0 - 0.4, "북쪽 벽에 막힌다");
+    check(fabs(w.Find(1)->x - 100) < 3.0, "방 밖으로 못 나간다");
+    w.Find(1)->x = 100; w.Find(1)->y = -2.4; w.SetInput(1, 0, 0, 0, 0);
+    check(w.Enter(1), "문 앞에서 B 로 나온다");
+    check(w.RoomAt(w.Find(1)->x, w.Find(1)->y) < 0 && near(w.Find(1)->x, 0, 0.6) && near(w.Find(1)->y, -1, 0.6), "문 앞(밖)에 나온다");
+    // 문 앞이 이미 차 있으면 가까운 빈 곳에
+    w.Join(2, "b");
+    w.Find(2)->x = 0.5; w.Find(2)->y = -1;
+    check(w.Enter(2), "두 번째도 들어간다");
+    check(w.RoomAt(w.Find(2)->x, w.Find(2)->y) == 0, "두 번째도 방 안");
+    w.Find(1)->x = 0.5; w.Find(1)->y = -1;   // 1 번이 문 앞에 선 채 2 번이 나오면
+    w.Find(2)->x = 100; w.Find(2)->y = -2.4;
+    check(w.Enter(2), "나온다");
+    check(hypot(w.Find(2)->x - w.Find(1)->x, w.Find(2)->y - w.Find(1)->y) >= 0.8, "문 앞이 차 있으면 가까운 빈 곳에 나온다 (겹치지 않는다)");
 }
 
 }  // namespace
@@ -146,6 +193,7 @@ int main() {
     testGround();
     testChat();
     testCommands();
+    testRooms();
     if (g_fail == 0) printf("OK: test_cplayers\n");
     return g_fail == 0 ? 0 : 1;
 }

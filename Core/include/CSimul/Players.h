@@ -33,12 +33,27 @@ struct Player {
     Player() : id(0), x(0), y(0), z(0), yaw(0), fwd(0), side(0), run(0), inYaw(0), sayLeft(0), sayId(0) {}
 };
 
+// 건물 내부: 문 앞(밖)에서 B 를 누르면 지도 밖에 따로 놓인 방으로 옮겨지고, 방 안 문 앞에서 B 를 누르면 도로 나온다.
+// 방 안의 문은 남쪽 벽(y = cy - hd)에 있다. portals.txt (생성기가 지도와 함께 내보낸다) 의 room / furn 줄로 정한다.
+struct Room {
+    String name, kind;           // kind: house, castle
+    double outX, outY, outYaw;   // 문 앞(밖) 위치와, 나올 때 바라볼 방향
+    double cx, cy, hw, hd;       // 방 중심과 반 크기 (x 반폭, y 반깊이)
+    double ceil, floorZ;         // 천장 높이(바닥에서), 바닥 높이
+    Room() : outX(0), outY(0), outYaw(0), cx(0), cy(0), hw(0), hd(0), ceil(0), floorZ(1) {}
+};
+
 class PlayerWorld {
 public:
     PlayerWorld();
 
     bool LoadGround(const String& text, String* error);            // tools/make_ground.js 가 만든 ground.txt
     bool ParseObstacles(const String& text, String* error);        // obstacles.txt: "x y 반지름" 줄들
+    bool ParsePortals(const String& text, String* error);          // portals.txt: 방과 가구(막히는 가구는 장애물 원이 된다)
+    bool Enter(int id);                                            // B 키: 문 앞이면 들어가거나 나온다. 옮겼으면 true
+    int RoomAt(double x, double y) const;                          // 이 자리가 들어 있는 방 번호 (밖이면 -1)
+    int RoomCount() const { return static_cast<int>(rooms_.size()); }
+    const Room& RoomInfo(int i) const { return rooms_[static_cast<size_t>(i)]; }
     void SetSpawn(double x, double y) { spawnX_ = x; spawnY_ = y; }
     void SetMaxPlayers(int n) { max_ = n < 1 ? 1 : n; }
     void SetExternals(const Array<Circle2>& c) { external_ = c; }  // 움직이는 다른 몸(NPC): 지금 위치의 원
@@ -63,10 +78,12 @@ public:
 private:
     bool isFree(double x, double y, int self, double margin) const;
     bool findSpawn(double* x, double* y) const;
+    bool teleport(Player* p, double x, double y) const;           // 그 자리 근처 빈 곳으로 옮긴다
 
     Array<Player> players_;
     Array<Circle2> obs_;
     Array<Circle2> external_;
+    Array<Room> rooms_;
     int gw_, gh_;
     double ox_, oy_, cell_;
     Array<double> height_;
@@ -93,7 +110,7 @@ public:
 
     bool Join(int id, const String& name);
     void Leave(int id);
-    // 한 줄 명령: "join <id> <이름>", "leave <id>", "input <id> <앞뒤> <좌우> <달리기> <방향>", "chat <id> <글>". 처리했으면 true
+    // 한 줄 명령: "join <id> <이름>", "leave <id>", "input <id> <앞뒤> <좌우> <달리기> <방향>", "chat <id> <글>", "enter <id>" (문 앞에서 B). 처리했으면 true
     bool Command(const String& line);
     // 지금 모두의 상태: {"t":..,"p":[{"id":..,"n":"..","x":..,"y":..,"z":..,"yaw":..},...]} (NPC 의 id 는 -1, -2, ...)
     String StateJson(Engine& e, double time);

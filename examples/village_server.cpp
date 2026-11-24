@@ -61,6 +61,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "땅 높이 파일을 읽을 수 없습니다: %s/ground.txt %s (node tools/make_ground.js)\n", dir.c_str(), err.c_str());
         return 1;
     }
+    if (ReadText((dir + "/villagers/portals.txt").c_str(), &text) && !world.ParsePortals(text, &err)) {
+        fprintf(stderr, "건물 내부 파일이 이상합니다: %s\n", err.c_str());
+        return 1;
+    }
     printf("{\"ready\":true,\"obstacles\":%d}\n", world.ObstacleCount());
     fflush(stdout);
 
@@ -85,6 +89,8 @@ int main(int argc, char** argv) {
         } else if (strcmp(cmd, "chat") == 0) {
             int n = 0;
             if (sscanf(line, "%*s %d %n", &id, &n) >= 1 && n > 0) world.Say(id, line + n);
+        } else if (strcmp(cmd, "enter") == 0) {
+            if (sscanf(line, "%*s %d", &id) == 1) world.Enter(id);
         } else if (strcmp(cmd, "input") == 0) {
             int fwd = 0, side = 0, run = 0;
             double yaw = 0;

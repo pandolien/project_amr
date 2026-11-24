@@ -1160,6 +1160,11 @@ public:
             game_->World().ParseObstacles(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err);
         }
         b.clear();
+        if (simul::ReadAllBytes(dir + "/villagers/portals.txt", &b, &err) && !b.empty()) {   // 건물 내부 (B 키로 들어가고 나온다)
+            if (!game_->World().ParsePortals(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err))
+                logError(QString::fromUtf8("portals.txt: %1").arg(simulqt::ToQ(err)));
+        }
+        b.clear();
         if (!simul::ReadAllBytes(dir + "/ground.txt", &b, &err) || b.empty() ||
             !game_->World().LoadGround(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err)) {
             logError(QString::fromUtf8("땅 높이 표(ground.txt)를 읽을 수 없습니다: %1  (node tools/make_ground.js)").arg(simulqt::ToQ(err)));
