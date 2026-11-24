@@ -4,6 +4,7 @@
 
 #include "CSimul/Patrol.h"
 #include "FakeSimBackend.h"
+#include "TestUtil.h"
 
 using namespace simul;
 using namespace simul::sim;
@@ -76,10 +77,9 @@ void testWalk() {
     stepFor(e, 1.0);
     dhVector v = posOf(e, "walker");
     check(near(v.x, 1.0, 0.05) && near(v.y, 0.0, 0.05), "1초 후: 첫 구간의 절반 (1, 0)");
-    dhPose pose;
     ObjectInfo info;
     e.Info(e.Find("walker"), &info);
-    check(near(info.pose.orientation.z, sin(M_PI / 4), 0.01) && near(info.pose.orientation.w, cos(M_PI / 4), 0.01), "+X 로 가면 앞쪽(-Y)이 +X 를 본다 (yaw 90도)");
+    check(near(info.pose.orientation.z, sin(tu::kPi / 4), 0.01) && near(info.pose.orientation.w, cos(tu::kPi / 4), 0.01), "+X 로 가면 앞쪽(-Y)이 +X 를 본다 (yaw 90도)");
 
     stepFor(e, 2.0);   // 3초: (2, 0) 을 지나 (2, 1)
     v = posOf(e, "walker");
