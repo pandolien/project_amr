@@ -655,32 +655,38 @@ ollama pull qwen2.5:1.5b
 
 ## 웹으로 마을에 접속하기 (내 캐릭터 시점)
 
-브라우저로 접속하면 마을에 내 캐릭터가 생기고, **내 캐릭터의 눈으로(1인칭)** 마을을 걸을 수 있다. 다른 접속자는 주민 모델과 이름표로 보이고, 최대 30명(`--max`)까지 들어온다. 데스크톱 앱(`simul_main`)과 따로 돌아가는 별도 서버다.
+브라우저로 접속하면 마을에 내 캐릭터가 생기고, **내 캐릭터의 눈으로(1인칭)** 마을을 걸을 수 있다. 다른 접속자는 주민 모델과 이름표로 보이고, 최대 30명(`--max`)까지 들어온다.
+
+**엔진과 연동된다.** 데스크톱 앱(`simul_main --serve`)이 접속 포트를 열고, 웹 게이트웨이(Node)가 거기에 붙는다. 웹 접속자는 엔진의 오브젝트(주민 모델)로 올라오므로 **데스크톱 3D 화면에도 같이 보이고**, 웹 화면에는 `--npc` 로 연 순찰 주민이 같이 보인다. 이동과 충돌은 엔진 쪽 `Players`(Core/CSimul/Players.h)가 계산한다.
 
 ```
-브라우저(three.js) <-WebSocket-> web/server.js(Node) <-표준 입출력-> village_server(C++11)
-  3D 화면, 입력                   접속 중계, 파일 제공        이동, 장애물/접속자 충돌, 땅 높이
+브라우저(three.js) <-WebSocket-> web/server.js(Node) <-TCP 127.0.0.1:9000-> simul_main --serve (엔진 + 3D 화면)
+  3D 화면, 입력, 채팅                  접속 중계, 파일 제공                    접속자 = 엔진 오브젝트, 충돌, 말풍선
 ```
 
-실행: **`run.bat`(윈도우) 또는 `./run.sh`(우분투)를 실행하면** 빌드 뒤에 웹 서버가 같이 켜지고, 브라우저에서 `http://localhost:8080` 으로 들어가면 된다(같은 네트워크의 다른 기기는 `http://<이 컴퓨터 주소>:8080`). Node.js 가 없으면 `run.bat` 이 winget 으로 설치하고, `npm install` 도 처음 한 번 알아서 한다. 윈도우는 처음 켤 때 방화벽 허용 창이 뜨면 허용해야 다른 기기가 들어올 수 있다.
+실행: **`run.bat`(윈도우) 또는 `./run.sh`(우분투)를 실행하면** 빌드 뒤에 3D 창과 웹 서버가 같이 켜지고(`--serve 9000` 과 `--connect 127.0.0.1:9000` 이 자동으로 붙는다), 브라우저에서 `http://localhost:8080` 으로 들어가면 된다(같은 네트워크의 다른 기기는 `http://<이 컴퓨터 주소>:8080`). Node.js 가 없으면 `run.bat` 이 winget 으로 설치하고, `npm install` 도 처음 한 번 알아서 한다. 윈도우는 처음 켤 때 방화벽 허용 창이 뜨면 허용해야 다른 기기가 들어올 수 있다.
 
-- `run.bat` / `./run.sh`: 3D 창(데스크톱 앱) + 웹 서버(윈도우는 별도 창, 우분투는 백그라운드)
-- `--web`: 3D 창 없이 웹 서버만 (`run.bat --web`)
+- `run.bat` / `./run.sh`: 3D 창(엔진) + 웹 서버(윈도우는 별도 창, 우분투는 백그라운드)
 - `--no-web`: 웹 서버를 켜지 않는다
+- `--web`: 3D 창과 엔진 없이 웹 서버만. 이때는 화면 없는 `village_server`(같은 이동 계산, 엔진 없음)를 쓴다.
 
 손으로 하려면 (Node 18 이상 필요):
 
 ```bash
-cmake --build build --target village_server        # 화면 없는 서버 (Qt 필요 없음)
-node tools/make_ground.js                          # 땅 높이 표 Data/Object/ground.txt (저장소에 이미 들어 있다)
-cd web && npm install && node server.js            # http://localhost:8080
+build/bin/simul_main --serve 9000 [--npc]          # 엔진 + 3D 화면, 웹 접속 포트 (127.0.0.1 에서만 받는다)
+cd web && npm install && node server.js --connect 127.0.0.1:9000     # http://localhost:8080
+# 엔진 없이: cmake --build build --target village_server && node server.js --server ../build/bin/village_server
 ```
 
-윈도우(Visual Studio)처럼 실행 파일이 `build/bin/Release/` 에 생기면 `node server.js --server ../build/bin/Release/village_server.exe` 로 알려 준다. 옵션: `--port 8080`, `--host 0.0.0.0`(기본), `--max 30`, `--data <Data/Object 폴더>`, `--server <village_server 경로>`.
+윈도우(Visual Studio)처럼 실행 파일이 `build/bin/Release/` 에 생기면 `--server ../build/bin/Release/village_server.exe` 로 알려 준다. 게이트웨이 옵션: `--port 8080`, `--host 0.0.0.0`(기본), `--max 30`, `--connect host:port`, `--data`, `--server`.
 
-조작: **W/A/S/D** 이동, **Shift** 달리기, **마우스** 둘러보기(화면을 한 번 클릭하면 마우스가 잡힌다, 끌어서도 돈다), **Q/E 또는 ←/→** 돌기, **V** 3인칭 보기/끄기, **Esc** 마우스 풀기.
+조작: **W/A/S/D** 이동, **Shift** 달리기, **마우스** 둘러보기(화면을 한 번 클릭하면 마우스가 잡힌다, 끌어서도 돈다), **Q/E 또는 ←/→** 돌기, **V** 3인칭 보기/끄기, **Enter** 채팅, **Esc** 마우스 풀기.
 
-- 이동은 서버가 정한다. 나무·집·연못 등(`obstacles.txt`)과 다른 접속자에게 막히고, 물가(땅이 낮은 곳)로는 나가지 못한다. 땅 높이 표(`ground.txt`)로 발 높이를 정한다.
-- 서버는 자기 시계를 보지 않고 `tick <초>` 줄이 올 때만 시간이 흐른다(Node 가 50 ms 마다 보낸다). 그래서 손으로도 시험할 수 있다: `printf 'join 1 한솔\ninput 1 1 0 0 0\ntick 0.05\n' | build/bin/village_server Data/Object`.
-- 이름은 글자/숫자/`_`/`-` 12자까지로 걸러지고, 입력은 접속자당 초당 40개까지만 받는다.
-- 인터넷에 공개하려면 포트 열기, HTTPS(`wss://`) 같은 설정을 직접 해야 한다. 이 저장소는 같은 네트워크 안에서 쓰는 것까지만 확인했다.
+**채팅:** Enter 를 누르고 글(60자)을 쓴 뒤 Enter 로 보내면 그 캐릭터 머리 위에 **말풍선**이 뜨고(글 길이에 따라 3~9초), 왼쪽 아래에 대화 기록도 남는다. 말풍선은 모두의 웹 화면과 **데스크톱 3D 화면**에 같이 보인다. 0.8초에 한 번까지 보낼 수 있다.
+
+- 이동은 서버가 정한다. 나무·집·연못 등(`obstacles.txt`)과 다른 접속자, NPC 에게 막히고, 물가(땅이 낮은 곳)로는 나가지 못한다. 땅 높이 표(`ground.txt`, `node tools/make_ground.js` 로 지도에서 만든다)로 발 높이를 정한다.
+- 접속자는 접속 순서대로 주민 모델 4종을 돌려 쓰고, 이름표로 구분한다. 데스크톱에서는 구조 트리에 `villager_1_2` 같은 이름으로 올라온다. 데스크톱에서 접속/퇴장해도 보던 시점은 그대로다.
+- 서버 규칙은 한 줄 명령이다 (`join <id> <이름>`, `leave <id>`, `input <id> <앞뒤> <좌우> <달리기> <방향>`, `chat <id> <글>`, 화면 없는 쪽은 `tick <초>`). 그래서 손으로도 시험할 수 있다: `printf 'join 1 한솔\ninput 1 1 0 0 0\ntick 0.05\n' | build/bin/village_server Data/Object`.
+- 이름은 글자/숫자/`_`/`-` 12자까지로 걸러지고, 입력은 접속자당 초당 40개까지만 받는다. 엔진 포트는 이 컴퓨터(127.0.0.1)에서 오는 연결만 받는다.
+- 엔진이 느려지면(예: 화면 그리기가 느린 컴퓨터) 시뮬레이션 시간도 같이 느려져서 걷는 속도가 줄어든다.
+- 인터넷에 공개하려면 포트 열기, HTTPS(`wss://`) 같은 설정을 직접 해야 한다. 이 저장소는 같은 컴퓨터 안에서 쓰는 것까지만 확인했다.

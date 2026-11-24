@@ -190,7 +190,11 @@ if not "%WEB_OK%"=="1" (
     echo [run.bat] The web server could not be prepared.
     exit /b 1
 )
-echo [run.bat] Web server: http://localhost:8080   Ctrl+C stops it
+if not exist "%VSRV%" (
+    echo [run.bat] village_server.exe was not built.
+    exit /b 1
+)
+echo [run.bat] Web server without the 3D window and engine: http://localhost:8080   Ctrl+C stops it
 pushd web
 node server.js --server "%VSRV%"
 set "RC=!errorlevel!"
@@ -201,10 +205,6 @@ rem ---- helper: village_server.exe, Node.js and the web packages --------------
 :prepare_web
 set "WEB_OK=0"
 set "VSRV=%CD%\build\bin\%BUILD_TYPE%\village_server.exe"
-if not exist "%VSRV%" (
-    echo [run.bat] village_server.exe was not built, so the web server is skipped.
-    exit /b 1
-)
 call :need_tool node OpenJS.NodeJS.LTS "%ProgramFiles%\nodejs"
 if errorlevel 1 (
     echo [run.bat] Node.js is needed for the web server. Skipping it; use --no-web to hide this.
@@ -226,7 +226,9 @@ exit /b 0
 
 rem ---- helper: start the web server in its own window ---------------------------------------
 :start_web
-start "Village web server" /d "%CD%\web" cmd /k node server.js --server "%VSRV%"
+rem the 3D app opens the engine port (--serve) and the web gateway connects to it, so web players appear in the engine and in the 3D window
+set "APP_ARGS=!APP_ARGS! --serve 9000"
+start "Village web server" /d "%CD%\web" cmd /k node server.js --connect 127.0.0.1:9000
 echo [run.bat] Web server started in its own window: http://localhost:8080
 echo [run.bat] Others on the same network use http://this-PC-address:8080 ^(Windows may ask to allow Node.js through the firewall^)
 exit /b 0

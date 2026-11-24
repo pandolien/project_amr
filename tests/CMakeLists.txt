@@ -27,6 +27,11 @@ target_link_libraries(test_cchat PRIVATE Core)
 simul_set_warnings(test_cchat)
 add_test(NAME test_cchat COMMAND test_cchat)
 
+add_executable(test_cplayers test_cplayers.cpp)
+target_link_libraries(test_cplayers PRIVATE Core)
+simul_set_warnings(test_cplayers)
+add_test(NAME test_cplayers COMMAND test_cplayers)
+
 add_executable(test_castar test_castar.cpp)
 target_link_libraries(test_castar PRIVATE Core)
 simul_set_warnings(test_castar)

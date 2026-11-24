@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = (id) => document.getElementById(id);
-const EYE = 0.78, EYE_FORWARD = 0.22, NAME_HEIGHT = 1.5;
+const EYE = 0.78, EYE_FORWARD = 0.22, NAME_HEIGHT = 1.3;
 
 // ---- 장면 ----
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -48,13 +48,49 @@ function makeLabel(text) {
   g.fillText(text, 128, 33, 232);
   const tex = new THREE.CanvasTexture(c);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-  s.scale.set(1.6, 0.4, 1);
+  s.scale.set(1.1, 0.275, 1);
   s.renderOrder = 10;
   return s;
 }
+// 말풍선: 글을 줄바꿈해서 그린 스프라이트 (캐릭터 이름표 위)
+function makeBubble(text) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 192;
+  const g = c.getContext('2d');
+  g.font = 'bold 34px system-ui, "Noto Sans KR", sans-serif';
+  const lines = [];
+  let cur = '';
+  for (const ch of Array.from(text)) {
+    if (g.measureText(cur + ch).width > 420) { lines.push(cur); cur = ch; } else cur += ch;
+  }
+  if (cur) lines.push(cur);
+  const shown = lines.slice(0, 3);
+  const w = Math.min(480, Math.max(...shown.map((l) => g.measureText(l).width)) + 44);
+  const h = shown.length * 44 + 28;
+  const x = (512 - w) / 2, y = 168 - h;   // 아래쪽을 기준으로 쌓는다 (꼬리가 이름표 쪽)
+  g.fillStyle = '#fff'; g.strokeStyle = '#7a63ff'; g.lineWidth = 5;
+  g.beginPath(); g.roundRect(x, y, w, h, 24); g.fill(); g.stroke();
+  g.beginPath(); g.moveTo(236, y + h); g.lineTo(256, y + h + 20); g.lineTo(276, y + h); g.closePath(); g.fillStyle = '#fff'; g.fill();
+  g.fillStyle = '#2b2b3a'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  shown.forEach((l, i) => g.fillText(l, 256, y + 14 + 22 + i * 44));
+  const tex = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  s.scale.set(2.0, 0.75, 1);
+  s.center.set(0.5, 0.0);
+  s.renderOrder = 11;
+  return s;
+}
+function addLog(name, text) {
+  const d = document.createElement('div');
+  d.textContent = name + ': ' + text;
+  const log = $('log');
+  log.appendChild(d);
+  while (log.children.length > 6) log.removeChild(log.firstChild);
+  setTimeout(() => d.remove(), 15000);
+}
 function makePlayer(p) {
   const group = new THREE.Group();
-  const tpl = villagerTemplates[(p.id - 1) % 4];
+  const tpl = villagerTemplates[(p.id > 0 ? p.id - 1 : -p.id - 1) % 4];   // NPC 는 id 가 음수 (-k = k 번째 주민)
   let model;
   if (tpl) model = tpl.clone(true);
   else { model = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.6, 4, 8), new THREE.MeshLambertMaterial({ color: 0xe8a0a0 })); model.position.y = 0.55; }
@@ -63,7 +99,7 @@ function makePlayer(p) {
   label.position.y = NAME_HEIGHT;
   group.add(label);
   scene.add(group);
-  const e = { group, model, label, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
+  const e = { group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
   players.set(p.id, e);
   return e;
 }
@@ -74,17 +110,49 @@ function onState(s) {
     seen.add(p.id);
     const e = players.get(p.id) || makePlayer(p);
     e.tx = p.x; e.ty = p.y; e.tz = p.z; e.tyaw = p.yaw;
+    if (p.s) {
+      if (p.s !== e.bubbleText) {   // 새 말이면 풍선을 다시 그린다
+        if (e.bubble) { e.group.remove(e.bubble); e.bubble.material.map.dispose(); e.bubble.material.dispose(); }
+        e.bubble = makeBubble(p.s);
+        e.bubble.position.y = NAME_HEIGHT + 0.2;
+        e.group.add(e.bubble);
+        e.bubbleText = p.s;
+      }
+      if (p.sid !== e.lastSid) { addLog(p.n, p.s); e.lastSid = p.sid; }
+    } else if (e.bubble) {
+      e.group.remove(e.bubble); e.bubble.material.map.dispose(); e.bubble.material.dispose();
+      e.bubble = null; e.bubbleText = '';
+    }
   }
   for (const [id, e] of players) if (!seen.has(id)) { scene.remove(e.group); players.delete(id); }
   const me = players.get(myId);
-  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · Esc 마우스 풀기';
+  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · Enter 채팅 · Esc 마우스 풀기';
 }
 
 // ---- 입력 ----
 const keys = new Set();
 let yaw = 0, pitch = 0, locked = false, sentKey = '';
+const chatbox = $('chatbox'), chatinput = $('chatinput');
+let typing = false;
+function openChat() {
+  typing = true; keys.clear();
+  chatbox.style.display = 'block';
+  if (document.exitPointerLock) document.exitPointerLock();
+  chatinput.value = ''; chatinput.focus();
+}
+function closeChat() { typing = false; chatbox.style.display = 'none'; chatinput.blur(); }
+chatinput.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') {
+    const t = chatinput.value.trim();
+    if (t && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'chat', text: t }));
+    closeChat();
+  } else if (e.key === 'Escape') closeChat();
+});
 window.addEventListener('keydown', (e) => {
   if ($('join').style.display !== 'none') return;
+  if (typing) return;
+  if (e.code === 'Enter' && myId) { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyV' && !e.repeat) { third = !third; return; }
   keys.add(e.code);
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
@@ -166,6 +234,7 @@ function frame() {
     e.model.rotation.y = id === myId ? yaw : e.yaw;
     e.model.visible = !(id === myId && !third);
     e.label.visible = id !== myId;
+    if (e.bubble) e.bubble.visible = id !== myId || third;   // 내 말풍선은 1인칭에서는 내 눈앞이라 숨긴다 (왼쪽 아래 대화 기록에는 보인다)
   }
   const me = players.get(myId);
   if (me) {

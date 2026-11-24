@@ -84,6 +84,8 @@ simul_set_warnings(villager_patrol)
 
 # 웹 접속 서버: 웹으로 접속한 사람들의 캐릭터를 움직인다 (web/server.js 가 띄운다, Qt 필요 없음)
 add_executable(village_server examples/village_server.cpp)
+target_link_libraries(village_server PRIVATE Core)
+target_include_directories(village_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Core/include)
 simul_set_warnings(village_server)
 
 if(SIMUL_BUILD_TESTS)

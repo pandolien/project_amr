@@ -118,7 +118,9 @@ if [ "$USE_WEB" = 1 ] || [ "$WEB_ONLY" = 1 ]; then
                 log "웹 서버: http://localhost:8080 (Ctrl+C 로 끝냄)"
                 cd "$ROOT/web" && exec node server.js --server "$BUILD/bin/village_server"
             fi
-            (cd "$ROOT/web" && exec node server.js --server "$BUILD/bin/village_server") &
+            # 3D 앱이 엔진 포트(--serve)를 열고 웹 게이트웨이가 거기에 붙는다: 웹 접속자가 엔진과 3D 화면에도 나타난다
+            APP_ARGS+=(--serve 9000)
+            (cd "$ROOT/web" && exec node server.js --connect 127.0.0.1:9000) &
             WEB_PID=$!
             trap '[ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true' EXIT
             log "웹 서버를 켰습니다: http://localhost:8080 (같은 네트워크의 다른 기기는 이 컴퓨터 주소:8080)"

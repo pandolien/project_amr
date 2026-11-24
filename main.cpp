@@ -45,6 +45,8 @@ struct Options {
     simul::Array<Scale> scales;
     simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
     simul::String patrolFile;   // --patrol 파일: 지점 파일대로 이름이 같은 모델이 걷는다 (막히면 A* 로 비킴)
+    int servePort = 0;          // --serve 포트: 웹 접속 게이트웨이(web/server.js)가 붙는 포트. 웹 접속자가 엔진의 오브젝트로 올라온다
+    simul::String dataDir;      // 마을 데이터(Data/Object)가 있는 폴더 (마을을 열 때 정해진다)
     bool npc = false;           // --npc: 마을에 주민(NPC) 4명도 같이 연다 (기본은 마을 지도만)
     bool empty = false;         // --empty: 아무것도 열지 않고 시작 (기본은 파일을 안 주면 마을을 연다)
     bool noChat = false;        // --no-chat: 주민끼리 대화하지 않는다
@@ -169,6 +171,7 @@ void PrintUsage(const char* exe) {
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --patrol 파일       지점 파일(Data/Object/villagers/waypoints.txt 형식)대로 이름이 같은 모델이 지점을 차례로 걷는다 (막히면 A* 로 비킨다)\n"
+        "  --serve [포트]     웹 접속을 받는다 (기본 9000, web/server.js 가 붙는다). 웹 접속자가 엔진의 오브젝트로 올라와 이 화면에도 보인다\n"
         "  --npc              마을에 주민(NPC) 4명도 연다 (걷고, 마주치면 이야기한다). 기본은 마을 지도만 열린다\n"
         "  --empty            파일을 안 줬을 때도 마을을 열지 않고 빈 뷰어로 시작 (기본은 Data/Object 의 마을 지도만 열린다)\n"
         "  --no-chat          주민끼리 대화하지 않는다 (기본은 마주치면 멈춰서 이야기한다)\n"
@@ -329,6 +332,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--patrol" && hasNext) { o->patrolFile = argv[++i]; continue; }
         if (a == "--empty") { o->empty = true; continue; }
         if (a == "--npc") { o->npc = true; continue; }
+        if (a == "--serve") { o->servePort = (hasNext && atoi(argv[i + 1]) > 0) ? atoi(argv[++i]) : 9000; continue; }
         if (a == "--no-chat") { o->noChat = true; continue; }
         if (a == "--no-llm") { o->noLlm = true; continue; }
         if (a == "--llm-url" && hasNext) { o->llmUrl = argv[++i]; continue; }
@@ -625,6 +629,8 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/LlmClient.h"
 #include "CoreQt/SpeechBubbles.h"
 #include "CSimul/Chat.h"
+#include "CSimul/Players.h"
+#include "CoreQt/GameLink.h"
 #include "CoreQt/SunPanel.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
@@ -1127,10 +1133,84 @@ public:
             }
             const simul::Array<simul::String> lines = chat_->TakeLog();
             for (size_t i = 0; i < lines.size(); i++) log_->Info(simulqt::ToQ(lines[i]));
-            bubbles_->Update(chat_->Bubbles());
+            npcBubbles_ = chat_->Bubbles();
+            updateBubbles();
         });
         log_->Info(QString::fromUtf8("주민 대화: %1 (%2)").arg(o.noLlm ? QString::fromUtf8("정해 둔 대사만") : QString::fromUtf8("LLM %1 / %2").arg(simulqt::ToQ(o.llmUrl)).arg(simulqt::ToQ(o.llmModel)))
                        .arg(QString::fromUtf8("주민 %1명").arg(chat_->PersonaCount())));
+    }
+
+    void updateBubbles() {
+        if (!bubbles_) return;
+        simul::Array<simul::sim::Bubble> all = npcBubbles_;
+        for (size_t i = 0; i < webBubbles_.size(); i++) all.push_back(webBubbles_[i]);
+        bubbles_->Update(all);
+    }
+
+    // 웹 접속: web/server.js 가 이 포트로 붙어서 접속/입력을 보내 주면, 접속자가 엔진의 오브젝트(주민 모델)로 올라온다.
+    // 그래서 이 3D 화면에도 접속자가 보이고, 웹에는 (--npc 로 연) 순찰 주민도 같이 보인다.
+    void setupGame(const Options& o) {
+        if (o.servePort <= 0) return;
+        if (o.dataDir.empty()) { logError(QString::fromUtf8("--serve: 마을 데이터 폴더를 찾지 못했습니다 (파일을 직접 열었으면 --serve 는 쓸 수 없습니다)")); return; }
+        simul::String err, text;
+        simul::Array<unsigned char> b;
+        game_ = new simul::sim::Players();
+        const simul::String dir = o.dataDir;
+        if (simul::ReadAllBytes(dir + "/villagers/obstacles.txt", &b, &err) && !b.empty()) {
+            game_->World().ParseObstacles(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err);
+        }
+        b.clear();
+        if (!simul::ReadAllBytes(dir + "/ground.txt", &b, &err) || b.empty() ||
+            !game_->World().LoadGround(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err)) {
+            logError(QString::fromUtf8("땅 높이 표(ground.txt)를 읽을 수 없습니다: %1  (node tools/make_ground.js)").arg(simulqt::ToQ(err)));
+            delete game_;
+            game_ = nullptr;
+            return;
+        }
+        spawner_.owner = this;
+        spawner_.dir = simulqt::ToQ(dir);
+        game_->SetSpawner(&spawner_);
+        game_->World().SetMaxPlayers(30);
+        if (patrol_) {
+            game_->SetNext(patrol_);
+            simul::Array<simul::String> names;
+            for (int i = 0; i < patrol_->RouteCount(); i++) names.push_back(patrol_->Route(i).name);
+            game_->SetNpcNames(names);
+        }
+        if (!engine_) {   // --npc 가 없으면 엔진이 아직 없다: 접속자만 움직이는 엔진을 만든다
+            if (!backend_) backend_ = new ViewerBackend(viewer_);
+            engine_ = new simul::sim::Engine(backend_);
+            runner_ = new SimulRunner(engine_, this);
+            engine_->SetListener(game_);
+            runner_->Start();
+        } else {
+            engine_->SetListener(game_);
+        }
+        link_ = new GameLink(this);
+        QString lerr;
+        if (!link_->Listen(static_cast<quint16>(o.servePort), &lerr)) {
+            logError(QString::fromUtf8("웹 접속 포트 %1 을 열 수 없습니다: %2").arg(o.servePort).arg(lerr));
+            return;
+        }
+        QObject::connect(link_, &GameLink::lineReceived, this, [this](const QString& line) {
+            const QByteArray u = line.toUtf8();
+            const bool join = line.startsWith(QLatin1String("join "));
+            const bool ok = game_->Command(simul::String(u.constData(), static_cast<size_t>(u.size())));
+            if (join) log_->Info(QString::fromUtf8("웹 접속: %1 -> %2 (지금 %3명)").arg(line.mid(5)).arg(ok ? QString::fromUtf8("들어옴") : QString::fromUtf8("못 들어옴")).arg(game_->World().Count()));
+            else if (line.startsWith(QLatin1String("leave "))) log_->Info(QString::fromUtf8("웹 퇴장: %1 (지금 %2명)").arg(line.mid(6)).arg(game_->World().Count()));
+        });
+        QObject::connect(link_, &GameLink::connectionsChanged, this, [this](int n) {
+            log_->Info(n > 0 ? QString::fromUtf8("웹 게이트웨이 연결됨") : QString::fromUtf8("웹 게이트웨이 연결이 끊김"));
+        });
+        if (!bubbles_) bubbles_ = new SpeechBubbles(viewer_, this);
+        QObject::connect(runner_, &SimulRunner::ticked, this, [this](double t) {
+            webBubbles_ = game_->Bubbles();   // 웹에서 한 말은 이 화면에도 말풍선으로 보인다
+            updateBubbles();
+            if (++gameTick_ % 3 != 0 || link_->Connections() == 0) return;   // 3틱(약 50 ms)마다 모두의 상태를 보낸다
+            const simul::String j = game_->StateJson(*engine_, t);
+            link_->Broadcast(QByteArray(j.c_str(), static_cast<int>(j.size())));
+        });
+        log_->Info(QString::fromUtf8("웹 접속 대기: 127.0.0.1:%1 (최대 30명). web/server.js --connect 127.0.0.1:%1").arg(o.servePort));
     }
 
     // 주민 시점: 눈 높이(발 + 0.78 m)에서 앞쪽(모델 -Y 방향)을 본다. 매 프레임 따라가고, 방향은 부드럽게 돌린다.
@@ -1978,6 +2058,7 @@ private:
     simul::sim::Chat* chat_ = nullptr;        // 주민 대화
     LlmClient* llm_ = nullptr;
     SpeechBubbles* bubbles_ = nullptr;
+    simul::Array<simul::sim::Bubble> npcBubbles_, webBubbles_;   // 주민 대화와 웹 채팅의 말풍선을 합쳐서 보여 준다
     bool useLlm_ = false;
     bool llmWarned_ = false;
     qint64 llmDownUntil_ = 0;
@@ -1995,6 +2076,35 @@ private:
     QElapsedTimer fpClock_;
     dhVector fpSavedTarget_;
     double fpSavedDist_ = 10.0, fpSavedYaw_ = 0.0, fpSavedPitch_ = 0.5;
+    // 웹 접속자를 장면의 모델로 올리고 내리는 쪽
+    struct CamSave {
+        ModelViewer* v;
+        dhVector target;
+        double dist, yaw, pitch;
+        explicit CamSave(ModelViewer* viewer) : v(viewer), target(viewer->CameraTarget()), dist(viewer->CameraDistance()), yaw(viewer->CameraYaw()), pitch(viewer->CameraPitch()) {}
+        ~CamSave() { v->SetCamera(target, dist, yaw, pitch); }
+    };
+    struct WebSpawner : simul::sim::PlayerSpawner {
+        MainWindow* owner = nullptr;
+        QString dir;
+        bool AddModel(int id, simul::String* modelName) override {
+            const int n = 1 + ((id > 0 ? id - 1 : 0) % 4);   // 접속 순서대로 주민 모델 4종을 돌려 쓴다
+            const int before = owner->viewer_->ModelCount();
+            CamSave cam(owner->viewer_);   // 모델을 올리면 화면이 전체 맞춤으로 바뀌므로 보던 시점을 되돌린다
+            if (!owner->openFile(dir + QString("/villagers/villager_%1.glb").arg(n)) || owner->viewer_->ModelCount() <= before) return false;
+            *modelName = owner->viewer_->ModelName(owner->viewer_->ModelCount() - 1).toUtf8().constData();
+            return true;
+        }
+        void RemoveModel(const simul::String& modelName) override {
+            const QString q = QString::fromUtf8(modelName.c_str());
+            for (int m = 0; m < owner->viewer_->ModelCount(); m++)
+                if (owner->viewer_->ModelName(m) == q) { CamSave cam(owner->viewer_); owner->removeModel(m); return; }
+        }
+    };
+    WebSpawner spawner_;
+    simul::sim::Players* game_ = nullptr;
+    GameLink* link_ = nullptr;
+    int gameTick_ = 0;
     ObjectInfoPanel* objPanel_ = nullptr;
     QDockWidget* objDock_ = nullptr;
     QMenu* fileMenu_ = nullptr;
@@ -2039,6 +2149,7 @@ bool FindVillage(Options* o) {
             continue;
         }
         o->file = map.toLocal8Bit().constData();
+        o->dataDir = obj.absolutePath().toLocal8Bit().constData();
         if (o->npc) {   // --npc 일 때만 주민을 같이 연다
             for (int r = 0; r < patrol.RouteCount(); r++) {
                 const QString m = obj.filePath(QString("villagers/") + simulqt::ToQ(patrol.Route(r).name) + ".glb");
@@ -2090,6 +2201,7 @@ int main(int argc, char** argv) {
     w.startHidden(o);
     w.setupObjectPanel(o);
     w.startPatrol(o);
+    w.setupGame(o);
     if (!o.shot.empty() || !o.shotWindow.empty()) {
         const simul::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
