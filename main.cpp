@@ -589,6 +589,7 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/ObjectInfoPanel.h"
 #include "CoreQt/LogView.h"
 #include <QSet>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
 #include <QMainWindow>
@@ -1048,6 +1049,7 @@ public:
             for (int i = 0; i < patrol_->RouteCount(); i++)
                 if (simulqt::ToQ(patrol_->Route(i).name) == name) { enterFirstPerson(m); return; }
         });
+        qApp->installEventFilter(this);   // 주민 시점의 WASD
         setupChat(o);
         // A* 시각화 도크 (Ctrl+K): 주민이 서로 비켜 가려고 길을 새로 짤 때마다 그 탐색 과정을 보여 준다
         astarView_ = new AStarView(this);
@@ -1135,41 +1137,123 @@ public:
             fpSavedYaw_ = viewer_->CameraYaw();
             fpSavedPitch_ = viewer_->CameraPitch();
         }
+        if (fpModel_ >= 0 && fpModel_ != model) stopDriving();   // 다른 주민으로 바꿀 때는 전 주민을 다시 걷게 한다
         fpModel_ = model;
         fpYawInit_ = false;
+        fpCamYaw_ = fpSavedYaw_;
+        startDriving(model);
         updateFirstPerson();
         fpTimer_->start();
         fpBack_->show();
         fpBack_->raise();
-        statusBar()->showMessage(QString::fromUtf8("%1 시점 (Esc: 돌아가기)").arg(viewer_->ModelName(model)));
+        statusBar()->showMessage(QString::fromUtf8("%1 탑뷰 - WASD 이동, Shift 달리기, Q/E 화면 돌리기 (Esc: 돌아가기)").arg(viewer_->ModelName(model)));
     }
     void leaveFirstPerson() {
         if (fpModel_ < 0) return;
+        stopDriving();
         fpModel_ = -1;
+        fpKeys_.clear();
         fpTimer_->stop();
         fpBack_->hide();
         viewer_->SetCamera(fpSavedTarget_, fpSavedDist_, fpSavedYaw_, fpSavedPitch_);
         statusBar()->clearMessage();
     }
+    // WASD 로 직접 움직이기: 주민 시점 동안 그 주민을 Hold 로 세워 두고(순찰/대화에서 빠진다) 이 쪽에서 위치를 정한다.
+    void startDriving(int model) {
+        fpDrive_ = false;
+        if (!patrol_ || !engine_) return;
+        const QString name = viewer_->ModelName(model);
+        for (int i = 0; i < patrol_->RouteCount(); i++)
+            if (simulqt::ToQ(patrol_->Route(i).name) == name) fpRoute_ = patrol_->Route(i).name;
+        const dhPose p = viewer_->ModelPlacementPose(model);
+        const dhVector f = p.orientation.Rotate(dhVector(0, -1, 0));
+        if (!patrol_->Hold(*engine_, fpRoute_, static_cast<double>(p.position.x + f.x), static_cast<double>(p.position.y + f.y))) return;
+        fpPos_ = p.position;
+        fpBody_ = atan2(static_cast<double>(f.x), -static_cast<double>(f.y));   // 모델 앞쪽 = (sin, -cos)
+        fpDrive_ = true;
+        fpClock_.start();
+    }
+    void stopDriving() {
+        if (fpDrive_ && patrol_ && engine_) patrol_->Release(*engine_, fpRoute_);
+        fpDrive_ = false;
+    }
+    // 가까운 동그라미(나무/집 등 + 다른 주민)에서 밀어낸다
+    void pushOut(double* x, double* y, double cx, double cy, double r) const {
+        const double dx = *x - cx, dy = *y - cy, d2 = dx * dx + dy * dy;
+        if (d2 >= r * r) return;
+        const double d = sqrt(d2);
+        if (d < 1e-6) { *x = cx + r; return; }
+        *x = cx + dx / d * r;
+        *y = cy + dy / d * r;
+    }
+    void drive() {
+        if (!fpDrive_) return;
+        double dt = static_cast<double>(fpClock_.restart()) / 1000.0;
+        if (dt > 0.1) dt = 0.1;
+        const double turn = ((fpKeys_.contains(Qt::Key_Q) || fpKeys_.contains(Qt::Key_Left)) ? 1.0 : 0.0) -
+                            ((fpKeys_.contains(Qt::Key_E) || fpKeys_.contains(Qt::Key_Right)) ? 1.0 : 0.0);
+        fpCamYaw_ += turn * 1.6 * dt;   // Q/E: 화면 돌리기
+        const double fwd = (fpKeys_.contains(Qt::Key_W) ? 1.0 : 0.0) - (fpKeys_.contains(Qt::Key_S) ? 1.0 : 0.0);
+        const double side = (fpKeys_.contains(Qt::Key_D) ? 1.0 : 0.0) - (fpKeys_.contains(Qt::Key_A) ? 1.0 : 0.0);
+        if (fwd != 0.0 || side != 0.0) {
+            const double fx = -cos(fpCamYaw_), fy = -sin(fpCamYaw_);   // 화면 위쪽
+            const double rx = -sin(fpCamYaw_), ry = cos(fpCamYaw_);    // 화면 오른쪽
+            double vx = fx * fwd + rx * side, vy = fy * fwd + ry * side;
+            const double n = sqrt(vx * vx + vy * vy);
+            const double want = atan2(vx, -vy);   // 가는 쪽을 보게 (모델 앞쪽 = (sin, -cos))
+            double d = want - fpBody_;
+            while (d > 3.14159265358979) d -= 6.28318530717958;
+            while (d < -3.14159265358979) d += 6.28318530717958;
+            fpBody_ += d * (1.0 - exp(-14.0 * dt));
+            const double speed = (fpKeys_.contains(Qt::Key_Shift) ? 5.0 : 2.5) * dt;
+            double x = static_cast<double>(fpPos_.x) + vx / n * speed, y = static_cast<double>(fpPos_.y) + vy / n * speed;
+            for (int it = 0; it < 2; it++) {   // 겹치는 것이 하나 더 있어도 밀려 나오도록 두 번
+                for (int i = 0; i < patrol_->ObstacleCount(); i++) {
+                    const simul::sim::Circle2& c = patrol_->Obstacle(i);
+                    pushOut(&x, &y, c.x, c.y, c.r + 0.4);
+                }
+                for (int i = 0; i < viewer_->ModelCount(); i++) {   // 다른 주민
+                    if (i == fpModel_) continue;
+                    bool villager = false;
+                    for (int k = 0; k < patrol_->RouteCount(); k++)
+                        if (simulqt::ToQ(patrol_->Route(k).name) == viewer_->ModelName(i)) villager = true;
+                    if (!villager) continue;
+                    const dhPose o = viewer_->ModelPlacementPose(i);
+                    pushOut(&x, &y, static_cast<double>(o.position.x), static_cast<double>(o.position.y), 0.8);
+                }
+            }
+            fpPos_.x = static_cast<float>(x);
+            fpPos_.y = static_cast<float>(y);
+        }
+        const simul::sim::Handle h = engine_->Find(fpRoute_);
+        if (h.slot >= 0) engine_->SetPose(h, dhPose(fpPos_, dhQuat::FromAxisAngle(static_cast<float>(fpBody_), dhVector(0, 0, 1))));
+    }
+    bool eventFilter(QObject* obj, QEvent* ev) override {
+        if (fpModel_ >= 0 && fpDrive_ && (ev->type() == QEvent::KeyPress || ev->type() == QEvent::KeyRelease || ev->type() == QEvent::ShortcutOverride)) {
+            QKeyEvent* k = static_cast<QKeyEvent*>(ev);
+            const int key = k->key();
+            const bool ours = key == Qt::Key_W || key == Qt::Key_A || key == Qt::Key_S || key == Qt::Key_D || key == Qt::Key_Q ||
+                              key == Qt::Key_E || key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Shift;
+            if (ours && !k->isAutoRepeat()) {
+                if (ev->type() == QEvent::ShortcutOverride) { ev->accept(); return false; }   // 단축키(S 등)보다 먼저 받는다
+                if (ev->type() == QEvent::KeyPress) fpKeys_.insert(key);
+                else fpKeys_.remove(key);
+                return true;
+            }
+            if (ours) return true;   // 키 반복은 무시
+        }
+        return QMainWindow::eventFilter(obj, ev);
+    }
+    void focusOutEvent(QFocusEvent* e) override { fpKeys_.clear(); QMainWindow::focusOutEvent(e); }
+
     void updateFirstPerson() {
         if (fpModel_ < 0) return;
         if (fpModel_ >= viewer_->ModelCount()) { leaveFirstPerson(); return; }
         fpBack_->move(viewer_->width() - fpBack_->width() - 14, 14);   // 창 크기가 바뀌어도 오른쪽 위에 둔다
-        const dhPose pose = viewer_->ModelPlacementPose(fpModel_);
-        const dhVector f = pose.orientation.Rotate(dhVector(0, -1, 0));   // 모델 앞쪽
-        const double want = atan2(static_cast<double>(f.y), static_cast<double>(f.x));
-        if (!fpYawInit_) { fpYaw_ = want; fpYawInit_ = true; }
-        double d = want - fpYaw_;
-        while (d > 3.14159265358979) d -= 6.28318530717958;
-        while (d < -3.14159265358979) d += 6.28318530717958;
-        fpYaw_ += d * 0.2;
-        const double cy = cos(fpYaw_), sy = sin(fpYaw_), q = 0.06;   // q: 살짝 내려다보는 각
-        const dhVector eye(static_cast<float>(pose.position.x + 0.22 * cy), static_cast<float>(pose.position.y + 0.22 * sy),
-                           static_cast<float>(pose.position.z + 0.78));
-        const double dist = 0.05;   // 궤도 카메라라서 눈에서 아주 조금 앞을 target 으로 잡는다
-        const dhVector target(static_cast<float>(eye.x + dist * cos(q) * cy), static_cast<float>(eye.y + dist * cos(q) * sy),
-                              static_cast<float>(eye.z - dist * sin(q)));
-        viewer_->SetCamera(target, dist, atan2(-sy, -cy), q);
+        drive();
+        const dhPose pose = fpDrive_ ? dhPose(fpPos_, dhQuat::FromAxisAngle(static_cast<float>(fpBody_), dhVector(0, 0, 1))) : viewer_->ModelPlacementPose(fpModel_);
+        const dhVector target(pose.position.x, pose.position.y, static_cast<float>(pose.position.z + 0.8));   // 캐릭터 머리 근처를 위에서 내려다본다
+        viewer_->SetCamera(target, 14.0, fpCamYaw_, 1.2);
     }
 
     // 오른쪽 "오브젝트 / 관절 값" 도크 (Ctrl+J): 장면에서 오브젝트 이름과 관절 값을 바로 읽어 보여 준다
@@ -1898,6 +1982,13 @@ private:
     int fpModel_ = -1;
     bool fpYawInit_ = false;
     double fpYaw_ = 0.0;
+    bool fpDrive_ = false;                   // WASD 로 움직이는 중 (주민을 Hold 로 잡고 있다)
+    simul::String fpRoute_;
+    dhVector fpPos_;
+    double fpBody_ = 0.0;
+    double fpCamYaw_ = 0.0;                  // 탑뷰 카메라가 보는 방향                    // 몸 방향(yaw)
+    QSet<int> fpKeys_;
+    QElapsedTimer fpClock_;
     dhVector fpSavedTarget_;
     double fpSavedDist_ = 10.0, fpSavedYaw_ = 0.0, fpSavedPitch_ = 0.5;
     ObjectInfoPanel* objPanel_ = nullptr;
