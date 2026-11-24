@@ -67,7 +67,7 @@ endif()
 if(SIMUL_BUILD_QT)
     # Ubuntu 20.04 apt: qtbase5-dev 5.12.8
     # LGPLv3 준수: 반드시 공유 라이브러리(동적 링크)로 사용, GPL 전용 모듈 금지
-    find_package(Qt5 5.12 REQUIRED COMPONENTS Core Gui Widgets)
+    find_package(Qt5 5.12 REQUIRED COMPONENTS Core Gui Widgets Network)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTOUIC ON)
     set(CMAKE_AUTORCC ON)

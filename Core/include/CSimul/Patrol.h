@@ -51,6 +51,12 @@ public:
     bool ParseObstacles(const String& text, String* error);
     int ObstacleCount() const { return static_cast<int>(fixed_.size()); }
     const Circle2& Obstacle(int i) const { return fixed_[static_cast<size_t>(i)]; }
+    // 대화 등으로 잠깐 세워 둔다: Hold 는 그 자리에 멈추고 (faceX, faceY) 쪽을 보게 하고, Release 는 가던 길을 다시 간다.
+    // 세워 둔 주민은 길 확인과 밀어내기를 하지 않고, 다른 주민에게는 그냥 장애물이다.
+    bool Hold(Engine& e, const String& name, double faceX, double faceY);
+    bool Release(Engine& e, const String& name);
+    bool Held(const String& name) const;
+    bool Active(const String& name) const;   // 길이 있고 출발한 주민인가
     int Detours() const { return detours_; }   // 지금까지 길을 새로 짠 횟수
     // 시각화용: 켜 두면 A* 로 길을 새로 짤 때마다 탐색 과정을 남긴다 (꺼져 있으면 비용 없음).
     void SetTracing(bool on) { tracing_ = on; }
@@ -71,8 +77,9 @@ private:
         Array<dhVector> path;   // 다음 지점까지 가는 꺾임점 (비켜 가는 중이면 2개 이상, 마지막이 지점)
         size_t pathPos;         // path 에서 지금 향하는 곳
         double lastPlan;        // 마지막으로 길을 확인한 시각
+        bool held;              // Hold 로 세워 둔 상태
         bool fresh;             // 방금 출발시켰다 (SetPose 가 다음 틱에 적용되므로 이번 틱에는 위치를 믿지 않는다)
-        State() : started(false), next(0), reached(0), yaw(0.0), pathPos(0), lastPlan(-1e9), fresh(false) {}
+        State() : started(false), next(0), reached(0), yaw(0.0), pathPos(0), lastPlan(-1e9), held(false), fresh(false) {}
     };
     int find(const String& name) const;
     bool begin(Engine& e, int route);                  // 첫 지점에 놓고 출발

@@ -81,6 +81,8 @@ public:
     // ---- 카메라 (m, radian, 쿼터니언). 마우스로 돌리는 중심 궤도 카메라: target 을 distance 만큼 떨어져서 본다.
     // yaw 는 target 둘레 z 축 회전, pitch 는 올려다보는 각 (+ 이면 카메라가 위에 있다). 둘 다 radian, pitch 는 +-89 도로 제한한다.
     void SetCamera(const dhVector& target, double distance, double yaw, double pitch);
+    // 월드 좌표 한 점이 3D 화면의 어디에 보이는지 (화면 좌표, 위젯 왼쪽 위가 원점). 카메라 뒤에 있거나 화면 밖이면 false.
+    bool WorldToScreen(const dhVector& world, QPointF* screen) const;
     dhVector CameraTarget() const { return dhVector(target_.x(), target_.y(), target_.z()); }
     double CameraDistance() const { return static_cast<double>(dist_); }
     double CameraYaw() const { return static_cast<double>(yaw_); }

@@ -613,6 +613,31 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 
 코드: `Core/include/CSimul/AStar.h`(A* 와 탐색 기록 `AStarTrace`), `Core/Qt/include/CoreQt/AStarView.h`(시각화 위젯), `Core/include/CSimul/Patrol.h`(엔진 `Listener`, 지점 파일 읽기 + `move_to` 연결 + 비켜 가기, 시험은 `tests/test_cpatrol.cpp`, `tests/test_castar.cpp`), 뷰어 연결은 `main.cpp` 의 `startPatrol`, 창 없는 예제는 `examples/villager_patrol.cpp`.
 
+## 주민 대화 (무료 로컬 LLM)
+
+마을의 주민끼리 마주치면(2.2 m 안) 둘 다 멈춰서 서로를 보고, 번갈아 4마디쯤 이야기한 뒤 다시 걷는다. 대사는 머리 위 말풍선으로 보이고(읽을 시간만큼 3~7초), 같은 둘은 30초 동안 다시 대화하지 않는다. 대화 내용은 로그 도크(보기 메뉴)에도 쌓인다.
+
+대사는 **내 PC 에서 돌리는 무료 모델**(Ollama)에 물어서 만든다. 키도 요금도 없고 인터넷이 필요 없다. 주민마다 성격이 있어서(`Data/Object/villagers/personas.txt`: `[모델 이름]`, `name`, `persona`), 모델은 그 성격과 지금까지 나눈 말을 보고 다음 한 마디를 만든다. 성격 파일은 마음대로 고치면 된다.
+
+```
+# Ollama 설치 (Linux) 와 모델 받기: 1.5B 모델은 CPU 만으로도 한 마디에 몇 초 걸린다
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:1.5b
+./build/bin/simul_main                                   # 기본: http://127.0.0.1:11434, 모델 qwen2.5:1.5b
+./build/bin/simul_main --llm-model qwen2.5:3b            # 더 큰 모델 (한국어가 더 낫지만 느리다)
+./build/bin/simul_main --llm-url http://다른PC:11434     # 다른 PC 에서 돌리는 Ollama
+./build/bin/simul_main --no-llm                          # LLM 없이 정해 둔 대사만
+./build/bin/simul_main --no-chat                         # 대화 없이 걷기만
+```
+
+- **LLM 서버가 없거나 실패해도 말은 한다.** 연결 실패, 모델 없음, 35초 시간 초과, 이상한 응답이면 그 한 마디는 정해 둔 대사(인사, 맞장구, 작별)로 대신하고, 1분 동안은 LLM 에 묻지 않고 정해 둔 대사만 쓴 뒤 다시 시도한다. 처음 실패하면 로그에 이유가 나온다 (로그 기록에는 "(정해 둔 대사)" 가 붙는다).
+- **한 번에 하나씩 묻는다.** 작은 모델은 동시 요청을 못 견디므로 줄을 세우고, 4개를 넘게 밀리면 오래된 것부터 정해 둔 대사로 넘긴다.
+- **답은 정리해서 쓴다.** 첫 줄만, 따옴표와 앞에 붙은 "이름:" 을 떼고, 40글자를 넘으면 문장 끝에서 자른다.
+- **서버 형식.** Ollama 의 `/api/generate` (`stream:false`) 로 보내고, 응답의 `response`(없으면 `content`)를 읽는다. llama.cpp 서버(`/completion`)는 주소가 달라서 바로는 안 된다.
+- Windows 에서는 Qt5Network 가 필요하다 (windeployqt 가 같이 넣어 준다). 기존 빌드 폴더에서는 CMake 를 다시 구성해야 한다.
+
+코드: `Core/include/CSimul/Chat.h`(만남 감지, 차례, 프롬프트와 응답 글 처리 — 네트워크와 Qt 가 없다, 시험은 `tests/test_cchat.cpp`), `Core/Qt/include/CoreQt/LlmClient.h`(Ollama 호출), `SpeechBubbles.h`(말풍선), 연결은 `main.cpp` 의 `setupChat`. 만나면 `Patrol::Hold` 로 세우고 끝나면 `Patrol::Release` 로 다시 걷게 한다.
+
 ## 바닥 모델 지정
 
 모델을 둘 이상 올렸을 때, 그중 하나를 바닥으로 지정하면 다른 모델은 z=0 평면 대신 그 모델의 윗면 위로 떨어져 멈춘다.

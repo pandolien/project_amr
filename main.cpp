@@ -46,6 +46,10 @@ struct Options {
     simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
     simul::String patrolFile;   // --patrol 파일: 지점 파일대로 이름이 같은 모델이 걷는다 (막히면 A* 로 비킴)
     bool empty = false;         // --empty: 아무것도 열지 않고 시작 (기본은 파일을 안 주면 마을을 연다)
+    bool noChat = false;        // --no-chat: 주민끼리 대화하지 않는다
+    bool noLlm = false;         // --no-llm: LLM 을 쓰지 않고 정해 둔 대사로만 말한다
+    simul::String llmUrl = "http://127.0.0.1:11434";   // --llm-url: Ollama 서버 주소
+    simul::String llmModel = "qwen2.5:1.5b";           // --llm-model: Ollama 모델 이름
     bool onlyView;             // 기본: 메뉴/도크/상태바 없이 3D 화면만 (메뉴, 구조 트리, 오브젝트 뷰는 3D 화면 안에 뜬다). --classic 이면 예전 창 구성
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
@@ -163,8 +167,12 @@ void PrintUsage(const char* exe) {
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
-        "  --patrol 파일       지점 파일(Data/Object/villagers/waypoints.txt 형식)대로 이름이 같은 모델이 지점을 차례로 걷는다 (길 찾기 없음)\n"
+        "  --patrol 파일       지점 파일(Data/Object/villagers/waypoints.txt 형식)대로 이름이 같은 모델이 지점을 차례로 걷는다 (막히면 A* 로 비킨다)\n"
         "  --empty            파일을 안 줬을 때도 마을을 열지 않고 빈 뷰어로 시작 (기본은 Data/Object 의 마을 지도와 주민이 열리고 주민이 걷는다)\n"
+        "  --no-chat          주민끼리 대화하지 않는다 (기본은 마주치면 멈춰서 이야기한다)\n"
+        "  --no-llm           LLM 없이 정해 둔 대사로만 말한다\n"
+        "  --llm-url URL      LLM 서버 (Ollama) 주소 (기본 http://127.0.0.1:11434)\n"
+        "  --llm-model 이름   LLM 모델 이름 (기본 qwen2.5:1.5b)\n"
         "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --classic            예전 창 구성(Qt 메뉴줄과 도크)으로 시작한다. 기본은 3D 화면만 (메뉴/구조 트리/오브젝트 뷰가 화면 안에 뜬다)\n"
@@ -318,6 +326,10 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--floor" && hasNext) { o->floorModel = argv[++i]; continue; }
         if (a == "--patrol" && hasNext) { o->patrolFile = argv[++i]; continue; }
         if (a == "--empty") { o->empty = true; continue; }
+        if (a == "--no-chat") { o->noChat = true; continue; }
+        if (a == "--no-llm") { o->noLlm = true; continue; }
+        if (a == "--llm-url" && hasNext) { o->llmUrl = argv[++i]; continue; }
+        if (a == "--llm-model" && hasNext) { o->llmModel = argv[++i]; continue; }
         if (a == "--scale" && hasNext) {   // 모델 전체 크기 배율. 예: --scale arm=0.5
             const simul::String v = argv[++i];
             const size_t eq = v.find('=');
@@ -582,6 +594,7 @@ int PrintInfo(const Options& o) {
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QSpinBox>
@@ -605,6 +618,9 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/CameraView.h"
 #include "CoreQt/LidarPlot.h"
 #include "CoreQt/AStarView.h"
+#include "CoreQt/LlmClient.h"
+#include "CoreQt/SpeechBubbles.h"
+#include "CSimul/Chat.h"
 #include "CoreQt/SunPanel.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
@@ -1032,6 +1048,7 @@ public:
             for (int i = 0; i < patrol_->RouteCount(); i++)
                 if (simulqt::ToQ(patrol_->Route(i).name) == name) { enterFirstPerson(m); return; }
         });
+        setupChat(o);
         // A* 시각화 도크 (Ctrl+K): 주민이 서로 비켜 가려고 길을 새로 짤 때마다 그 탐색 과정을 보여 준다
         astarView_ = new AStarView(this);
         astarAuto_ = new QCheckBox(QString::fromUtf8("재생이 끝나면 가장 최근 길 계산으로 바꿔 보기"), this);
@@ -1066,6 +1083,48 @@ public:
         astarIdle_.start();
         astarTimer_->start();
         log_->Info(QString::fromUtf8("순찰 시작: %1 (길 %2개, 장애물 %3개)").arg(simulqt::ToQ(o.patrolFile)).arg(patrol_->RouteCount()).arg(patrol_->ObstacleCount()));
+    }
+
+    // 주민 대화: 마주치면 멈춰서 번갈아 말한다. 대사는 로컬 LLM (Ollama) 에 물어보고, 서버가 없거나 실패하면 정해 둔 대사로 대신한다.
+    void setupChat(const Options& o) {
+        if (o.noChat || !patrol_ || !engine_ || !runner_) return;
+        chat_ = new simul::sim::Chat();
+        chat_->SetPatrol(patrol_);
+        const size_t cut = o.patrolFile.find_last_of("/\\");
+        const simul::String dir = cut == simul::String::npos ? simul::String() : o.patrolFile.substr(0, cut + 1);
+        simul::Array<unsigned char> bytes;
+        simul::String err;
+        if (simul::ReadAllBytes(dir + "personas.txt", &bytes, &err) && !bytes.empty() &&
+            !chat_->ParsePersonas(simul::String(reinterpret_cast<const char*>(&bytes[0]), bytes.size()), &err))
+            logError(simulqt::ToQ(err));
+        chat_->AddMissingPersonas(*patrol_);
+        llm_ = new LlmClient(this);
+        llm_->SetServer(simulqt::ToQ(o.llmUrl), simulqt::ToQ(o.llmModel));
+        useLlm_ = !o.noLlm;
+        bubbles_ = new SpeechBubbles(viewer_, this);
+        QObject::connect(llm_, &LlmClient::answered, this, [this](int id, const QString& text) { chat_->Deliver(id, simulqt::FromQ(text)); });
+        QObject::connect(llm_, &LlmClient::failed, this, [this](int id, const QString& why) {
+            chat_->Fail(id);   // 정해 둔 대사로 대신한다
+            llmDownUntil_ = QDateTime::currentMSecsSinceEpoch() + 60000;   // 1분 동안은 묻지 않고 바로 정해 둔 대사
+            if (!llmWarned_) {
+                llmWarned_ = true;
+                log_->Warning(QString::fromUtf8("LLM 서버(%1, 모델 %2)에서 답을 못 받아 정해 둔 대사로 말합니다: %3 (Ollama 를 켜고 `ollama pull %2` 를 해 두면 1분 뒤부터 다시 시도합니다)")
+                                  .arg(llm_->Url()).arg(llm_->Model()).arg(why));
+            }
+        });
+        QObject::connect(runner_, &SimulRunner::ticked, this, [this](double t) {
+            chat_->Tick(*engine_, t);
+            simul::sim::ChatRequest r;
+            while (chat_->PopRequest(&r)) {
+                if (useLlm_ && QDateTime::currentMSecsSinceEpoch() >= llmDownUntil_) llm_->Ask(r.id, simulqt::ToQ(simul::sim::Chat::BuildPrompt(r)));
+                else chat_->Fail(r.id);
+            }
+            const simul::Array<simul::String> lines = chat_->TakeLog();
+            for (size_t i = 0; i < lines.size(); i++) log_->Info(simulqt::ToQ(lines[i]));
+            bubbles_->Update(chat_->Bubbles());
+        });
+        log_->Info(QString::fromUtf8("주민 대화: %1 (%2)").arg(o.noLlm ? QString::fromUtf8("정해 둔 대사만") : QString::fromUtf8("LLM %1 / %2").arg(simulqt::ToQ(o.llmUrl)).arg(simulqt::ToQ(o.llmModel)))
+                       .arg(QString::fromUtf8("주민 %1명").arg(chat_->PersonaCount())));
     }
 
     // 주민 시점: 눈 높이(발 + 0.78 m)에서 앞쪽(모델 -Y 방향)을 본다. 매 프레임 따라가고, 방향은 부드럽게 돌린다.
@@ -1828,6 +1887,12 @@ private:
     QTimer* astarTimer_ = nullptr;
     int astarSerial_ = 0;
     QElapsedTimer astarIdle_;                // 마지막으로 재생 중이던 때부터 지난 시간
+    simul::sim::Chat* chat_ = nullptr;        // 주민 대화
+    LlmClient* llm_ = nullptr;
+    SpeechBubbles* bubbles_ = nullptr;
+    bool useLlm_ = false;
+    bool llmWarned_ = false;
+    qint64 llmDownUntil_ = 0;
     QPushButton* fpBack_ = nullptr;          // "원래 시점으로" 버튼
     QTimer* fpTimer_ = nullptr;              // 주민 시점으로 보는 중
     int fpModel_ = -1;

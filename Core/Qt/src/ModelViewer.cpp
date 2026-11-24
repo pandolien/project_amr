@@ -1571,6 +1571,16 @@ void ModelViewer::uploadItems(ItemList& list) {
     }
 }
 
+bool ModelViewer::WorldToScreen(const dhVector& world, QPointF* screen) const {
+    if (width() <= 0 || height() <= 0) return false;
+    const QVector4D c = projMatrix() * viewMatrix() * QVector4D(world.x, world.y, world.z, 1.0f);
+    if (c.w() <= 1e-6f) return false;   // 카메라 뒤
+    const float nx = c.x() / c.w(), ny = c.y() / c.w(), nz = c.z() / c.w();
+    if (nz < -1.0f || nz > 1.0f || nx < -1.2f || nx > 1.2f || ny < -1.2f || ny > 1.2f) return false;
+    if (screen) *screen = QPointF((nx * 0.5 + 0.5) * width(), (1.0 - (ny * 0.5 + 0.5)) * height());
+    return true;
+}
+
 QMatrix4x4 ModelViewer::viewMatrix() const {
     const float cy = simul::Cos(yaw_), sy = simul::Sin(yaw_);
     const float cp = simul::Cos(pitch_), sp = simul::Sin(pitch_);

@@ -109,6 +109,44 @@ bool Patrol::ParseObstacles(const String& text, String* error) {
     return true;
 }
 
+bool Patrol::Active(const String& name) const {
+    const int r = find(name);
+    return r >= 0 && state_[static_cast<size_t>(r)].started;
+}
+
+bool Patrol::Held(const String& name) const {
+    const int r = find(name);
+    return r >= 0 && state_[static_cast<size_t>(r)].held;
+}
+
+bool Patrol::Hold(Engine& e, const String& name, double fx, double fy) {
+    const int r = find(name);
+    if (r < 0 || !state_[static_cast<size_t>(r)].started) return false;
+    const Handle h = e.Find(name);
+    ObjectInfo info;
+    if (h.slot < 0 || !e.Info(h, &info)) return false;
+    State& s = state_[static_cast<size_t>(r)];
+    s.held = true;
+    e.StopMotion(h);
+    const double dx = fx - static_cast<double>(info.pose.position.x), dy = fy - static_cast<double>(info.pose.position.y);
+    if (dx * dx + dy * dy > 1e-12) s.yaw = atan2(dx, -dy);
+    e.SetPose(h, dhPose(info.pose.position, dhQuat::FromAxisAngle(static_cast<float>(s.yaw), dhVector(0, 0, 1))));
+    return true;
+}
+
+bool Patrol::Release(Engine& e, const String& name) {
+    const int r = find(name);
+    if (r < 0 || !state_[static_cast<size_t>(r)].held) return false;
+    State& s = state_[static_cast<size_t>(r)];
+    s.held = false;
+    const Handle h = e.Find(name);
+    ObjectInfo info;
+    if (h.slot < 0 || !e.Info(h, &info) || s.path.empty()) return true;
+    s.lastPlan = time_;
+    steer(e, h, r, info.pose.position, s.path[s.pathPos]);   // 가던 곳으로 다시
+    return true;
+}
+
 int Patrol::find(const String& name) const {
     for (size_t i = 0; i < routes_.size(); i++)
         if (routes_[i].name == name) return static_cast<int>(i);
@@ -181,7 +219,7 @@ void Patrol::OnTick(Engine& e, double time, double dt) {
         const double step = 1.5 * dt;   // 한 틱에 한 명이 움직일 최대 거리
         for (size_t i = 0; i < n; i++) {
             for (size_t j = i + 1; j < n; j++) {
-                if (!alive[i] || !alive[j]) continue;
+                if (!alive[i] || !alive[j] || state_[i].held || state_[j].held) continue;
                 double dx = static_cast<double>(pos[j].x) - static_cast<double>(pos[i].x);
                 double dy = static_cast<double>(pos[j].y) - static_cast<double>(pos[i].y);
                 double d = hypot(dx, dy);
@@ -210,7 +248,7 @@ void Patrol::OnTick(Engine& e, double time, double dt) {
     // 2) 앞길 확인: 0.25 초마다 (누가 sep 안쪽으로 붙어 있으면 0.05 초마다)
     for (size_t i = 0; i < n; i++) {
         State& s = state_[i];
-        if (!alive[i] || s.path.empty()) continue;
+        if (!alive[i] || s.path.empty() || s.held) continue;
         double nearest = 1e9;
         for (size_t k = 0; k < n; k++)
             if (k != i && alive[k]) {
@@ -284,7 +322,8 @@ void Patrol::OnEvent(Engine& e, const Event& ev) {
         if (!s.started && e.Running()) begin(e, r);
     } else if (ev.type == kEventRemoved) {
         s.started = false;
-    } else if (ev.type == kEventArrived && s.started) {
+        s.held = false;
+    } else if (ev.type == kEventArrived && s.started && !s.held) {
         if (s.pathPos + 1 < s.path.size()) {     // 비켜 가는 중간 지점: 다음 꺾임점으로
             const dhVector from = s.path[s.pathPos];
             s.pathPos++;
