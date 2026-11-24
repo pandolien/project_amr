@@ -82,6 +82,10 @@ add_executable(villager_patrol examples/villager_patrol.cpp)
 target_link_libraries(villager_patrol PRIVATE simul_core)
 simul_set_warnings(villager_patrol)
 
+# 웹 접속 서버: 웹으로 접속한 사람들의 캐릭터를 움직인다 (web/server.js 가 띄운다, Qt 필요 없음)
+add_executable(village_server examples/village_server.cpp)
+simul_set_warnings(village_server)
+
 if(SIMUL_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

@@ -23,3 +23,6 @@ qrc_*.cpp
 .vcpkg/
 __pycache__/
 *.pyc
+
+# 웹 접속 (npm install 로 생긴다)
+web/node_modules/

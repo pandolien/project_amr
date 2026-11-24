@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>동화 마을</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe6ff; font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  canvas { display: block; }
+  #join { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(191, 230, 255, .92); z-index: 10; }
+  #join .card { background: #fff; border-radius: 16px; padding: 28px 32px; box-shadow: 0 8px 30px rgba(60, 80, 120, .25); text-align: center; color: #3b4a6b; }
+  #join h1 { margin: 0 0 6px; font-size: 22px; }
+  #join p { margin: 0 0 16px; font-size: 13px; opacity: .8; }
+  #join input { font: inherit; padding: 9px 12px; border: 1px solid #c9d6ee; border-radius: 10px; width: 180px; text-align: center; }
+  #join button { font: inherit; margin-left: 8px; padding: 9px 18px; border: 0; border-radius: 10px; background: #5b7cff; color: #fff; cursor: pointer; }
+  #join #msg { margin-top: 12px; font-size: 13px; color: #c0392b; min-height: 1em; }
+  #hud { position: fixed; left: 12px; top: 12px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, .72); color: #3b4a6b; font-size: 12px; line-height: 1.6; z-index: 5; pointer-events: none; }
+  #hint { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: rgba(20, 24, 32, .75); color: #fff; font-size: 13px; z-index: 5; pointer-events: none; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: rgba(255, 255, 255, .85); box-shadow: 0 0 3px rgba(0, 0, 0, .5); z-index: 4; pointer-events: none; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="join">
+  <div class="card">
+    <h1>동화 마을</h1>
+    <p>이름을 정하고 들어오면 내 캐릭터 시점으로 마을을 걸을 수 있어요.</p>
+    <input id="name" maxlength="12" placeholder="이름" autofocus>
+    <button id="go">들어가기</button>
+    <div id="msg"></div>
+  </div>
+</div>
+<div id="hud" hidden></div>
+<div id="hint" hidden>화면을 클릭하면 마우스로 둘러볼 수 있어요</div>
+<div id="cross" hidden></div>
+<script type="module" src="/client.js"></script>
+</body>
+</html>
