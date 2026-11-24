@@ -10,6 +10,7 @@
 // - 정적 파일: 웹 페이지(public/), three.js(node_modules/three), 마을과 주민 모델(Data/Object) 을 내 준다.
 // - 접속: {"type":"join","name":"한솔"} 을 받으면 id 를 주고, village_server 에 join 을 보낸다 (최대 --max 명).
 // - 채팅: {"type":"chat","text":"안녕"} (60자, 0.8초에 한 번) -> 그 캐릭터 옆의 말풍선으로 모두에게 보인다.
+// - 보안: 같은 출처(Origin)만, 주소당 --max-per-ip(8)개/전체 연결 수 제한, 10초 안에 join 안 하면 끊음, 입력/채팅 속도 제한, 파일은 허용 목록만.
 // - 입력: {"type":"input","fwd":1,"side":0,"run":0,"yaw":1.2} 를 village_server 에 넘긴다 (초당 40개까지만).
 // - 50 ms 마다 village_server 에 tick 을 보내고, 돌아온 상태 한 줄을 접속자 모두에게 그대로 보낸다.
 'use strict';
@@ -57,7 +58,12 @@ const httpServer = http.createServer(function (req, res) {
   if (!file) { res.writeHead(404); res.end('not found'); return; }
   fs.readFile(file, function (err, data) {
     if (err) { res.writeHead(404); res.end('not found'); return; }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.writeHead(200, {
+      'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache',
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
+      // 이 서버의 파일과 웹소켓만 쓴다 (페이지의 importmap/스크립트는 인라인이라 'unsafe-inline')
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none'"
+    });
     res.end(data);
   });
 });
@@ -116,7 +122,26 @@ function toChild(line) {
 }
 
 // ---- 웹소켓 ----
-const wss = new WebSocketServer({ server: httpServer, maxPayload: 1024 });
+// 보안: (1) 다른 사이트의 페이지가 방문자 브라우저로 몰래 접속하지 못하게 Origin 이 이 서버와 같아야 한다,
+// (2) 같은 주소에서 오는 연결 수와 전체 연결 수를 제한한다, (3) 10초 안에 입장(join)하지 않으면 끊는다,
+// (4) 응답 없는 연결은 15초마다 확인해서 정리한다.
+const MAX_PER_IP = parseInt(arg('max-per-ip', '8'), 10);
+const MAX_SOCKETS = MAX * 3 + 10;
+const perIp = new Map();
+function sameOrigin(req) {
+  const o = req.headers.origin;
+  if (!o) return true;   // 브라우저가 아닌 도구는 Origin 이 없다 (그쪽은 위조할 수 있으니 이 검사의 대상이 아니다)
+  try { return new URL(o).host === req.headers.host; } catch (e) { return false; }
+}
+const wss = new WebSocketServer({
+  server: httpServer, maxPayload: 1024,
+  verifyClient: function (info) {
+    if (!sameOrigin(info.req)) return false;
+    if (wss.clients.size >= MAX_SOCKETS) return false;
+    const ip = info.req.socket.remoteAddress;
+    return (perIp.get(ip) || 0) < MAX_PER_IP;
+  }
+});
 const clients = new Map();   // ws -> { id, tokens }
 let nextId = 1;
 function broadcast(line) {
@@ -126,9 +151,12 @@ function cleanName(s) {
   const t = String(s || '').replace(/[^\p{L}\p{N}_-]/gu, '').slice(0, 12);
   return t || 'guest';
 }
-wss.on('connection', function (ws) {
-  const c = { id: 0, tokens: 40, last: Date.now() };
+wss.on('connection', function (ws, req) {
+  const c = { id: 0, tokens: 40, last: Date.now(), alive: true, ip: req.socket.remoteAddress };
   clients.set(ws, c);
+  perIp.set(c.ip, (perIp.get(c.ip) || 0) + 1);
+  ws.on('pong', function () { c.alive = true; });
+  const joinTimer = setTimeout(function () { if (!c.id) ws.terminate(); }, 10000);
   ws.on('message', function (data) {
     let m;
     try { m = JSON.parse(data.toString('utf8')); } catch (e) { return; }
@@ -162,12 +190,22 @@ wss.on('connection', function (ws) {
     }
   });
   ws.on('close', function () {
+    clearTimeout(joinTimer);
+    const n = (perIp.get(c.ip) || 1) - 1;
+    if (n > 0) perIp.set(c.ip, n); else perIp.delete(c.ip);
     if (c.id) { livePlayers.delete(c.id); toChild('leave ' + c.id); console.log('퇴장: ' + c.name + ' (#' + c.id + ')'); }
     clients.delete(ws);
   });
   ws.on('error', function () {});
 });
 
+setInterval(function () {   // 응답 없는 연결 정리
+  for (const [ws, c] of clients) {
+    if (!c.alive) { ws.terminate(); continue; }
+    c.alive = false;
+    try { ws.ping(); } catch (e) {}
+  }
+}, 15000);
 if (CONNECT) connectEngine();
 else {
   startChild();   // 시계는 이쪽이 쥔다: 50 ms 마다 tick
