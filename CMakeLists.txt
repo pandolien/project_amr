@@ -77,6 +77,11 @@ endif()
 # ---- 공유 라이브러리 simul_core (C API, Qt 없음) 와 simul_gui (3D 창, Qt)  (다른 프로그램이 불러 쓴다) ----
 add_subdirectory(api)
 
+# 주민 순찰 예제: 정해 둔 지점들을 simul_move_to 로 차례로 걷는다 (Qt 필요 없음)
+add_executable(villager_patrol examples/villager_patrol.cpp)
+target_link_libraries(villager_patrol PRIVATE simul_core)
+simul_set_warnings(villager_patrol)
+
 if(SIMUL_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

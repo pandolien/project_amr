@@ -590,6 +590,17 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 ./build/bin/simul_main Data/Object/samples/logistics_ab.urdf --joint item_slide=1.5   # 물건이 A 와 B 의 가운데
 ```
 
+## 주민 순찰 예제 (villager_patrol)
+
+`Data/Object/merchen_village.glb`(동화풍 마을 지도)에는 주민 4명이 산다. 주민은 모델 하나씩(`Data/Object/villagers/villager_N.glb`, 발 밑이 원점)이라 엔진의 `simul_move_to` 로 움직인다.
+이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아간다. 길 찾기는 없다.
+
+```
+./build/bin/villager_patrol Data/Object 60     # 60초 동안 걷게 하고 1초마다 위치를 찍는다 (창 없음)
+```
+
+코드는 `examples/villager_patrol.cpp` (C 인터페이스 `simul_core` 만 사용). 주민을 늘리거나 길을 바꾸려면 지점 파일에 `[이름]`, `speed`, 지점 줄을 더하면 된다.
+
 ## 바닥 모델 지정
 
 모델을 둘 이상 올렸을 때, 그중 하나를 바닥으로 지정하면 다른 모델은 z=0 평면 대신 그 모델의 윗면 위로 떨어져 멈춘다.
