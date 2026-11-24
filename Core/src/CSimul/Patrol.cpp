@@ -168,8 +168,13 @@ void Patrol::OnTick(Engine& e, double time, double) {
             found.push_back(goal);      // 비키던 중인데 곧장 가도 되게 됐다
         } else if (clear) {
             continue;                    // 비켜 가는 길이 아직 비어 있다
-        } else if (!FindPath2D(here, goal, obs, 0.25, 3.0, 0.15, &found)) {
-            continue;                    // 못 찾으면 가던 대로
+        } else {
+            const bool ok = FindPath2D(here, goal, obs, 0.25, 3.0, 0.15, &found, tracing_ ? &trace_ : nullptr);
+            if (tracing_) {
+                traceName_ = routes_[i].name;
+                traceSerial_++;
+            }
+            if (!ok) continue;           // 못 찾으면 가던 대로
         }
         // z 는 현재 높이에서 지점 높이까지 거리에 비례해 잇는다
         const double total = hypot(goal.x - here.x, goal.y - here.y);

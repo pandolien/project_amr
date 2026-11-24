@@ -46,6 +46,11 @@ public:
     void SetAvoidance(bool on, double radius = 0.9) { avoid_ = on; radius_ = radius; }
     bool Avoidance() const { return avoid_; }
     int Detours() const { return detours_; }   // 지금까지 길을 새로 짠 횟수
+    // 시각화용: 켜 두면 A* 로 길을 새로 짤 때마다 탐색 과정을 남긴다 (꺼져 있으면 비용 없음).
+    void SetTracing(bool on) { tracing_ = on; }
+    int TraceSerial() const { return traceSerial_; }              // 기록이 새로 남을 때마다 1 씩 는다
+    const AStarTrace& LastTrace() const { return trace_; }
+    const String& LastTraceName() const { return traceName_; }    // 그 길을 짠 주민 이름
 
     void OnStart(Engine& e) override;
     void OnTick(Engine& e, double time, double dt) override;
@@ -71,6 +76,10 @@ private:
     double radius_ = 0.9;
     double time_ = 0.0;
     int detours_ = 0;
+    bool tracing_ = false;
+    int traceSerial_ = 0;
+    AStarTrace trace_;
+    String traceName_;
 
     Array<PatrolRoute> routes_;
     Array<State> state_;

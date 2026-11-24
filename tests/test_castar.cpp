@@ -85,12 +85,28 @@ void testInsideObstacle() {
     check(FindPath2D(Point2(0, 0), Point2(6, 0.2), obs2, 0.25, 3.0, 0.15, &out), "목표가 장애물 안이어도 경로가 나온다");
 }
 
+void testTrace() {
+    Array<Circle2> obs;
+    obs.push_back(Circle2(5.0, 0.0, 0.9));
+    Array<Point2> out;
+    AStarTrace t;
+    check(FindPath2D(Point2(0, 0), Point2(10, 0), obs, 0.25, 3.0, 0.15, &out, &t), "trace 와 함께 찾는다");
+    check(t.found && t.nx > 0 && t.ny > 0 && t.cell == 0.25, "격자 정보가 남는다");
+    check(t.expanded.size() > 10 && t.rawPath.size() >= 2, "탐색한 칸과 격자 경로가 남는다");
+    check(t.rawPath[0] == t.expanded[0], "첫 번째로 꺼낸 칸은 시작 칸");
+    check(t.rawPath[t.rawPath.size() - 1] == t.expanded[t.expanded.size() - 1], "마지막에 꺼낸 칸은 목표 칸");
+    check(t.path.size() == out.size() && t.obstacles.size() == 1, "줄인 경로와 장애물이 남는다");
+    check(t.start.x == 0.0 && t.goal.x == 10.0, "시작/목표가 남는다");
+    check(!FindPath2D(Point2(0, 0), Point2(10, 0), obs, 0.0, 3.0, 0.15, &out, &t) && !t.found, "실패하면 found 는 false");
+}
+
 }  // namespace
 
 int main() {
     testBasics();
     testDetour();
     testInsideObstacle();
+    testTrace();
     if (g_fail) {
         printf("test_castar: %d failure(s)\n", g_fail);
         return 1;

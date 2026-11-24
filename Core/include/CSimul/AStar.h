@@ -25,6 +25,20 @@ struct Circle2 {
     Circle2(double px, double py, double pr) : x(px), y(py), r(pr) {}
 };
 
+// 탐색 과정 기록 (시각화용). FindPath2D 에 넘기면 채워 준다. 넘기지 않으면 아무 비용도 없다.
+// 칸 번호는 j * nx + i, 칸 중심 = (minx + i * cell, miny + j * cell).
+struct AStarTrace {
+    double minx, miny, cell;
+    int nx, ny;
+    Point2 start, goal;
+    Array<Circle2> obstacles;
+    Array<int> expanded;   // 꺼내서 살펴본 칸 (꺼낸 순서)
+    Array<int> rawPath;    // 격자 위 경로 (시작 -> 목표 칸 번호)
+    Array<Point2> path;    // 직선으로 줄인 결과 (시작 제외, 목표 포함)
+    bool found;
+    AStarTrace() : minx(0), miny(0), cell(0), nx(0), ny(0), found(false) {}
+};
+
 // 점 p 에서 선분 ab 까지의 거리
 double SegmentDistance(const Point2& a, const Point2& b, const Point2& p);
 // 선분 ab 가 어느 장애물에도 닿지 않으면 true
@@ -33,7 +47,7 @@ bool SegmentClear(const Point2& a, const Point2& b, const Array<Circle2>& obstac
 // cell: 격자 한 칸 (m), margin: 시작-목표 상자 둘레의 여유 (m), rightBias: 왼쪽 칸에 더하는 비용 (0 이면 치우침 없음, 0.1 ~ 0.3 권장).
 // 격자가 너무 크거나(4만 칸 초과) 인자가 틀리면 false.
 bool FindPath2D(const Point2& start, const Point2& goal, const Array<Circle2>& obstacles, double cell, double margin, double rightBias,
-                Array<Point2>* out);
+                Array<Point2>* out, AStarTrace* trace = nullptr);
 
 }  // namespace sim
 }  // namespace simul

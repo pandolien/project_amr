@@ -70,8 +70,9 @@ int ClampInt(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 }  // namespace
 
 bool FindPath2D(const Point2& start, const Point2& goal, const Array<Circle2>& obstacles, double cell, double margin, double rightBias,
-                Array<Point2>* out) {
+                Array<Point2>* out, AStarTrace* trace) {
     out->clear();
+    if (trace) *trace = AStarTrace();
     if (!(cell > 0.0) || !(margin >= 0.0) || !(rightBias >= 0.0)) return false;
     if (!(fabs(start.x) < 1e9 && fabs(start.y) < 1e9 && fabs(goal.x) < 1e9 && fabs(goal.y) < 1e9)) return false;
     if (hypot(goal.x - start.x, goal.y - start.y) < 1e-9) {
@@ -106,6 +107,10 @@ bool FindPath2D(const Point2& start, const Point2& goal, const Array<Circle2>& o
     const int gi = ClampInt(static_cast<int>(floor((goal.x - minx) / cell + 0.5)), 0, nx - 1);
     const int gj = ClampInt(static_cast<int>(floor((goal.y - miny) / cell + 0.5)), 0, ny - 1);
     const int sIdx = sj * nx + si, gIdx = gj * nx + gi;
+    if (trace) {
+        trace->minx = minx; trace->miny = miny; trace->cell = cell; trace->nx = nx; trace->ny = ny;
+        trace->start = start; trace->goal = goal; trace->obstacles = obstacles;
+    }
 
     const double dirx = (goal.x - start.x), diry = (goal.y - start.y);
     const double dl = hypot(dirx, diry);
@@ -125,6 +130,7 @@ bool FindPath2D(const Point2& start, const Point2& goal, const Array<Circle2>& o
         const HeapItem it = HeapPop(&open);
         if (closed[static_cast<size_t>(it.idx)]) continue;
         closed[static_cast<size_t>(it.idx)] = 1;
+        if (trace) trace->expanded.push_back(it.idx);
         if (it.idx == gIdx) { found = true; break; }
         const int ci = it.idx % nx, cj = it.idx / nx;
         for (int dj = -1; dj <= 1; dj++) {
@@ -157,6 +163,12 @@ bool FindPath2D(const Point2& start, const Point2& goal, const Array<Circle2>& o
         raw.push_back(Point2(minx + (c % nx) * cell, miny + (c / nx) * cell));
         if (c == sIdx) break;
     }
+    if (trace) {
+        for (size_t k = raw.size(); k > 0; k--) {
+            const double rx = raw[k - 1].x, ry = raw[k - 1].y;
+            trace->rawPath.push_back(static_cast<int>(floor((ry - miny) / cell + 0.5)) * nx + static_cast<int>(floor((rx - minx) / cell + 0.5)));
+        }
+    }
     Array<Point2> pts;
     for (size_t k = raw.size(); k > 0; k--) pts.push_back(raw[k - 1]);
     if (pts.size() == 1) pts.push_back(goal);   // 시작과 목표가 같은 칸
@@ -170,6 +182,10 @@ bool FindPath2D(const Point2& start, const Point2& goal, const Array<Circle2>& o
         while (j > anchor + 1 && !SegmentClear(pts[anchor], pts[j], obstacles)) j--;
         out->push_back(pts[j]);
         anchor = j;
+    }
+    if (trace) {
+        trace->path = *out;
+        trace->found = true;
     }
     return true;
 }

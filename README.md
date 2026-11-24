@@ -597,6 +597,8 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아가고, 가는 방향을 바라본다.
 
 주민끼리 겹칠 것 같으면 A*(`Core/include/CSimul/AStar.h`, 0.25 m 격자)로 비켜 간다. 0.25초마다 앞길이 다른 주민(반지름 0.9 m)에게 막혔는지 보고, 막히면 가는 방향의 오른쪽으로 둘러 가는 길을 다시 짠다. 마주 오는 둘이 서로 오른쪽으로 비켜 엇갈린다. 나무와 집 같은 지형 장애물은 피하지 않는다. 마을 기본 경로 4명을 300초 돌려 본 최소 간격은 피하기를 끄면 0.00 m(겹침), 켜면 약 0.65 m 였다. 서로 다른 방향에서 동시에 모이는 경우에는 지금 위치만 보고 짜므로 0.9 m 까지는 못 벌린다. 코드에서 `patrol.SetAvoidance(false)` 로 끈다.
+
+**A\* 시각화**: 파일 메뉴 → "A\* 시각화"(Ctrl+K)를 열면 주민이 비켜 가려고 길을 새로 짤 때마다 그 탐색 과정이 위에서 본 그림으로 재생된다. 파란 칸은 A*가 꺼내 살펴본 칸(꺼낸 순서대로 진해지고 주황 칸이 방금 꺼낸 칸), 빨간 원은 피할 구역(다른 주민 반경 0.9 m), 노란 칸은 격자 위 최단 경로, 초록 선은 직선으로 줄인 최종 경로다. 재생/일시정지, 처음부터, 속도(느리게/보통/빠르게), 슬라이더로 한 칸씩 돌려 볼 수 있다. 계산은 0.25초마다 나오므로 재생이 끝나고 2.5초 뒤에 가장 최근 계산으로 바뀐다(체크를 끄면 바뀌지 않는다). 도크를 닫으면 기록을 남기지 않는다. 주민끼리 마주치기 전에는 비어 있다(기본 마을에서는 보통 1분쯤 걸린다).
 주민을 클릭하면 그 주민 시점(눈 높이 0.78 m, 걷는 방향)으로 바뀌어 따라간다. 다른 주민을 클릭하면 그쪽으로 옮기고, Esc 를 누르면 원래 시점으로 돌아온다. 구현은 `main.cpp` 의 `enterFirstPerson` / `updateFirstPerson`.
 주민을 늘리거나 길을 바꾸려면 지점 파일에 `[모델 이름]`, `speed`(m/s), 지점 줄을 더하면 된다. 모델 이름은 파일 이름이다.
 
@@ -606,7 +608,7 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 ./build/bin/villager_patrol Data/Object 60                          # 창 없이 60초 걷게 하고 1초마다 위치를 찍는다
 ```
 
-코드: `Core/include/CSimul/Patrol.h`(엔진 `Listener`, 지점 파일 읽기 + `move_to` 연결 + 비켜 가기, 시험은 `tests/test_cpatrol.cpp`, `tests/test_castar.cpp`), 뷰어 연결은 `main.cpp` 의 `startPatrol`, 창 없는 예제는 `examples/villager_patrol.cpp`.
+코드: `Core/include/CSimul/AStar.h`(A* 와 탐색 기록 `AStarTrace`), `Core/Qt/include/CoreQt/AStarView.h`(시각화 위젯), `Core/include/CSimul/Patrol.h`(엔진 `Listener`, 지점 파일 읽기 + `move_to` 연결 + 비켜 가기, 시험은 `tests/test_cpatrol.cpp`, `tests/test_castar.cpp`), 뷰어 연결은 `main.cpp` 의 `startPatrol`, 창 없는 예제는 `examples/villager_patrol.cpp`.
 
 ## 바닥 모델 지정
 

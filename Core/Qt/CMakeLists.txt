@@ -2,7 +2,7 @@
 # 의존 방향: CoreQt -> Core  (Core는 Qt를 절대 참조하지 않음)
 # Q_OBJECT 헤더가 include/ 아래에 있으므로 AUTOMOC 이 찾도록 소스 목록에 헤더도 넣는다.
 # 헤더를 새로 더했는데 링크 오류(metaObject, staticMetaObject, 시그널 함수를 찾을 수 없음)가 나면 CMake 를 다시 구성(configure)해야 moc 가 돌아간다.
-# 이 파일을 고치면 다시 구성되므로 Q_OBJECT 헤더를 더한 커밋에서는 여기를 같이 고친다. (최근 추가: SimulRunner.h, ObjectInfoPanel.h; ModelViewer.h 에 ModelSourcePath)
+# 이 파일을 고치면 다시 구성되므로 Q_OBJECT 헤더를 더한 커밋에서는 여기를 같이 고친다. (최근 추가: SimulRunner.h, ObjectInfoPanel.h, AStarView.h; ModelViewer.h 에 ModelSourcePath)
 file(GLOB_RECURSE CORE_QT_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 file(GLOB_RECURSE CORE_QT_HEADERS CONFIGURE_DEPENDS include/*.h)
 

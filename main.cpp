@@ -603,6 +603,7 @@ int PrintInfo(const Options& o) {
 #include "CoreQt/JointPanel.h"
 #include "CoreQt/CameraView.h"
 #include "CoreQt/LidarPlot.h"
+#include "CoreQt/AStarView.h"
 #include "CoreQt/SunPanel.h"
 #include "CoreQt/ModelViewer.h"
 #include "CoreQt/StructurePanel.h"
@@ -1013,6 +1014,39 @@ public:
             for (int i = 0; i < patrol_->RouteCount(); i++)
                 if (simulqt::ToQ(patrol_->Route(i).name) == name) { enterFirstPerson(m); return; }
         });
+        // A* 시각화 도크 (Ctrl+K): 주민이 서로 비켜 가려고 길을 새로 짤 때마다 그 탐색 과정을 보여 준다
+        astarView_ = new AStarView(this);
+        astarAuto_ = new QCheckBox(QString::fromUtf8("재생이 끝나면 가장 최근 길 계산으로 바꿔 보기"), this);
+        astarAuto_->setChecked(true);
+        QWidget* box = new QWidget(this);
+        QVBoxLayout* boxLay = new QVBoxLayout(box);
+        boxLay->setContentsMargins(0, 0, 0, 0);
+        boxLay->addWidget(astarView_, 1);
+        boxLay->addWidget(astarAuto_);
+        astarDock_ = new QDockWidget(QString::fromUtf8("A* 시각화"), this);
+        astarDock_->setWidget(box);
+        addDockWidget(Qt::RightDockWidgetArea, astarDock_);
+        astarDock_->hide();
+        QAction* astarAct = astarDock_->toggleViewAction();
+        astarAct->setText(QString::fromUtf8("A* 시각화"));
+        astarAct->setShortcut(Qt::CTRL + Qt::Key_K);
+        if (fileMenu_) fileMenu_->addAction(astarAct);
+        QObject::connect(astarDock_, &QDockWidget::visibilityChanged, this, [this](bool on) {
+            if (patrol_) patrol_->SetTracing(on);   // 안 볼 때는 기록을 남기지 않는다
+        });
+        astarTimer_ = new QTimer(this);
+        astarTimer_->setInterval(100);
+        QObject::connect(astarTimer_, &QTimer::timeout, this, [this]() {
+            if (astarView_->IsPlaying()) astarIdle_.restart();
+            if (!patrol_ || patrol_->TraceSerial() == astarSerial_) return;
+            // 재생 중이거나 막 끝났을 때(2.5 초)는 기다렸다가 가장 최근 계산으로 바꾼다 (계산이 0.25 초마다 나와서 바로 바꾸면 끝까지 볼 수 없다)
+            if (astarView_->HasTrace() && (!astarAuto_->isChecked() || astarView_->IsPlaying() || astarIdle_.elapsed() < 2500)) return;
+            astarSerial_ = patrol_->TraceSerial();
+            astarView_->SetTrace(patrol_->LastTrace(), QString::fromUtf8("%1 이(가) 비켜 가는 길을 계산").arg(simulqt::ToQ(patrol_->LastTraceName())));
+            astarIdle_.restart();
+        });
+        astarIdle_.start();
+        astarTimer_->start();
         log_->Info(QString::fromUtf8("순찰 시작: %1 (길 %2개)").arg(simulqt::ToQ(o.patrolFile)).arg(patrol_->RouteCount()));
     }
 
@@ -1766,6 +1800,12 @@ private:
     simul::sim::Engine* engine_ = nullptr;   // --patrol: 엔진 + 순찰 + 틱 타이머
     simul::sim::Patrol* patrol_ = nullptr;
     SimulRunner* runner_ = nullptr;
+    AStarView* astarView_ = nullptr;         // 보기: A* 시각화
+    QCheckBox* astarAuto_ = nullptr;
+    QDockWidget* astarDock_ = nullptr;
+    QTimer* astarTimer_ = nullptr;
+    int astarSerial_ = 0;
+    QElapsedTimer astarIdle_;                // 마지막으로 재생 중이던 때부터 지난 시간
     QTimer* fpTimer_ = nullptr;              // 주민 시점으로 보는 중
     int fpModel_ = -1;
     bool fpYawInit_ = false;
