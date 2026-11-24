@@ -145,6 +145,8 @@ rem a Qt installed outside vcpkg: its DLLs must be on PATH to run the program
 if defined CMAKE_PREFIX_PATH if exist "%CMAKE_PREFIX_PATH%\bin" set "PATH=%CMAKE_PREFIX_PATH%\bin;%PATH%"
 
 rem ---- 4. Configure + build -----------------------------------------------------
+rem A web server left running from an earlier run keeps village_server.exe locked, and the linker then fails with LNK1104. Stop it first.
+taskkill /f /im village_server.exe >nul 2>nul
 if "%DO_CLEAN%"=="1" (
     echo [run.bat] Cleaning build\
     if exist build (
