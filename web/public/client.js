@@ -8,7 +8,7 @@ const EYE = 0.78, EYE_FORWARD = 0.22, NAME_HEIGHT = 1.3;
 
 // ---- 장면 ----
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
@@ -34,7 +34,8 @@ const modelsReady = Promise.all([1, 2, 3, 4].map((n) => load('/assets/villager_'
 
 // ---- 가로등 불 + 낮/노을/밤 ----
 // 가로등 전구(지도의 Lanterns 메쉬 꼭대기)마다 빛무리와 실제 조명을 단다. 낮에는 은은하게, 밤에는 환하게 켜진다.
-const lamps = [];   // { light, glow }
+const lamps = [];   // { x, y, z, glow }
+const lampPool = [];   // 가까운 가로등으로 옮겨 다니는 조명
 function glowTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -70,11 +71,10 @@ function setupLamps(root) {
     bulb.position.set(c.x, y, c.z);
     scene.add(bulb);
     scene.add(glow);
-    const light = new THREE.PointLight(0xffd27a, 1, 11, 1.6);
-    light.position.set(c.x, y, c.z);
-    scene.add(light);
-    lamps.push({ light, glow });
+    lamps.push({ x: c.x, y, z: c.z, glow });
   }
+  // 실제 조명은 내 가까이의 가로등 3개만 켠다 (조명이 많으면 모든 화면 픽셀이 느려진다)
+  for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xffd27a, 1, 11, 1.6); l.position.set(0, -100, 0); scene.add(l); lampPool.push(l); }
   applyTime();
 }
 const TIMES = [
@@ -88,8 +88,15 @@ function applyTime() {
   scene.background.set(t.sky); scene.fog.color.set(t.sky);
   hemi.color.set(t.hemi[0]); hemi.groundColor.set(t.hemi[1]); hemi.intensity = t.hemi[2];
   sun.color.set(t.sun[0]); sun.intensity = t.sun[1]; sun.position.set(...t.sunPos);
-  for (const l of lamps) { l.light.intensity = t.lamp; l.glow.material.opacity = t.glow; }
+  for (const l of lamps) l.glow.material.opacity = t.glow;
+  for (const l of lampPool) l.intensity = t.lamp;
   document.body.style.background = '#' + t.sky.toString(16).padStart(6, '0');
+}
+let lampTick = 0;
+function updateLampLights(px, pz) {
+  if (++lampTick % 15) return;
+  const near = lamps.map((l) => ({ l, d: Math.hypot(l.x - px, l.z - pz) })).sort((a, b) => a.d - b.d);
+  lampPool.forEach((p, i) => { if (near[i]) p.position.set(near[i].l.x, near[i].l.y, near[i].l.z); });
 }
 function nextTime() { timeIdx = (timeIdx + 1) % TIMES.length; applyTime(); }
 
@@ -394,6 +401,7 @@ function frame() {
   }
   const me = players.get(myId);
   if (me) {
+    updateLampLights(me.x, -me.y);
     const fx = Math.sin(yaw), fz = Math.cos(yaw);   // 내가 보는 방향 (three 좌표)
     if (!third) {
       camera.position.set(me.x + fx * EYE_FORWARD, me.z + EYE, -me.y + fz * EYE_FORWARD);
