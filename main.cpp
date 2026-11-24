@@ -739,7 +739,7 @@ public:
         QMenu* help = menuBar()->addMenu(QString::fromUtf8("도움말"));
         nativeMenus_ << file << view << phys << sensorMenu << help;   // 3D 화면만 보기에서는 이 메뉴들을 3D 화면 안의 메뉴줄에 그대로 보여 준다
         QAction* fit = view->addAction(QString::fromUtf8("화면에 맞춤"));
-        fit->setShortcut(Qt::Key_F);
+        fit->setShortcut(Qt::CTRL + Qt::Key_F);
         QObject::connect(fit, &QAction::triggered, viewer_, &ModelViewer::FitView);
         QAction* grid = view->addAction(QString::fromUtf8("격자"));
         grid->setCheckable(true);
@@ -798,7 +798,7 @@ public:
         QAction* structure = new QAction(QString::fromUtf8("구조 트리"), this);   // 3D 화면 안의 구조 트리 창 켜고 끄기
         structure->setCheckable(true);
         structure->setChecked(true);
-        structure->setShortcut(Qt::Key_T);
+        structure->setShortcut(Qt::CTRL + Qt::Key_T);
         QObject::connect(structure, &QAction::toggled, this, [this](bool on) { view_->SetTreeVisible(on); });
         QObject::connect(view_, &SimulView::featuresChanged, this, [structure](unsigned f) {   // 창의 X 로 닫아도 체크가 따라온다
             const bool b = structure->blockSignals(true);
@@ -820,7 +820,7 @@ public:
         view->insertAction(viewSep, jointDock);
         QAction* logAct = logDock_->toggleViewAction();
         logAct->setText(QString::fromUtf8("로그"));
-        logAct->setShortcut(Qt::Key_L);
+        logAct->setShortcut(Qt::CTRL + Qt::Key_L);
         view->insertAction(viewSep, logAct);
         QObject::connect(viewer_, &ModelViewer::shaderFailed, this, [this](const QString& log) { log_->Error(log); });
         sunPanel_ = new SunPanel(viewer_);
@@ -831,7 +831,7 @@ public:
         sunDock_->hide();
         QAction* sunAct = sunDock_->toggleViewAction();
         sunAct->setText(QString::fromUtf8("태양 (시각으로 조명)"));
-        sunAct->setShortcut(Qt::Key_S);
+        sunAct->setShortcut(Qt::CTRL + Qt::Key_S);
         view->insertAction(viewSep, sunAct);
         // 화면 구성: 메뉴 숨기기(F10), 3D 화면만 보기(F11). 숨긴 메뉴의 단축키는 동작하지 않으므로 창 자체에도 달아 둔다.
         menuAct_ = new QAction(QString::fromUtf8("메뉴 표시"), this);
@@ -856,7 +856,7 @@ public:
         configureDocks();
         QAction* frame = new QAction(QString::fromUtf8("선택 좌표계"), this);
         view->insertAction(viewSep, frame);
-        frame->setShortcut(Qt::Key_G);
+        frame->setShortcut(Qt::CTRL + Qt::Key_G);
         frame->setCheckable(true);
         frame->setChecked(true);
         QObject::connect(frame, &QAction::toggled, viewer_, &ModelViewer::SetShowSelectionFrame);
@@ -867,7 +867,7 @@ public:
         viewer_->SetGravity(gravity_.x, gravity_.y, gravity_.z);
         QObject::connect(fall, &QAction::toggled, viewer_, &ModelViewer::SetFallEnabled);
         QAction* motors = phys->addAction(QString::fromUtf8("모터 끄기 (관절이 중력에 처짐)"));
-        motors->setShortcut(Qt::Key_M);
+        motors->setShortcut(Qt::CTRL + Qt::Key_M);
         motors->setCheckable(true);
         simManual_ = o.simulate > 0;
         QObject::connect(motors, &QAction::toggled, this, [this](bool on) { setMotorsOff(on); });
@@ -886,13 +886,13 @@ public:
         view->addSeparator();
         QMenu* colMenu = view->addMenu(QString::fromUtf8("충돌 박스"));
         QAction* obbs = colMenu->addAction(QString::fromUtf8("OBB (회전하는 박스, 정밀)"));
-        obbs->setShortcut(Qt::Key_O);
+        obbs->setShortcut(Qt::CTRL + Qt::SHIFT + Qt::Key_O);
         obbs->setCheckable(true);
         obbs->setChecked(o.obb);
         viewer_->SetShowObbs(o.obb);
         QObject::connect(obbs, &QAction::toggled, viewer_, &ModelViewer::SetShowObbs);
         QAction* boxes = colMenu->addAction(QString::fromUtf8("AABB (축에 맞춘 박스, 빠른 1차 검사)"));
-        boxes->setShortcut(Qt::Key_B);
+        boxes->setShortcut(Qt::CTRL + Qt::Key_B);
         boxes->setCheckable(true);
         boxes->setChecked(o.aabb);
         viewer_->SetShowCollisionBoxes(o.aabb);
@@ -934,8 +934,9 @@ public:
                 "  왼쪽 클릭: 물체(링크) 선택, 로봇팔 끝을 드래그하면 IK 로 따라감\n"
                 "  구조 트리에서 라이다 링크 오른쪽 클릭: 레이저/그래프 켜고 끄기\n\n"
                 "단축키\n"
-                "  Ctrl+O 열기   F 화면에 맞춤   T 구조 트리   G 선택 좌표계\n"
-                "  M 모터 끄기   O OBB 박스   B AABB 박스   F1 이 도움말"));
+                "  Ctrl+O 열기   Ctrl+F 화면에 맞춤   Ctrl+T 구조 트리   Ctrl+G 선택 좌표계\n"
+                "  Ctrl+M 모터 끄기   Ctrl+Shift+O OBB 박스   Ctrl+B AABB 박스\n"
+                "  Ctrl+L 로그   Ctrl+S 태양   Ctrl+J 오브젝트 값   Ctrl+K A* 보기   F1 이 도움말"));
         });
         collisionLabel_ = new QLabel;
         statusBar()->addPermanentWidget(collisionLabel_);
@@ -1235,7 +1236,7 @@ public:
             const bool ours = key == Qt::Key_W || key == Qt::Key_A || key == Qt::Key_S || key == Qt::Key_D || key == Qt::Key_Q ||
                               key == Qt::Key_E || key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Shift;
             if (ours && !k->isAutoRepeat()) {
-                if (ev->type() == QEvent::ShortcutOverride) { ev->accept(); return false; }   // 단축키(S 등)보다 먼저 받는다
+                if (ev->type() == QEvent::ShortcutOverride) { ev->accept(); return false; }   // 단축키보다 먼저 받는다
                 if (ev->type() == QEvent::KeyPress) fpKeys_.insert(key);
                 else fpKeys_.remove(key);
                 return true;
