@@ -7,6 +7,8 @@
 #   --no-install  패키지를 설치하지 않는다 (없으면 목록만 알려주고 종료)
 #   --clean       build/ 를 지우고 처음부터 다시 구성한다
 #   --debug       Debug 로 빌드한다 (기본 Release)
+#   --web         3D 창 없이 웹 접속 서버만 켠다 (http://localhost:8080)
+#   --no-web      웹 접속 서버를 같이 켜지 않는다 (기본: Node 가 있으면 같이 켠다)
 #   -h, --help    도움말
 set -euo pipefail
 
@@ -17,9 +19,11 @@ USE_QT=ON
 DO_INSTALL=1
 DO_TEST=0
 DO_CLEAN=0
+USE_WEB=1
+WEB_ONLY=0
 APP_ARGS=()
 
-usage() { sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -28,6 +32,8 @@ while [ $# -gt 0 ]; do
         --no-install) DO_INSTALL=0 ;;
         --clean) DO_CLEAN=1 ;;
         --debug) BUILD_TYPE=Debug ;;
+        --web) WEB_ONLY=1 ;;
+        --no-web) USE_WEB=0 ;;
         -h|--help) usage; exit 0 ;;
         --) shift; APP_ARGS=("$@"); break ;;
         *) echo "알 수 없는 옵션: $1 (./run.sh --help)" >&2; exit 2 ;;
@@ -102,10 +108,32 @@ if [ "$DO_TEST" = 1 ]; then
     exit $?
 fi
 
+# ---- 웹 접속 서버 (브라우저로 접속, 최대 30명) ----------------------------------------
+WEB_PID=""
+if [ "$USE_WEB" = 1 ] || [ "$WEB_ONLY" = 1 ]; then
+    if [ -x "$BUILD/bin/village_server" ] && command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        [ -f "$ROOT/web/node_modules/ws/package.json" ] && : || (log "웹 패키지를 설치합니다 (npm install)"; cd "$ROOT/web" && npm install --no-audit --no-fund) || true
+        if [ -f "$ROOT/web/node_modules/ws/package.json" ]; then
+            if [ "$WEB_ONLY" = 1 ]; then
+                log "웹 서버: http://localhost:8080 (Ctrl+C 로 끝냄)"
+                cd "$ROOT/web" && exec node server.js --server "$BUILD/bin/village_server"
+            fi
+            (cd "$ROOT/web" && exec node server.js --server "$BUILD/bin/village_server") &
+            WEB_PID=$!
+            trap '[ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true' EXIT
+            log "웹 서버를 켰습니다: http://localhost:8080 (같은 네트워크의 다른 기기는 이 컴퓨터 주소:8080)"
+        fi
+    else
+        log "웹 서버를 건너뜁니다 (Node.js/npm 또는 village_server 가 없습니다). 끄려면 --no-web"
+        [ "$WEB_ONLY" = 1 ] && exit 1
+    fi
+fi
+
 APP="$BUILD/bin/simul_main"
 if [ -x "$APP" ]; then
     log "실행: $APP ${APP_ARGS[*]:-}"
-    exec "$APP" "${APP_ARGS[@]+"${APP_ARGS[@]}"}"
+    "$APP" "${APP_ARGS[@]+"${APP_ARGS[@]}"}"
+    exit $?
 fi
 
 # main.cpp 가 아직 비어 있으면 simul_main 이 만들어지지 않는다 -> 테스트로 대신 확인

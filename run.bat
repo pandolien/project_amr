@@ -7,6 +7,8 @@ rem    --test        run the tests (ctest) instead of the program
 rem    --no-qt       do not build the 3D window (console mode only, no Qt needed)
 rem    --no-install  never install anything; only report what is missing
 rem    --clean       wipe build\ and configure from scratch
+rem    --web         start only the web server (http://localhost:8080), no 3D window
+rem    --no-web      do not start the web server (default: it starts in its own window)
 rem    --debug       build Debug (default Release; needs a much longer first vcpkg build)
 rem    -h, --help    show this help
 rem
@@ -22,6 +24,9 @@ set "DO_TEST=0"
 set "DO_CLEAN=0"
 set "DO_INSTALL=1"
 set "APP_ARGS="
+set "USE_WEB=1"
+set "WEB_ONLY=0"
+set "WEB_OK=0"
 
 :parse
 if "%~1"=="" goto parsed
@@ -31,6 +36,8 @@ if /i "%~1"=="--no-qt"      (set "USE_QT=OFF"   & shift & goto parse)
 if /i "%~1"=="--no-install" (set "DO_INSTALL=0" & shift & goto parse)
 if /i "%~1"=="--clean"      (set "DO_CLEAN=1"   & shift & goto parse)
 if /i "%~1"=="--debug"      (set "BUILD_TYPE=Debug" & shift & goto parse)
+if /i "%~1"=="--web"        (set "WEB_ONLY=1"   & shift & goto parse)
+if /i "%~1"=="--no-web"     (set "USE_WEB=0"    & shift & goto parse)
 if /i "%~1"=="-h"           goto usage
 if /i "%~1"=="--help"       goto usage
 if "%~1"=="--" (shift & goto collect)
@@ -50,6 +57,8 @@ echo   --no-qt       do not build the 3D window ^(console mode only, no Qt neede
 echo   --no-install  never install anything; only report what is missing
 echo   --clean       wipe build\ and configure from scratch
 echo   --debug       build Debug (default Release)
+echo   --web         start only the web server ^(http://localhost:8080^), no 3D window
+echo   --no-web      do not start the web server ^(default: it starts in its own window^)
 exit /b 0
 
 :parsed
@@ -151,8 +160,14 @@ echo [run.bat] Build
 cmake --build build --config %BUILD_TYPE% --parallel
 if errorlevel 1 (echo [run.bat] Build failed & exit /b 1)
 
-rem ---- 5. Run -------------------------------------------------------------------
+rem ---- 5. Web server (browser access, up to 30 people) ---------------------------------
 if "%DO_TEST%"=="1" goto runtests
+if "%WEB_ONLY%"=="1" set "USE_WEB=1"
+if "%USE_WEB%"=="1" call :prepare_web
+if "%WEB_ONLY%"=="1" goto runweb
+if "%WEB_OK%"=="1" call :start_web
+
+rem ---- 6. Run -------------------------------------------------------------------
 
 set "APP=build\bin\%BUILD_TYPE%\simul_main.exe"
 if exist "%APP%" (
@@ -168,6 +183,53 @@ ctest -C %BUILD_TYPE% --output-on-failure
 set "RC=!errorlevel!"
 popd
 exit /b !RC!
+
+rem ---- web server only: run it in this window ------------------------------------------
+:runweb
+if not "%WEB_OK%"=="1" (
+    echo [run.bat] The web server could not be prepared.
+    exit /b 1
+)
+echo [run.bat] Web server: http://localhost:8080   Ctrl+C stops it
+pushd web
+node server.js --server "%VSRV%"
+set "RC=!errorlevel!"
+popd
+exit /b !RC!
+
+rem ---- helper: village_server.exe, Node.js and the web packages ----------------------------
+:prepare_web
+set "WEB_OK=0"
+set "VSRV=%CD%\build\bin\%BUILD_TYPE%\village_server.exe"
+if not exist "%VSRV%" (
+    echo [run.bat] village_server.exe was not built, so the web server is skipped.
+    exit /b 1
+)
+call :need_tool node OpenJS.NodeJS.LTS "%ProgramFiles%\nodejs"
+if errorlevel 1 (
+    echo [run.bat] Node.js is needed for the web server. Skipping it; use --no-web to hide this.
+    exit /b 1
+)
+if not exist "web\node_modules\ws\package.json" (
+    echo [run.bat] Installing the web packages with npm install
+    pushd web
+    call npm install --no-audit --no-fund
+    set "NPMRC=!errorlevel!"
+    popd
+    if not "!NPMRC!"=="0" (
+        echo [run.bat] npm install failed, so the web server is skipped.
+        exit /b 1
+    )
+)
+set "WEB_OK=1"
+exit /b 0
+
+rem ---- helper: start the web server in its own window ---------------------------------------
+:start_web
+start "Village web server" /d "%CD%\web" cmd /k node server.js --server "%VSRV%"
+echo [run.bat] Web server started in its own window: http://localhost:8080
+echo [run.bat] Others on the same network use http://this-PC-address:8080 ^(Windows may ask to allow Node.js through the firewall^)
+exit /b 0
 
 rem ---- helper: make sure a command exists, installing it with winget if allowed ----
 :need_tool

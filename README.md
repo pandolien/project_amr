@@ -662,7 +662,13 @@ ollama pull qwen2.5:1.5b
   3D 화면, 입력                   접속 중계, 파일 제공        이동, 장애물/접속자 충돌, 땅 높이
 ```
 
-실행 (Node 18 이상 필요):
+실행: **`run.bat`(윈도우) 또는 `./run.sh`(우분투)를 실행하면** 빌드 뒤에 웹 서버가 같이 켜지고, 브라우저에서 `http://localhost:8080` 으로 들어가면 된다(같은 네트워크의 다른 기기는 `http://<이 컴퓨터 주소>:8080`). Node.js 가 없으면 `run.bat` 이 winget 으로 설치하고, `npm install` 도 처음 한 번 알아서 한다. 윈도우는 처음 켤 때 방화벽 허용 창이 뜨면 허용해야 다른 기기가 들어올 수 있다.
+
+- `run.bat` / `./run.sh`: 3D 창(데스크톱 앱) + 웹 서버(윈도우는 별도 창, 우분투는 백그라운드)
+- `--web`: 3D 창 없이 웹 서버만 (`run.bat --web`)
+- `--no-web`: 웹 서버를 켜지 않는다
+
+손으로 하려면 (Node 18 이상 필요):
 
 ```bash
 cmake --build build --target village_server        # 화면 없는 서버 (Qt 필요 없음)
@@ -670,7 +676,7 @@ node tools/make_ground.js                          # 땅 높이 표 Data/Object/
 cd web && npm install && node server.js            # http://localhost:8080
 ```
 
-윈도우(Visual Studio)처럼 실행 파일이 `build/bin/Release/` 에 생기면 `node server.js --server ../build/bin/Release/village_server.exe` 로 알려 준다. 옵션: `--port 8080`, `--host 0.0.0.0`(기본, 같은 네트워크의 다른 기기도 접속), `--max 30`, `--data <Data/Object 폴더>`, `--server <village_server 경로>`.
+윈도우(Visual Studio)처럼 실행 파일이 `build/bin/Release/` 에 생기면 `node server.js --server ../build/bin/Release/village_server.exe` 로 알려 준다. 옵션: `--port 8080`, `--host 0.0.0.0`(기본), `--max 30`, `--data <Data/Object 폴더>`, `--server <village_server 경로>`.
 
 조작: **W/A/S/D** 이동, **Shift** 달리기, **마우스** 둘러보기(화면을 한 번 클릭하면 마우스가 잡힌다, 끌어서도 돈다), **Q/E 또는 ←/→** 돌기, **V** 3인칭 보기/끄기, **Esc** 마우스 풀기.
 
