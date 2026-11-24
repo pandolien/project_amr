@@ -45,6 +45,7 @@ struct Options {
     simul::Array<Scale> scales;
     simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
     simul::String patrolFile;   // --patrol 파일: 지점 파일대로 이름이 같은 모델이 걷는다 (막히면 A* 로 비킴)
+    bool npc = false;           // --npc: 마을에 주민(NPC) 4명도 같이 연다 (기본은 마을 지도만)
     bool empty = false;         // --empty: 아무것도 열지 않고 시작 (기본은 파일을 안 주면 마을을 연다)
     bool noChat = false;        // --no-chat: 주민끼리 대화하지 않는다
     bool noLlm = false;         // --no-llm: LLM 을 쓰지 않고 정해 둔 대사로만 말한다
@@ -168,7 +169,8 @@ void PrintUsage(const char* exe) {
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
         "  --patrol 파일       지점 파일(Data/Object/villagers/waypoints.txt 형식)대로 이름이 같은 모델이 지점을 차례로 걷는다 (막히면 A* 로 비킨다)\n"
-        "  --empty            파일을 안 줬을 때도 마을을 열지 않고 빈 뷰어로 시작 (기본은 Data/Object 의 마을 지도와 주민이 열리고 주민이 걷는다)\n"
+        "  --npc              마을에 주민(NPC) 4명도 연다 (걷고, 마주치면 이야기한다). 기본은 마을 지도만 열린다\n"
+        "  --empty            파일을 안 줬을 때도 마을을 열지 않고 빈 뷰어로 시작 (기본은 Data/Object 의 마을 지도만 열린다)\n"
         "  --no-chat          주민끼리 대화하지 않는다 (기본은 마주치면 멈춰서 이야기한다)\n"
         "  --no-llm           LLM 없이 정해 둔 대사로만 말한다\n"
         "  --llm-url URL      LLM 서버 (Ollama) 주소 (기본 http://127.0.0.1:11434)\n"
@@ -326,6 +328,7 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--floor" && hasNext) { o->floorModel = argv[++i]; continue; }
         if (a == "--patrol" && hasNext) { o->patrolFile = argv[++i]; continue; }
         if (a == "--empty") { o->empty = true; continue; }
+        if (a == "--npc") { o->npc = true; continue; }
         if (a == "--no-chat") { o->noChat = true; continue; }
         if (a == "--no-llm") { o->noLlm = true; continue; }
         if (a == "--llm-url" && hasNext) { o->llmUrl = argv[++i]; continue; }
@@ -2036,11 +2039,13 @@ bool FindVillage(Options* o) {
             continue;
         }
         o->file = map.toLocal8Bit().constData();
-        for (int r = 0; r < patrol.RouteCount(); r++) {
-            const QString m = obj.filePath(QString("villagers/") + simulqt::ToQ(patrol.Route(r).name) + ".glb");
-            if (QFileInfo(m).isFile()) o->moreFiles.push_back(m.toLocal8Bit().constData());
+        if (o->npc) {   // --npc 일 때만 주민을 같이 연다
+            for (int r = 0; r < patrol.RouteCount(); r++) {
+                const QString m = obj.filePath(QString("villagers/") + simulqt::ToQ(patrol.Route(r).name) + ".glb");
+                if (QFileInfo(m).isFile()) o->moreFiles.push_back(m.toLocal8Bit().constData());
+            }
+            o->patrolFile = wp.toLocal8Bit().constData();
         }
-        o->patrolFile = wp.toLocal8Bit().constData();
         o->noFall = true;
         return true;
     }

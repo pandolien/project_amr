@@ -592,7 +592,7 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 
 ## 주민 순찰 (마을 기본 장면)
 
-`simul_main` 을 인자 없이 켜면(`./run.sh` 도 같다) `Data/Object/merchen_village.glb`(동화풍 마을 지도)와 주민 4명(`Data/Object/villagers/villager_N.glb`)이 열리고, 주민이 바로 걷기 시작한다. 빈 뷰어로 켜려면 `--empty`. 주민은 엔진이 움직이므로 이 기본 장면에서는 중력 낙하가 꺼져 있다.
+`simul_main` 을 인자 없이 켜면(`./run.sh` 도 같다) `Data/Object/merchen_village.glb`(동화풍 마을 지도)만 열린다. 주민(NPC) 4명(`Data/Object/villagers/villager_N.glb`)을 같이 열어 걷게 하려면 `--npc`, 빈 뷰어로 켜려면 `--empty`. 아래의 A*·탑뷰·대화 설명은 모두 `--npc` 로 켰을 때의 이야기다. 주민은 엔진이 움직이므로 이 기본 장면에서는 중력 낙하가 꺼져 있다.
 
 이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아가고, 가는 방향을 바라본다.
 
