@@ -22,6 +22,11 @@ target_link_libraries(test_cforcetorque PRIVATE Core)
 simul_set_warnings(test_cforcetorque)
 add_test(NAME test_cforcetorque COMMAND test_cforcetorque)
 
+add_executable(test_cpatrol test_cpatrol.cpp)
+target_link_libraries(test_cpatrol PRIVATE Core)
+simul_set_warnings(test_cpatrol)
+add_test(NAME test_cpatrol COMMAND test_cpatrol)
+
 add_executable(test_cimu test_cimu.cpp)
 target_link_libraries(test_cimu PRIVATE Core)
 simul_set_warnings(test_cimu)

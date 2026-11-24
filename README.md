@@ -590,16 +590,20 @@ Array<Event> ev = p.TakeEvents();            // 출발/도착 이벤트와 시�
 ./build/bin/simul_main Data/Object/samples/logistics_ab.urdf --joint item_slide=1.5   # 물건이 A 와 B 의 가운데
 ```
 
-## 주민 순찰 예제 (villager_patrol)
+## 주민 순찰 (마을 기본 장면)
 
-`Data/Object/merchen_village.glb`(동화풍 마을 지도)에는 주민 4명이 산다. 주민은 모델 하나씩(`Data/Object/villagers/villager_N.glb`, 발 밑이 원점)이라 엔진의 `simul_move_to` 로 움직인다.
-이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아간다. 길 찾기는 없다.
+`simul_main` 을 인자 없이 켜면(`./run.sh` 도 같다) `Data/Object/merchen_village.glb`(동화풍 마을 지도)와 주민 4명(`Data/Object/villagers/villager_N.glb`)이 열리고, 주민이 바로 걷기 시작한다. 빈 뷰어로 켜려면 `--empty`. 주민은 엔진이 움직이므로 이 기본 장면에서는 중력 낙하가 꺼져 있다.
+
+이동은 단순하다. `Data/Object/villagers/waypoints.txt` 의 지점(x y z, Z-up, m)을 위에서 아래로 직선으로 차례로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다. 끝에 닿으면 처음으로 돌아가고, 가는 방향을 바라본다. 길 찾기는 없다.
+주민을 늘리거나 길을 바꾸려면 지점 파일에 `[모델 이름]`, `speed`(m/s), 지점 줄을 더하면 된다. 모델 이름은 파일 이름이다.
 
 ```
-./build/bin/villager_patrol Data/Object 60     # 60초 동안 걷게 하고 1초마다 위치를 찍는다 (창 없음)
+./build/bin/simul_main                                              # 마을 + 주민 (기본)
+./build/bin/simul_main 지도.glb 주민.glb --patrol 지점파일.txt      # 내 모델과 내 지점 파일로
+./build/bin/villager_patrol Data/Object 60                          # 창 없이 60초 걷게 하고 1초마다 위치를 찍는다
 ```
 
-코드는 `examples/villager_patrol.cpp` (C 인터페이스 `simul_core` 만 사용). 주민을 늘리거나 길을 바꾸려면 지점 파일에 `[이름]`, `speed`, 지점 줄을 더하면 된다.
+코드: `Core/include/CSimul/Patrol.h`(엔진 `Listener`, 지점 파일 읽기 + `move_to` 연결, 시험은 `tests/test_cpatrol.cpp`), 뷰어 연결은 `main.cpp` 의 `startPatrol`, 창 없는 예제는 `examples/villager_patrol.cpp`.
 
 ## 바닥 모델 지정
 

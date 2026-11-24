@@ -24,6 +24,7 @@
 #include "CURDF/Urdf.h"
 #include "CMarker/Marker.h"
 #include "CProject/Project.h"
+#include "CSimul/Patrol.h"
 
 namespace {
 
@@ -43,6 +44,8 @@ struct Options {
     struct Scale { simul::String model; double factor; };   // --scale 모델=배율
     simul::Array<Scale> scales;
     simul::String floorModel;   // --floor 모델: 바닥으로 지정할 모델 이름
+    simul::String patrolFile;   // --patrol 파일: 지점 파일대로 이름이 같은 모델이 걷는다 (길 찾기 없음)
+    bool empty = false;         // --empty: 아무것도 열지 않고 시작 (기본은 파일을 안 주면 마을을 연다)
     bool onlyView;             // 기본: 메뉴/도크/상태바 없이 3D 화면만 (메뉴, 구조 트리, 오브젝트 뷰는 3D 화면 안에 뜬다). --classic 이면 예전 창 구성
     bool hideMenu;             // --hide-menu: 메뉴만 숨김
     double uiScale = 1.0;      // --ui-scale: 3D 화면 안 UI 크기 배율
@@ -160,6 +163,8 @@ void PrintUsage(const char* exe) {
         "  파일을 여러 개 주면 모두 한 장면에 올린다.  --place 모델=x,y,z[,회전도]  모델 위치 (모델 이름은 파일 이름)\n"
         "  --fps                      화면에 FPS 와 그리기 시간 표시\n"
         "  --ui-scale X               3D 화면 안 메뉴/트리/패널 크기 배율 (기본 1.0, 실행 중 Ctrl+= / Ctrl+- / Ctrl+0)\n"
+        "  --patrol 파일       지점 파일(Data/Object/villagers/waypoints.txt 형식)대로 이름이 같은 모델이 지점을 차례로 걷는다 (길 찾기 없음)\n"
+        "  --empty            파일을 안 줬을 때도 마을을 열지 않고 빈 뷰어로 시작 (기본은 Data/Object 의 마을 지도와 주민이 열리고 주민이 걷는다)\n"
         "  --floor 모델        그 모델을 바닥으로 지정 (다른 모델이 z=0 평면 대신 그 윗면 위로 떨어져 멈춘다). 예: --floor table\n"
         "  --scale 모델=배율   모델 전체 크기를 원래의 몇 배로 (길이와 질량이 함께 바뀐다). 예: --scale arm=0.5\n"
         "  --classic            예전 창 구성(Qt 메뉴줄과 도크)으로 시작한다. 기본은 3D 화면만 (메뉴/구조 트리/오브젝트 뷰가 화면 안에 뜬다)\n"
@@ -311,6 +316,8 @@ int ParseArgs(int argc, char** argv, Options* o) {
         if (a == "--ui-scale" && i + 1 < argc) { o->uiScale = atof(argv[++i]); continue; }
         if (a == "--hide-menu") { o->hideMenu = true; continue; }
         if (a == "--floor" && hasNext) { o->floorModel = argv[++i]; continue; }
+        if (a == "--patrol" && hasNext) { o->patrolFile = argv[++i]; continue; }
+        if (a == "--empty") { o->empty = true; continue; }
         if (a == "--scale" && hasNext) {   // 모델 전체 크기 배율. 예: --scale arm=0.5
             const simul::String v = argv[++i];
             const size_t eq = v.find('=');
@@ -968,6 +975,31 @@ public:
 
     // 파일을 열어 장면에 추가한다 (이전 모델은 지우지 않는다). 지우려면 구조 트리에서 우클릭 -> 제거, 또는 파일 -> 모두 닫기.
     ~MainWindow() override {}
+
+    // 지점 파일을 읽어 순찰을 시작한다: 엔진의 move_to 로 정해 둔 지점들을 차례로 걷는다 (길 찾기 없음).
+    // 모델은 먼저 열어 둔 상태여야 한다 (이름이 같은 모델만 움직인다).
+    void startPatrol(const Options& o) {
+        if (o.patrolFile.empty()) return;
+        simul::Array<unsigned char> bytes;
+        simul::String err;
+        if (!simul::ReadAllBytes(o.patrolFile, &bytes, &err) || bytes.empty()) {
+            logError(QString::fromUtf8("지점 파일을 읽을 수 없음: %1 %2").arg(simulqt::ToQ(o.patrolFile)).arg(simulqt::ToQ(err)));
+            return;
+        }
+        patrol_ = new simul::sim::Patrol();
+        if (!patrol_->Parse(simul::String(reinterpret_cast<const char*>(&bytes[0]), bytes.size()), &err)) {
+            logError(simulqt::ToQ(err));
+            delete patrol_;
+            patrol_ = nullptr;
+            return;
+        }
+        if (!backend_) backend_ = new ViewerBackend(viewer_);
+        engine_ = new simul::sim::Engine(backend_);
+        engine_->SetListener(patrol_);
+        runner_ = new SimulRunner(engine_, this);
+        runner_->Start();
+        log_->Info(QString::fromUtf8("순찰 시작: %1 (길 %2개)").arg(simulqt::ToQ(o.patrolFile)).arg(patrol_->RouteCount()));
+    }
 
     // 오른쪽 "오브젝트 / 관절 값" 도크 (Ctrl+J): 장면에서 오브젝트 이름과 관절 값을 바로 읽어 보여 준다
     void setupObjectPanel(const Options& o) {
@@ -1675,6 +1707,9 @@ private:
     QList<QDockWidget*> hiddenDocks_;   // 3D 화면만 보기 전에 보이던 도크
     LogView* log_ = nullptr;
     ViewerBackend* backend_ = nullptr;
+    simul::sim::Engine* engine_ = nullptr;   // --patrol: 엔진 + 순찰 + 틱 타이머
+    simul::sim::Patrol* patrol_ = nullptr;
+    SimulRunner* runner_ = nullptr;
     ObjectInfoPanel* objPanel_ = nullptr;
     QDockWidget* objDock_ = nullptr;
     QMenu* fileMenu_ = nullptr;
@@ -1698,6 +1733,38 @@ private:
     simul::dynamics::Gravity gravity_;
 };
 
+// 파일을 안 줬을 때 열 기본 장면: Data/Object 의 마을 지도와, 지점 파일에 이름이 나오는 주민 모델.
+// 주민은 엔진이 직접 움직이므로 중력 낙하는 끈다 (끄지 않으면 z=0 평면까지 떨어진다).
+bool FindVillage(Options* o) {
+    QStringList dirs;
+#ifdef SIMUL_DATA_DIR
+    dirs << QString::fromUtf8(SIMUL_DATA_DIR);
+#endif
+    dirs << QCoreApplication::applicationDirPath() + "/Data" << QCoreApplication::applicationDirPath() + "/../Data";
+    for (int i = 0; i < dirs.size(); i++) {
+        const QDir obj(QDir(dirs[i]).filePath("Object"));
+        const QString map = obj.filePath("merchen_village.glb"), wp = obj.filePath("villagers/waypoints.txt");
+        if (!QFileInfo(map).isFile() || !QFileInfo(wp).isFile()) continue;
+        simul::Array<unsigned char> bytes;
+        simul::String err;
+        simul::sim::Patrol patrol;
+        if (!simul::ReadAllBytes(wp.toLocal8Bit().constData(), &bytes, &err) || bytes.empty() ||
+            !patrol.Parse(simul::String(reinterpret_cast<const char*>(&bytes[0]), bytes.size()), &err)) {
+            fprintf(stderr, "경고: 마을 지점 파일을 읽을 수 없습니다 (%s): %s\n", wp.toLocal8Bit().constData(), err.c_str());
+            continue;
+        }
+        o->file = map.toLocal8Bit().constData();
+        for (int r = 0; r < patrol.RouteCount(); r++) {
+            const QString m = obj.filePath(QString("villagers/") + simulqt::ToQ(patrol.Route(r).name) + ".glb");
+            if (QFileInfo(m).isFile()) o->moreFiles.push_back(m.toLocal8Bit().constData());
+        }
+        o->patrolFile = wp.toLocal8Bit().constData();
+        o->noFall = true;
+        return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1714,6 +1781,7 @@ int main(int argc, char** argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
+    const bool village = o.projectFile.empty() && o.file.empty() && !o.empty && FindVillage(&o);   // 아무것도 안 줬으면 마을을 연다
     MainWindow w(o);
     w.show();
     if (!o.projectFile.empty()) {
@@ -1731,8 +1799,10 @@ int main(int argc, char** argv) {
             w.applyMove(o);
         }
     }
+    if (village && !o.viewSet) w.viewer()->SetCamera(dhVector(0.0f, 0.0f, 3.0f), 80.0, -1.0471976, 0.6);   // 마을 전체가 보이고 주민도 알아볼 거리
     w.startHidden(o);
     w.setupObjectPanel(o);
+    w.startPatrol(o);
     if (!o.shot.empty() || !o.shotWindow.empty()) {
         const simul::String shot = o.shot, shotWindow = o.shotWindow;
         ModelViewer* v = w.viewer();
