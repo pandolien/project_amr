@@ -829,7 +829,10 @@ public:
         view->insertAction(viewSep, onlyViewAct_);
         addAction(onlyViewAct_);
         QShortcut* esc = new QShortcut(QKeySequence(Qt::Key_Escape), this);   // 3D 화면만 보는 중에는 Esc 로도 돌아온다
-        QObject::connect(esc, &QShortcut::activated, this, [this]() { if (uiHidden_) onlyViewAct_->setChecked(false); });
+        QObject::connect(esc, &QShortcut::activated, this, [this]() {
+            if (fpModel_ >= 0) { leaveFirstPerson(); return; }
+            if (uiHidden_) onlyViewAct_->setChecked(false);
+        });
         view->insertSeparator(viewSep);
         configureDocks();
         QAction* frame = new QAction(QString::fromUtf8("선택 좌표계"), this);
@@ -998,7 +1001,60 @@ public:
         engine_->SetListener(patrol_);
         runner_ = new SimulRunner(engine_, this);
         runner_->Start();
+        // 주민을 클릭하면 그 주민 시점으로 본다 (Esc 로 원래 시점으로)
+        fpTimer_ = new QTimer(this);
+        fpTimer_->setInterval(16);
+        QObject::connect(fpTimer_, &QTimer::timeout, this, [this]() { updateFirstPerson(); });
+        QObject::connect(viewer_, &ModelViewer::selectionPicked, this, [this](int link, bool) {
+            if (link < 0 || !patrol_) return;
+            const int m = viewer_->ModelOfLink(link);
+            if (m < 0) return;
+            const QString name = viewer_->ModelName(m);
+            for (int i = 0; i < patrol_->RouteCount(); i++)
+                if (simulqt::ToQ(patrol_->Route(i).name) == name) { enterFirstPerson(m); return; }
+        });
         log_->Info(QString::fromUtf8("순찰 시작: %1 (길 %2개)").arg(simulqt::ToQ(o.patrolFile)).arg(patrol_->RouteCount()));
+    }
+
+    // 주민 시점: 눈 높이(발 + 0.78 m)에서 앞쪽(모델 -Y 방향)을 본다. 매 프레임 따라가고, 방향은 부드럽게 돌린다.
+    void enterFirstPerson(int model) {
+        if (fpModel_ < 0) {   // 처음 들어갈 때만 원래 시점을 기억한다 (다른 주민을 눌러 바꿀 때는 유지)
+            fpSavedTarget_ = viewer_->CameraTarget();
+            fpSavedDist_ = viewer_->CameraDistance();
+            fpSavedYaw_ = viewer_->CameraYaw();
+            fpSavedPitch_ = viewer_->CameraPitch();
+        }
+        fpModel_ = model;
+        fpYawInit_ = false;
+        updateFirstPerson();
+        fpTimer_->start();
+        statusBar()->showMessage(QString::fromUtf8("%1 시점 (Esc: 돌아가기)").arg(viewer_->ModelName(model)));
+    }
+    void leaveFirstPerson() {
+        if (fpModel_ < 0) return;
+        fpModel_ = -1;
+        fpTimer_->stop();
+        viewer_->SetCamera(fpSavedTarget_, fpSavedDist_, fpSavedYaw_, fpSavedPitch_);
+        statusBar()->clearMessage();
+    }
+    void updateFirstPerson() {
+        if (fpModel_ < 0) return;
+        if (fpModel_ >= viewer_->ModelCount()) { leaveFirstPerson(); return; }
+        const dhPose pose = viewer_->ModelPlacementPose(fpModel_);
+        const dhVector f = pose.orientation.Rotate(dhVector(0, -1, 0));   // 모델 앞쪽
+        const double want = atan2(static_cast<double>(f.y), static_cast<double>(f.x));
+        if (!fpYawInit_) { fpYaw_ = want; fpYawInit_ = true; }
+        double d = want - fpYaw_;
+        while (d > 3.14159265358979) d -= 6.28318530717958;
+        while (d < -3.14159265358979) d += 6.28318530717958;
+        fpYaw_ += d * 0.2;
+        const double cy = cos(fpYaw_), sy = sin(fpYaw_), q = 0.06;   // q: 살짝 내려다보는 각
+        const dhVector eye(static_cast<float>(pose.position.x + 0.22 * cy), static_cast<float>(pose.position.y + 0.22 * sy),
+                           static_cast<float>(pose.position.z + 0.78));
+        const double dist = 0.05;   // 궤도 카메라라서 눈에서 아주 조금 앞을 target 으로 잡는다
+        const dhVector target(static_cast<float>(eye.x + dist * cos(q) * cy), static_cast<float>(eye.y + dist * cos(q) * sy),
+                              static_cast<float>(eye.z - dist * sin(q)));
+        viewer_->SetCamera(target, dist, atan2(-sy, -cy), q);
     }
 
     // 오른쪽 "오브젝트 / 관절 값" 도크 (Ctrl+J): 장면에서 오브젝트 이름과 관절 값을 바로 읽어 보여 준다
@@ -1710,6 +1766,12 @@ private:
     simul::sim::Engine* engine_ = nullptr;   // --patrol: 엔진 + 순찰 + 틱 타이머
     simul::sim::Patrol* patrol_ = nullptr;
     SimulRunner* runner_ = nullptr;
+    QTimer* fpTimer_ = nullptr;              // 주민 시점으로 보는 중
+    int fpModel_ = -1;
+    bool fpYawInit_ = false;
+    double fpYaw_ = 0.0;
+    dhVector fpSavedTarget_;
+    double fpSavedDist_ = 10.0, fpSavedYaw_ = 0.0, fpSavedPitch_ = 0.5;
     ObjectInfoPanel* objPanel_ = nullptr;
     QDockWidget* objDock_ = nullptr;
     QMenu* fileMenu_ = nullptr;
