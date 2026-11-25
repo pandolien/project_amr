@@ -38,7 +38,7 @@ void PrintState(const PlayerWorld& w, double t) {
     printf("{\"t\":%.3f,\"p\":[", t);
     for (int i = 0; i < w.Count(); i++) {
         const Player& p = w.At(i);
-        printf("%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d", i ? "," : "", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId);
+        printf("%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d", i ? "," : "", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5));
         if (p.sayLeft > 0 && !p.say.empty()) printf(",\"s\":\"%s\"", p.say.c_str());
         printf("}");
     }
@@ -89,6 +89,8 @@ int main(int argc, char** argv) {
         } else if (strcmp(cmd, "chat") == 0) {
             int n = 0;
             if (sscanf(line, "%*s %d %n", &id, &n) >= 1 && n > 0) world.Say(id, line + n);
+        } else if (strcmp(cmd, "attack") == 0) {
+            if (sscanf(line, "%*s %d", &id) == 1) world.Attack(id);
         } else if (strcmp(cmd, "enter") == 0) {
             if (sscanf(line, "%*s %d", &id) == 1) world.Enter(id);
         } else if (strcmp(cmd, "input") == 0) {

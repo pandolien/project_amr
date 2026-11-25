@@ -179,6 +179,11 @@ wss.on('connection', function (ws, req) {
       if (!text) return;
       c.lastChat = now;
       toChild('chat ' + c.id + ' ' + text);
+    } else if (m.type === 'attack' && c.id) {   // F / 클릭: 앞의 사람을 때린다 (서버가 쿨다운과 거리를 본다)
+      const now = Date.now();
+      if (now - (c.lastAttack || 0) < 250) return;
+      c.lastAttack = now;
+      toChild('attack ' + c.id);
     } else if (m.type === 'enter' && c.id) {   // 문 앞에서 B: 건물에 들어가고 나온다 (0.4 초에 한 번까지)
       const now = Date.now();
       if (now - (c.lastEnter || 0) < 400) return;
@@ -215,7 +220,14 @@ setInterval(function () {   // 응답 없는 연결 정리
 if (CONNECT) connectEngine();
 else {
   startChild();   // 시계는 이쪽이 쥔다: 50 ms 마다 tick
-  setInterval(function () { toChild('tick ' + (TICK_MS / 1000)); }, TICK_MS);
+  // 캐릭터의 시간(공격 쿨다운, 체력 회복, 말풍선)은 전부 서버 시계 기준이다. 서버가 느려져도 실제 흐른 시간만큼 한 번에 계산한다 (한 번에 최대 0.25 초).
+  let lastTick = Date.now();
+  setInterval(function () {
+    const now = Date.now();
+    const dt = Math.min(0.25, Math.max(0.001, (now - lastTick) / 1000));
+    lastTick = now;
+    toChild('tick ' + dt.toFixed(4));
+  }, TICK_MS);
 }
 httpServer.listen(PORT, HOST, function () {
   console.log('마을 웹 서버: http://localhost:' + PORT + '  (같은 네트워크: http://<이 컴퓨터 주소>:' + PORT + ', 최대 ' + MAX + '명)');

@@ -157,6 +157,16 @@ function addLog(name, text) {
   while (log.children.length > 6) log.removeChild(log.firstChild);
   setTimeout(() => d.remove(), 15000);
 }
+function drawHp(e, hp) {   // 머리 위 체력 바
+  if (e.hp === hp) return;
+  e.hp = hp;
+  const g = e.hpCanvas.getContext('2d');
+  g.clearRect(0, 0, 128, 16);
+  g.fillStyle = 'rgba(30,30,40,.75)'; g.fillRect(0, 0, 128, 16);
+  g.fillStyle = hp > 50 ? '#5fd068' : (hp > 25 ? '#f2c14e' : '#ee5a5a');
+  g.fillRect(2, 2, Math.max(0, 124 * hp / 100), 12);
+  e.hpTex.needsUpdate = true;
+}
 function makePlayer(p) {
   const group = new THREE.Group();
   const tpl = villagerTemplates[(p.id > 0 ? p.id - 1 : -p.id - 1) % 4];   // NPC 는 id 가 음수 (-k = k 번째 주민)
@@ -167,8 +177,16 @@ function makePlayer(p) {
   const label = makeLabel(p.n);
   label.position.y = NAME_HEIGHT;
   group.add(label);
+  let hpSprite = null, hpCanvas = null, hpTex = null;
+  if (p.hp !== undefined) {
+    hpCanvas = document.createElement('canvas'); hpCanvas.width = 128; hpCanvas.height = 16;
+    hpTex = new THREE.CanvasTexture(hpCanvas);
+    hpSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: hpTex, transparent: true, depthTest: false }));
+    hpSprite.scale.set(0.64, 0.08, 1); hpSprite.position.y = NAME_HEIGHT - 0.2; hpSprite.renderOrder = 998;
+    group.add(hpSprite);
+  }
   scene.add(group);
-  const e = { group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
+  const e = { hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
   players.set(p.id, e);
   return e;
 }
@@ -181,6 +199,14 @@ function onState(s) {
     if (Math.hypot(p.x - e.x, p.y - e.y) > 15) { e.x = p.x; e.y = p.y; e.z = p.z; e.yaw = p.yaw; }   // 건물 안팎으로 옮겨졌다: 미끄러지지 않고 바로
     e.tx = p.x; e.ty = p.y; e.tz = p.z; e.tyaw = p.yaw;
     e.zone = zoneAt(p.x, p.y);
+    if (e.hpSprite && p.hp !== undefined) {
+      drawHp(e, p.hp);
+      if (p.id === myId) {   // 내 체력: 화면 아래 바, 맞으면 붉게 번쩍
+        $('hpfill').style.width = p.hp + '%'; $('hptext').textContent = 'HP ' + p.hp;
+        if (e.lastHp !== undefined && p.hp < e.lastHp) { $('flash').style.opacity = 1; setTimeout(() => { $('flash').style.opacity = 0; }, 160); }
+        e.lastHp = p.hp;
+      }
+    }
     if (p.s) {
       if (p.s !== e.bubbleText) {   // 새 말이면 풍선을 다시 그린다
         if (e.bubble) { e.group.remove(e.bubble); e.bubble.material.map.dispose(); e.bubble.material.dispose(); }
@@ -207,7 +233,7 @@ function onState(s) {
   const dp = doorPrompt(me);
   $('prompt').hidden = !dp;
   if (dp) $('prompt').textContent = dp;
-  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · B 문 앞에서 들어가기/나가기 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
+  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · B 문 앞에서 들어가기/나가기 · F/클릭 공격 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
 }
 
 
@@ -315,12 +341,15 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && myId) { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyV' && !e.repeat) { third = !third; return; }
   if (e.code === 'KeyN' && !e.repeat) { nextTime(); return; }
+  if (e.code === 'KeyF' && !e.repeat) { attack(); return; }
   if (e.code === 'KeyB' && !e.repeat) { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'enter' })); return; }
   keys.add(e.code);
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
+function attack() { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'attack' })); }
+renderer.domElement.addEventListener('mousedown', (e) => { if (locked && e.button === 0) attack(); });
 document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === renderer.domElement; $('hint').hidden = locked || !myId; });
 renderer.domElement.addEventListener('click', () => { if (myId && !locked && renderer.domElement.requestPointerLock) renderer.domElement.requestPointerLock(); });
 document.addEventListener('mousemove', (e) => {
@@ -364,7 +393,7 @@ async function join() {
     if (m.type === 'welcome') {
       myId = m.id;
       $('join').style.display = 'none';
-      $('hud').hidden = false; $('hint').hidden = false; $('cross').hidden = false;
+      $('hud').hidden = false; $('hpbar').hidden = false; $('hint').hidden = false; $('cross').hidden = false;
     } else if (m.type === 'full') {
       $('msg').textContent = '지금은 가득 찼어요 (최대 ' + m.max + '명). 조금 뒤에 다시 와 주세요.';
     } else if (m.p) onState(m);
@@ -397,6 +426,7 @@ function frame() {
     e.model.rotation.y = id === myId ? yaw : e.yaw;
     e.model.visible = !(id === myId && !third);
     e.label.visible = id !== myId;
+    if (e.hpSprite) e.hpSprite.visible = id !== myId;
     if (e.bubble) e.bubble.visible = id !== myId || third;   // 내 말풍선은 1인칭에서는 내 눈앞이라 숨긴다 (왼쪽 아래 대화 기록에는 보인다)
   }
   const me = players.get(myId);

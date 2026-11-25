@@ -170,6 +170,35 @@ bool PlayerWorld::teleport(Player* p, double x, double y) const {
     return false;
 }
 
+bool PlayerWorld::Attack(int id) {
+    Player* a = Find(id);
+    if (!a || a->attackCd > 0) return false;
+    a->attackCd = 0.6;
+    const double fx = sin(a->inYaw), fy = -cos(a->inYaw);
+    const int zone = RoomAt(a->x, a->y);
+    Player* best = NULL;
+    double bestD = kReach() + 1;
+    for (size_t i = 0; i < players_.size(); i++) {
+        Player& t = players_[i];
+        if (t.id == id || RoomAt(t.x, t.y) != zone) continue;
+        const double dx = t.x - a->x, dy = t.y - a->y, d = sqrt(dx * dx + dy * dy);
+        if (d > kReach() || d < 1e-6) continue;
+        if ((dx * fx + dy * fy) / d < 0.5) continue;   // 앞쪽 120도 안
+        if (d < bestD) { bestD = d; best = &t; }
+    }
+    if (!best) return false;
+    best->hp -= kHitDamage;
+    best->sinceHit = 0;
+    if (best->hp <= 0) {   // 쓰러지면 시작 위치에서 체력을 채워 다시 나타난다
+        double x = spawnX_, y = spawnY_;
+        best->x = -1e9;   // 자기 자신에게 막히지 않게 잠시 치워 둔다
+        if (findSpawn(&x, &y)) { best->x = x; best->y = y; best->z = GroundAt(x, y); }
+        else best->x = spawnX_;
+        best->hp = kMaxHp;
+    }
+    return true;
+}
+
 bool PlayerWorld::Enter(int id) {
     Player* p = Find(id);
     if (!p) return false;
@@ -322,6 +351,9 @@ void PlayerWorld::Step(double dt) {
     for (size_t i = 0; i < players_.size(); i++) {
         Player& p = players_[i];
         p.yaw = p.inYaw;
+        if (p.attackCd > 0) p.attackCd -= dt;
+        p.sinceHit += dt;
+        if (p.sinceHit > 6 && p.hp < kMaxHp) { p.hp += 5 * dt; if (p.hp > kMaxHp) p.hp = kMaxHp; }   // 6 초 안 맞으면 초당 5 씩 회복
         if (p.sayLeft > 0) { p.sayLeft -= dt; if (p.sayLeft <= 0) { p.sayLeft = 0; p.say.clear(); } }
         if (p.fwd != 0 || p.side != 0) {
             const double fx = sin(p.yaw), fy = -cos(p.yaw), rx = -cos(p.yaw), ry = -sin(p.yaw);
@@ -390,6 +422,8 @@ bool Players::Command(const String& line) {
         int fwd = 0, side = 0, run = 0;
         double yaw = 0;
         if (sscanf(line.c_str(), "%*s %d %d %d %d %lf", &id, &fwd, &side, &run, &yaw) == 5) return world_.SetInput(id, fwd, side, run, yaw);
+    } else if (strcmp(cmd, "attack") == 0) {
+        if (sscanf(line.c_str(), "%*s %d", &id) == 1) return world_.Attack(id);
     } else if (strcmp(cmd, "enter") == 0) {
         if (sscanf(line.c_str(), "%*s %d", &id) == 1) return world_.Enter(id);
     }
@@ -451,7 +485,7 @@ String Players::StateJson(Engine& e, double time) {
     bool first = true;
     for (int i = 0; i < world_.Count(); i++) {
         const Player& p = world_.At(i);
-        snprintf(buf, sizeof(buf), "%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d", first ? "" : ",", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId);
+        snprintf(buf, sizeof(buf), "%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d", first ? "" : ",", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5));
         out += buf;
         if (p.sayLeft > 0 && !p.say.empty()) { out += ",\"s\":\""; out += p.say; out += "\""; }
         out += "}";

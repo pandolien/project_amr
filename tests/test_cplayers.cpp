@@ -185,6 +185,33 @@ void testRooms() {
     check(hypot(w.Find(2)->x - w.Find(1)->x, w.Find(2)->y - w.Find(1)->y) >= 0.8, "문 앞이 차 있으면 가까운 빈 곳에 나온다 (겹치지 않는다)");
 }
 
+void testHp() {
+    PlayerWorld w;
+    w.SetSpawn(0, 0);
+    w.Join(1, "a"); w.Join(2, "b");
+    w.Find(1)->x = 0; w.Find(1)->y = 0; w.Find(2)->x = 0; w.Find(2)->y = 1.0;   // 2 번은 1 번의 앞(+y)
+    w.SetInput(1, 0, 0, 0, 3.14159265);   // 1 번이 +y 를 본다
+    check(near(w.Find(2)->hp, 100), "처음엔 가득");
+    check(w.Attack(1), "앞의 사람을 때린다");
+    check(near(w.Find(2)->hp, 90), "10 줄었다");
+    check(!w.Attack(1), "연타는 안 된다 (쿨다운)");
+    w.Step(0.7);
+    w.SetInput(1, 0, 0, 0, 0);   // 뒤를 보면 못 맞힌다
+    check(!w.Attack(1), "등 뒤는 못 때린다");
+    w.Step(0.7);
+    w.SetInput(1, 0, 0, 0, 3.14159265);
+    w.Find(2)->x = 0; w.Find(2)->y = 3.0;
+    check(!w.Attack(1), "멀면 못 때린다");
+    w.Find(2)->y = 1.0;
+    w.Find(2)->hp = 10;
+    w.Step(0.7);
+    check(w.Attack(1), "마지막 한 대");
+    check(near(w.Find(2)->hp, 100), "쓰러지면 가득 채워 다시 나타난다");
+    w.Find(2)->hp = 50; w.Find(2)->sinceHit = 0;
+    for (int i = 0; i < 100; i++) w.Step(0.1);   // 10 초
+    check(w.Find(2)->hp > 50 && w.Find(2)->hp < 100, "6 초 뒤부터 천천히 회복");
+}
+
 }  // namespace
 
 int main() {
@@ -194,6 +221,7 @@ int main() {
     testChat();
     testCommands();
     testRooms();
+    testHp();
     if (g_fail == 0) printf("OK: test_cplayers\n");
     return g_fail == 0 ? 0 : 1;
 }
