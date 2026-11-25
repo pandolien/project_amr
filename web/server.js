@@ -179,6 +179,9 @@ wss.on('connection', function (ws, req) {
       if (!text) return;
       c.lastChat = now;
       toChild('chat ' + c.id + ' ' + text);
+    } else if (m.type === 'weapon' && c.id) {   // 1 검, 2 창, 3 도끼
+      const w = Math.floor(Number(m.w));
+      if (w >= 0 && w <= 2) toChild('weapon ' + c.id + ' ' + w);
     } else if (m.type === 'attack' && c.id) {   // F / 클릭: 앞의 사람을 때린다 (서버가 쿨다운과 거리를 본다)
       const now = Date.now();
       if (now - (c.lastAttack || 0) < 250) return;

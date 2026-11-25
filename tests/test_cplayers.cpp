@@ -207,6 +207,23 @@ void testHp() {
     w.Step(0.7);
     check(w.Attack(1), "마지막 한 대");
     check(near(w.Find(2)->hp, 100), "쓰러지면 가득 채워 다시 나타난다");
+    // 무기: 창은 멀리(좁게), 도끼는 가깝게(세게)
+    w.Find(2)->x = 0; w.Find(2)->y = 2.4; w.Find(2)->hp = 100;
+    w.Step(2.0);
+    check(!w.Attack(1), "검은 2.4 m 에 안 닿는다");
+    w.Step(2.0);
+    check(w.SetWeapon(1, 1) && !w.SetWeapon(1, 5) && !w.SetWeapon(9, 1), "창으로 바꾼다 (없는 무기/사람은 안 된다)");
+    check(w.Attack(1) && near(w.Find(2)->hp, 92), "창은 2.4 m 에서 8");
+    w.Step(2.0);
+    w.SetWeapon(1, 2);
+    w.Find(2)->y = 1.2; w.Find(2)->hp = 100;
+    check(w.Attack(1) && near(w.Find(2)->hp, 84), "도끼는 16");
+    const int ak = w.Find(1)->atkId;
+    w.Step(2.0);
+    w.Find(2)->y = 9;
+    check(!w.Attack(1) && w.Find(1)->atkId == ak + 1, "헛스윙도 휘두른 것으로 센다");
+    w.SetWeapon(1, 0);
+    w.Find(2)->hp = 100; w.Find(2)->y = 1.0;
     w.Find(2)->hp = 50; w.Find(2)->sinceHit = 0;
     for (int i = 0; i < 100; i++) w.Step(0.1);   // 10 초
     check(w.Find(2)->hp > 50 && w.Find(2)->hp < 100, "6 초 뒤부터 천천히 회복");

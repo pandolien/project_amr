@@ -33,7 +33,9 @@ struct Player {
     double hp;              // 체력 0..kMaxHp. 0 이 되면 시작 위치에서 가득 채워 다시 나타난다
     double sinceHit;        // 마지막으로 맞은 뒤 지난 시간 (s). 오래 안 맞으면 천천히 회복
     double attackCd;        // 다음 공격까지 남은 시간 (s)
-    Player() : id(0), x(0), y(0), z(0), yaw(0), fwd(0), side(0), run(0), inYaw(0), sayLeft(0), sayId(0), hp(100), sinceHit(99), attackCd(0) {}
+    int weapon;             // 0 검, 1 창, 2 도끼
+    int atkId;              // 휘두를 때마다 하나씩 늘어난다 (받는 쪽이 새 공격인지 알아보게)
+    Player() : id(0), x(0), y(0), z(0), yaw(0), fwd(0), side(0), run(0), inYaw(0), sayLeft(0), sayId(0), hp(100), sinceHit(99), attackCd(0), weapon(0), atkId(0) {}
 };
 
 // 건물 내부: 문 앞(밖)에서 B 를 누르면 지도 밖에 따로 놓인 방으로 옮겨지고, 방 안 문 앞에서 B 를 누르면 도로 나온다.
@@ -49,8 +51,10 @@ struct Room {
 class PlayerWorld {
 public:
     static const int kMaxHp = 100;        // 체력
-    static const int kHitDamage = 10;     // 한 대 맞으면 줄어드는 체력
-    static const double kReach() { return 1.8; }   // 공격이 닿는 거리 (m)
+    static const int kWeapons = 3;        // 검, 창, 도끼
+    // 무기마다: 닿는 거리(m), 앞쪽 각도의 cos (작을수록 넓게 휘두른다), 피해, 다시 휘두르기까지(s)
+    static void WeaponStats(int w, double* reach, double* cosCone, int* damage, double* cooldown);
+    bool SetWeapon(int id, int w);                                 // 1/2/3 키
     PlayerWorld();
 
     bool LoadGround(const String& text, String* error);            // tools/make_ground.js 가 만든 ground.txt
@@ -117,7 +121,7 @@ public:
 
     bool Join(int id, const String& name);
     void Leave(int id);
-    // 한 줄 명령: "join <id> <이름>", "leave <id>", "input <id> <앞뒤> <좌우> <달리기> <방향>", "chat <id> <글>", "enter <id>" (문 앞에서 B), "attack <id>" (F). 처리했으면 true
+    // 한 줄 명령: "join <id> <이름>", "leave <id>", "input <id> <앞뒤> <좌우> <달리기> <방향>", "chat <id> <글>", "enter <id>" (문 앞에서 B), "attack <id>" (F), "weapon <id> <0|1|2>" (검/창/도끼). 처리했으면 true
     bool Command(const String& line);
     // 지금 모두의 상태: {"t":..,"p":[{"id":..,"n":"..","x":..,"y":..,"z":..,"yaw":..},...]} (NPC 의 id 는 -1, -2, ...)
     String StateJson(Engine& e, double time);

@@ -170,24 +170,43 @@ bool PlayerWorld::teleport(Player* p, double x, double y) const {
     return false;
 }
 
+void PlayerWorld::WeaponStats(int w, double* reach, double* cosCone, int* damage, double* cooldown) {
+    switch (w) {
+        case 1: *reach = 2.8; *cosCone = 0.85; *damage = 8; *cooldown = 0.8; break;    // 창: 멀리, 좁게
+        case 2: *reach = 1.5; *cosCone = 0.3; *damage = 16; *cooldown = 1.1; break;    // 도끼: 가깝고 넓게, 아프지만 느리다
+        default: *reach = 1.8; *cosCone = 0.5; *damage = 10; *cooldown = 0.6; break;   // 검
+    }
+}
+
+bool PlayerWorld::SetWeapon(int id, int w) {
+    Player* p = Find(id);
+    if (!p || w < 0 || w >= kWeapons) return false;
+    p->weapon = w;
+    return true;
+}
+
 bool PlayerWorld::Attack(int id) {
     Player* a = Find(id);
     if (!a || a->attackCd > 0) return false;
-    a->attackCd = 0.6;
+    double reach, cosCone, cooldown;
+    int damage;
+    WeaponStats(a->weapon, &reach, &cosCone, &damage, &cooldown);
+    a->attackCd = cooldown;
+    a->atkId++;   // 헛스윙도 휘두른 것
     const double fx = sin(a->inYaw), fy = -cos(a->inYaw);
     const int zone = RoomAt(a->x, a->y);
     Player* best = NULL;
-    double bestD = kReach() + 1;
+    double bestD = reach + 1;
     for (size_t i = 0; i < players_.size(); i++) {
         Player& t = players_[i];
         if (t.id == id || RoomAt(t.x, t.y) != zone) continue;
         const double dx = t.x - a->x, dy = t.y - a->y, d = sqrt(dx * dx + dy * dy);
-        if (d > kReach() || d < 1e-6) continue;
-        if ((dx * fx + dy * fy) / d < 0.5) continue;   // 앞쪽 120도 안
+        if (d > reach || d < 1e-6) continue;
+        if ((dx * fx + dy * fy) / d < cosCone) continue;
         if (d < bestD) { bestD = d; best = &t; }
     }
     if (!best) return false;
-    best->hp -= kHitDamage;
+    best->hp -= damage;
     best->sinceHit = 0;
     if (best->hp <= 0) {   // 쓰러지면 시작 위치에서 체력을 채워 다시 나타난다
         double x = spawnX_, y = spawnY_;
@@ -422,6 +441,9 @@ bool Players::Command(const String& line) {
         int fwd = 0, side = 0, run = 0;
         double yaw = 0;
         if (sscanf(line.c_str(), "%*s %d %d %d %d %lf", &id, &fwd, &side, &run, &yaw) == 5) return world_.SetInput(id, fwd, side, run, yaw);
+    } else if (strcmp(cmd, "weapon") == 0) {
+        int w = 0;
+        if (sscanf(line.c_str(), "%*s %d %d", &id, &w) == 2) return world_.SetWeapon(id, w);
     } else if (strcmp(cmd, "attack") == 0) {
         if (sscanf(line.c_str(), "%*s %d", &id) == 1) return world_.Attack(id);
     } else if (strcmp(cmd, "enter") == 0) {
@@ -485,7 +507,7 @@ String Players::StateJson(Engine& e, double time) {
     bool first = true;
     for (int i = 0; i < world_.Count(); i++) {
         const Player& p = world_.At(i);
-        snprintf(buf, sizeof(buf), "%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d", first ? "" : ",", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5));
+        snprintf(buf, sizeof(buf), "%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d,\"w\":%d,\"ak\":%d", first ? "" : ",", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5), p.weapon, p.atkId);
         out += buf;
         if (p.sayLeft > 0 && !p.say.empty()) { out += ",\"s\":\""; out += p.say; out += "\""; }
         out += "}";
