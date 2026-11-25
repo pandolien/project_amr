@@ -243,6 +243,35 @@ void testHp() {
     check(w.Find(2)->hp > 50 && w.Find(2)->hp < 100, "6 초 뒤부터 천천히 회복");
 }
 
+void testLayout() {
+    // 1층 바닥(땅 1 m), 2층 바닥판(4.2 m, x 0..10), 계단(x -6..0 에서 1 -> 4.2), 층별 벽
+    PlayerWorld w;
+    String err;
+    check(w.ParseLayout("slab 0 -4 10 4 4.2\n"
+                        "ramp -6 -1 0 1 1.0 4.2 x\n"
+                        "wall -6 -1 0 -1 0.2 1.0 4.2\n"
+                        "wall 5 -4 5 -1 0.2 4.2 7.4\n", &err), "layout 읽기");
+    check(w.WallCount() == 2, "벽 두 개");
+    check(fabs(w.SurfaceAt(5, 0, 1.0) - 1.0) < 1e-9, "1층 사람은 2층 바닥판 아래(1층 바닥)를 걷는다");
+    check(w.SurfaceAt(5, 0, 4.2) > 4.0 && w.SurfaceAt(5, 0, 4.2) < 4.4, "2층 바닥 위");
+    check(w.SurfaceAt(-3, 0, 2.6) > 2.5 && w.SurfaceAt(-3, 0, 2.6) < 2.7, "계단 중간 높이");
+    check(fabs(w.SurfaceAt(-3, 0, 1.0) - 1.0) < 1e-9, "계단 중간으로 옆에서 뛰어오를 수는 없다");
+    check(w.SurfaceAt(20, 20, 4.2) < 0, "2층 가장자리 밖으로는 떨어지는 높이라 막는다");
+    check(w.Join(1, "a"), "join");
+    Player* p = w.Find(1);
+    p->x = -7.5; p->y = 0; p->z = 1.0;
+    w.Step(0.01);
+    w.SetInput(1, 1, 0, 0, 3.14159265358979 / 2);   // yaw +90 도: 앞이 +x
+    for (int i = 0; i < 400 && p->x < 5; i++) w.Step(0.05);
+    check(p->x > 4.5, "계단을 걸어 2층에 닿는다");
+    check(fabs(p->z - 4.2) < 0.05, "발 높이가 2층 바닥");
+    // 1층 벽은 2층 높이에서는 막지 않고, 층 벽은 그 층에서만 막는다
+    p->x = 3; p->y = -3.5; p->z = 4.2;
+    w.SetInput(1, 1, 0, 0, 0);   // yaw 0: 앞이 -y
+    for (int i = 0; i < 4; i++) w.Step(0.05);
+    check(p->y < -3.5, "2층 바닥판 위에서 아래(-y)로 걷는다");
+}
+
 }  // namespace
 
 int main() {
@@ -254,6 +283,7 @@ int main() {
     testRooms();
     testHp();
     testJump();
+    testLayout();
     if (g_fail == 0) printf("OK: test_cplayers\n");
     return g_fail == 0 ? 0 : 1;
 }

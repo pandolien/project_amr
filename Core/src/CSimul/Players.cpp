@@ -30,6 +30,15 @@ void PushOut(double* x, double* y, double cx, double cy, double r) {
     *y = cy + dy / d * r;
 }
 
+// 선분(두께 half*2)에 반지름 r 짜리 몸이 닿으면 밀어낸다
+void PushOutSeg(double* x, double* y, const Wall& w, double r) {
+    const double ex = w.x1 - w.x0, ey = w.y1 - w.y0, l2 = ex * ex + ey * ey;
+    double t = l2 < 1e-12 ? 0.0 : ((*x - w.x0) * ex + (*y - w.y0) * ey) / l2;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    PushOut(x, y, w.x0 + ex * t, w.y0 + ey * t, r + w.half);
+}
+bool WallActive(const Wall& w, double zb) { return zb >= w.zmin - 0.35 && zb < w.zmax - 0.35; }
+
 // 텍스트를 줄 단위로 읽는다 (\n, \r\n)
 bool NextLine(const String& s, size_t* pos, String* line) {
     if (*pos >= s.size()) return false;
@@ -85,6 +94,61 @@ bool PlayerWorld::LoadGround(const String& text, String* error) {
     gw_ = w;
     gh_ = h;
     return true;
+}
+
+bool PlayerWorld::ParseLayout(const String& text, String* error) {
+    slabs_.clear();
+    ramps_.clear();
+    walls_.clear();
+    size_t pos = 0;
+    String line;
+    while (NextLine(text, &pos, &line)) {
+        if (line.empty() || line[0] == '#') continue;
+        if (strncmp(line.c_str(), "slab ", 5) == 0) {
+            Slab s;
+            if (sscanf(line.c_str() + 5, "%lf %lf %lf %lf %lf", &s.x0, &s.y0, &s.x1, &s.y1, &s.z) != 5) { if (error) *error = "layout: slab 줄이 이상합니다: " + line; return false; }
+            slabs_.push_back(s);
+        } else if (strncmp(line.c_str(), "ramp ", 5) == 0) {
+            Ramp r;
+            char axis = 'x';
+            if (sscanf(line.c_str() + 5, "%lf %lf %lf %lf %lf %lf %c", &r.x0, &r.y0, &r.x1, &r.y1, &r.z0, &r.z1, &axis) != 7) { if (error) *error = "layout: ramp 줄이 이상합니다: " + line; return false; }
+            r.alongX = axis != 'y';
+            ramps_.push_back(r);
+        } else if (strncmp(line.c_str(), "spawn ", 6) == 0) {
+            double x, y;
+            if (sscanf(line.c_str() + 6, "%lf %lf", &x, &y) == 2) SetSpawn(x, y);
+        } else if (strncmp(line.c_str(), "wall ", 5) == 0) {
+            Wall w;
+            double thick;
+            if (sscanf(line.c_str() + 5, "%lf %lf %lf %lf %lf %lf %lf", &w.x0, &w.y0, &w.x1, &w.y1, &thick, &w.zmin, &w.zmax) != 7) { if (error) *error = "layout: wall 줄이 이상합니다: " + line; return false; }
+            w.half = thick / 2;
+            walls_.push_back(w);
+        }
+    }
+    return true;
+}
+
+// 걸을 수 있는 면 중에서, 발 높이 zBase 에서 올라설 수 있는(0.6 m 까지 올라가는) 가장 높은 면. 0.8 m 넘게 내려가는 곳은 막는다 (난간처럼).
+double PlayerWorld::SurfaceAt(double x, double y, double zBase) const {
+    const double terrain = GroundAt(x, y);
+    if (slabs_.empty() && ramps_.empty()) return terrain;
+    if (zBase < -1e8) return terrain;   // 높이를 모르면 땅
+    const double kUp = 0.6, kDown = 0.8;
+    double best = -99.0;
+    if (terrain >= kMinGround && terrain <= zBase + kUp) best = terrain;
+    for (size_t i = 0; i < slabs_.size(); i++) {
+        const Slab& s = slabs_[i];
+        if (x >= s.x0 && x <= s.x1 && y >= s.y0 && y <= s.y1 && s.z <= zBase + kUp && s.z > best) best = s.z;
+    }
+    for (size_t i = 0; i < ramps_.size(); i++) {
+        const Ramp& r = ramps_[i];
+        if (x < r.x0 || x > r.x1 || y < r.y0 || y > r.y1) continue;
+        const double t = r.alongX ? (x - r.x0) / (r.x1 - r.x0) : (y - r.y0) / (r.y1 - r.y0);
+        const double z = r.z0 + (r.z1 - r.z0) * t;
+        if (z <= zBase + kUp && z > best) best = z;
+    }
+    if (best < -50 || best < zBase - kDown) return -99.0;
+    return best;
 }
 
 bool PlayerWorld::ParseObstacles(const String& text, String* error) {
@@ -227,7 +291,7 @@ bool PlayerWorld::Attack(int id) {
     double bestD = reach + 1;
     for (size_t i = 0; i < players_.size(); i++) {
         Player& t = players_[i];
-        if (t.id == id || RoomAt(t.x, t.y) != zone) continue;
+        if (t.id == id || RoomAt(t.x, t.y) != zone || fabs(t.z - a->z) > 1.5) continue;   // 같은 방/바깥, 같은 층만
         const double dx = t.x - a->x, dy = t.y - a->y, d = sqrt(dx * dx + dy * dy);
         if (d > reach || d < 1e-6) continue;
         if ((dx * fx + dy * fy) / d < cosCone) continue;
@@ -239,7 +303,7 @@ bool PlayerWorld::Attack(int id) {
     if (best->hp <= 0) {   // 쓰러지면 시작 위치에서 체력을 채워 다시 나타난다
         double x = spawnX_, y = spawnY_;
         best->x = -1e9;   // 자기 자신에게 막히지 않게 잠시 치워 둔다
-        if (findSpawn(&x, &y)) { best->x = x; best->y = y; best->z = GroundAt(x, y); }
+        if (findSpawn(&x, &y)) { best->x = x; best->y = y; best->z = GroundAt(x, y); best->jumpH = 0; best->jumpV = 0; }
         else best->x = spawnX_;
         best->hp = kMaxHp;
     }
@@ -282,14 +346,21 @@ double PlayerWorld::GroundAt(double x, double y) const {
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
 
-bool PlayerWorld::isFree(double x, double y, int self, double margin) const {
-    if (GroundAt(x, y) < kMinGround) return false;
+bool PlayerWorld::isFree(double x, double y, int self, double margin, double zb) const {
+    if (SurfaceAt(x, y, zb) < kMinGround) return false;
+    for (size_t i = 0; i < walls_.size(); i++) {
+        if (!WallActive(walls_[i], zb)) continue;
+        double px = x, py = y;
+        PushOutSeg(&px, &py, walls_[i], kBody + margin);
+        if (px != x || py != y) return false;
+    }
     for (size_t i = 0; i < obs_.size(); i++) {
         const double dx = x - obs_[i].x, dy = y - obs_[i].y, r = obs_[i].r + kBody + margin;
         if (dx * dx + dy * dy < r * r) return false;
     }
     for (size_t i = 0; i < players_.size(); i++) {
         if (players_[i].id == self) continue;
+        if (zb > -1e8 && fabs(players_[i].z - players_[i].jumpH - zb) > 1.5) continue;   // 다른 층 사람과는 겹쳐도 된다
         const double dx = x - players_[i].x, dy = y - players_[i].y, r = kPlayerGap + margin;
         if (dx * dx + dy * dy < r * r) return false;
     }
@@ -411,18 +482,21 @@ void PlayerWorld::Step(double dt) {
             vx = vx / n * step;
             vy = vy / n * step;
             double x = p.x + vx, y = p.y + vy;
+            const double zb = p.z - p.jumpH;   // 발 밑 면의 높이 (점프 높이는 뺀다)
             for (int it = 0; it < 2; it++) {   // 겹친 것이 둘이어도 밀려 나오도록 두 번
                 for (size_t k = 0; k < obs_.size(); k++) PushOut(&x, &y, obs_[k].x, obs_[k].y, obs_[k].r + kBody);
+                for (size_t k = 0; k < walls_.size(); k++)
+                    if (WallActive(walls_[k], zb)) PushOutSeg(&x, &y, walls_[k], kBody);
                 for (size_t k = 0; k < players_.size(); k++)
-                    if (k != i) PushOut(&x, &y, players_[k].x, players_[k].y, kPlayerGap);
+                    if (k != i && fabs(players_[k].z - players_[k].jumpH - zb) < 1.5) PushOut(&x, &y, players_[k].x, players_[k].y, kPlayerGap);
                 for (size_t k = 0; k < external_.size(); k++) PushOut(&x, &y, external_[k].x, external_[k].y, external_[k].r);
             }
-            if (GroundAt(x, y) >= kMinGround) {
+            if (SurfaceAt(x, y, zb) >= kMinGround) {
                 p.x = x;
                 p.y = y;
-            } else if (GroundAt(p.x + vx, p.y) >= kMinGround && isFree(p.x + vx, p.y, p.id, 0)) {   // 물가: 한 축씩만 가 본다
+            } else if (SurfaceAt(p.x + vx, p.y, zb) >= kMinGround && isFree(p.x + vx, p.y, p.id, 0, zb)) {   // 물가/난간: 한 축씩만 가 본다
                 p.x += vx;
-            } else if (GroundAt(p.x, p.y + vy) >= kMinGround && isFree(p.x, p.y + vy, p.id, 0)) {
+            } else if (SurfaceAt(p.x, p.y + vy, zb) >= kMinGround && isFree(p.x, p.y + vy, p.id, 0, zb)) {
                 p.y += vy;
             }
         }
@@ -431,7 +505,10 @@ void PlayerWorld::Step(double dt) {
             p.jumpH += p.jumpV * dt;
             if (p.jumpH <= 0) { p.jumpH = 0; p.jumpV = 0; }
         }
-        p.z = GroundAt(p.x, p.y) + p.jumpH;
+        {
+            const double zb = p.z - p.jumpH, s = SurfaceAt(p.x, p.y, zb);
+            p.z = (s > -50 ? s : zb) + p.jumpH;
+        }
     }
 }
 

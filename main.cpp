@@ -1160,6 +1160,11 @@ public:
             game_->World().ParseObstacles(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err);
         }
         b.clear();
+        if (simul::ReadAllBytes(dir + "/villagers/layout.txt", &b, &err) && !b.empty()) {   // 여러 층 건물 (바닥판/계단/벽)
+            if (!game_->World().ParseLayout(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err))
+                logError(QString::fromUtf8("layout.txt: %1").arg(simulqt::ToQ(err)));
+        }
+        b.clear();
         if (simul::ReadAllBytes(dir + "/villagers/portals.txt", &b, &err) && !b.empty()) {   // 건물 내부 (B 키로 들어가고 나온다)
             if (!game_->World().ParsePortals(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err))
                 logError(QString::fromUtf8("portals.txt: %1").arg(simulqt::ToQ(err)));
@@ -1167,7 +1172,7 @@ public:
         b.clear();
         if (!simul::ReadAllBytes(dir + "/ground.txt", &b, &err) || b.empty() ||
             !game_->World().LoadGround(simul::String(reinterpret_cast<const char*>(&b[0]), b.size()), &err)) {
-            logError(QString::fromUtf8("땅 높이 표(ground.txt)를 읽을 수 없습니다: %1  (node tools/make_ground.js)").arg(simulqt::ToQ(err)));
+            logError(QString::fromUtf8("땅 높이 표(ground.txt)를 읽을 수 없습니다: %1  (node tools/make_factory_map.js)").arg(simulqt::ToQ(err)));
             delete game_;
             game_ = nullptr;
             return;
@@ -2153,7 +2158,7 @@ bool FindVillage(Options* o) {
     dirs << QCoreApplication::applicationDirPath() + "/Data" << QCoreApplication::applicationDirPath() + "/../Data";
     for (int i = 0; i < dirs.size(); i++) {
         const QDir obj(QDir(dirs[i]).filePath("Object"));
-        const QString map = obj.filePath("merchen_village.glb"), wp = obj.filePath("villagers/waypoints.txt");
+        const QString map = obj.filePath("factory_map.glb"), wp = obj.filePath("villagers/waypoints.txt");
         if (!QFileInfo(map).isFile() || !QFileInfo(wp).isFile()) continue;
         simul::Array<unsigned char> bytes;
         simul::String err;

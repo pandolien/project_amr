@@ -48,7 +48,8 @@ function fileFor(url) {
   try { u = decodeURIComponent(url.split('?')[0]); } catch (e) { return null; }
   if (u === '/') u = '/index.html';
   if (u.startsWith('/three/')) return resolveUnder(THREE, u.slice(7));
-  if (u === '/assets/merchen_village.glb') return path.join(DATA, 'merchen_village.glb');
+  if (u === '/assets/factory_map.glb') return path.join(DATA, 'factory_map.glb');
+  if (u === '/assets/layout.txt') return path.join(DATA, 'villagers', 'layout.txt');
   if (u === '/assets/portals.txt') return path.join(DATA, 'villagers', 'portals.txt');
   const m = /^\/assets\/(villager_[1-4]\.glb)$/.exec(u);
   if (m) return path.join(DATA, 'villagers', m[1]);

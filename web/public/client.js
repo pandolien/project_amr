@@ -1,4 +1,4 @@
-// 마을 웹 클라이언트: 내 캐릭터를 뒤에서 따라가는 3인칭으로 걷고, 다른 접속자는 주민 모델로 보인다.
+// 공장/사무동 웹 클라이언트: 내 캐릭터를 뒤에서 따라가는 3인칭으로 걷고, 다른 접속자는 주민 모델로 보인다.
 // 위치/충돌은 서버(village_server)가 정한다. 여기서는 입력을 보내고, 받은 위치를 부드럽게 이어서 그린다.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -29,7 +29,44 @@ window.addEventListener('resize', () => {
 const loader = new GLTFLoader();
 function load(url) { return new Promise((res, rej) => loader.load(url, res, undefined, rej)); }
 const villagerTemplates = [];
-const mapReady = load('/assets/merchen_village.glb').then((g) => { scene.add(g.scene); setupLamps(g.scene); }).catch((e) => console.warn('마을 지도를 못 읽었습니다', e));
+let mapRoot = null;
+const mapReady = load('/assets/factory_map.glb').then((g) => { mapRoot = g.scene; scene.add(g.scene); setupLamps(g.scene); }).catch((e) => console.warn('지도를 못 읽었습니다', e));
+// 여러 층 건물: layout.txt (서버와 같은 파일). 벽은 카메라가 벽 뒤로 넘어가지 않게, hide 는 내 층 위쪽을 숨기는 데 쓴다.
+const layoutWalls = [];   // { x0, y0, x1, y1, half, zmin, zmax }
+const layoutHides = [];   // { name, x0, y0, x1, y1, zlim }
+const layoutReady = fetch('/assets/layout.txt').then((r) => (r.ok ? r.text() : '')).then((txt) => {
+  for (const line of txt.split('\n')) {
+    const t = line.trim().split(/\s+/), n = (i) => parseFloat(t[i]);
+    if (t[0] === 'wall') layoutWalls.push({ x0: n(1), y0: n(2), x1: n(3), y1: n(4), half: n(5) / 2, zmin: n(6), zmax: n(7) });
+    else if (t[0] === 'hide') layoutHides.push({ name: t[1], x0: n(2), y0: n(3), x1: n(4), y1: n(5), zlim: n(6) });
+  }
+}).catch((e) => console.warn('층 정보를 못 읽었습니다', e));
+function applyFloors(x, y, zb) {   // 건물 안에서는 내 층보다 위(바닥판, 지붕)를 숨긴다. 반환: 지붕 있는 곳(실내)에 있는가
+  let indoor = false;
+  for (const h of layoutHides) {
+    const inside = x >= h.x0 && x <= h.x1 && y >= h.y0 && y <= h.y1;
+    const node = mapRoot && mapRoot.getObjectByName(h.name);
+    if (node) node.visible = !(inside && zb < h.zlim);
+    if (inside && /Roof$/.test(h.name)) indoor = true;
+  }
+  return indoor;
+}
+function camBack(x, y, zb, dx, dy, want) {   // (x, y) 에서 (dx, dy) 방향으로 want m 뒤에 카메라를 두되, 벽(내 층에서 막는 것)을 만나면 그 앞에서 멈춘다
+  const act = layoutWalls.filter((w) => zb >= w.zmin - 0.35 && zb < w.zmax - 0.35 && w.half <= 0.3 && w.zmax - w.zmin > 1.5);   // 난간과 가구, 선반처럼 낮거나 두꺼운 것은 카메라를 막지 않는다
+  let s = 0.5;
+  for (; s <= want; s += 0.15) {
+    const px = x + dx * s, py = y + dy * s;
+    let hit = false;
+    for (const w of act) {
+      const ex = w.x1 - w.x0, ey = w.y1 - w.y0, l2 = ex * ex + ey * ey;
+      let t = l2 < 1e-9 ? 0 : ((px - w.x0) * ex + (py - w.y0) * ey) / l2;
+      t = Math.max(0, Math.min(1, t));
+      if (Math.hypot(px - (w.x0 + ex * t), py - (w.y0 + ey * t)) < w.half + 0.3) { hit = true; break; }
+    }
+    if (hit) return Math.max(0.5, s - 0.3);
+  }
+  return want;
+}
 const modelsReady = Promise.all([1, 2, 3, 4].map((n) => load('/assets/villager_' + n + '.glb').then((g) => { villagerTemplates[n - 1] = g.scene; }).catch(() => {})));
 
 // ---- 가로등 불 + 낮/노을/밤 ----
@@ -455,7 +492,7 @@ setInterval(() => sendInput(true), 500);   // 상태가 어긋나도 곧 맞춰�
 async function join() {
   const name = $('name').value.trim() || '손님';
   $('msg').textContent = '접속하는 중…';
-  await Promise.all([mapReady, modelsReady, roomsReady]);
+  await Promise.all([mapReady, modelsReady, roomsReady, layoutReady]);
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.onopen = () => ws.send(JSON.stringify({ type: 'join', name }));
   ws.onmessage = (ev) => {
@@ -529,17 +566,21 @@ function frame() {
   const me = players.get(myId);
   if (me) {
     updateLampLights(me.x, -me.y);
+    const indoor = applyFloors(me.x, me.y, me.z - (me.jh || 0));
+    if (indoor) roomLight.position.set(me.x, me.z + 2.4, -me.y);   // 지붕 아래: 내 머리 위에서 비춘다
+    else if (myZone < 0) roomLight.position.set(0, -100, 0);
     const fx = Math.sin(yaw), fz = Math.cos(yaw);   // 내가 보는 방향 (three 좌표)
     if (!third) {
       camera.position.set(me.x + fx * EYE_FORWARD, me.z + EYE, -me.y + fz * EYE_FORWARD);
       camera.rotation.set(pitch, yaw + Math.PI, 0, 'YXZ');
     } else {
-      const back = 3.2;
+      let back = 3.2;
       // 점프하면 캐릭터가 화면에서 위로 올라갔다 내려와야 한다 (카메라가 같이 뛰면 안 뛰는 것처럼 보인다)
       const groundZ = me.z - (me.jh || 0);   // 카메라는 점프를 따라 오르지 않고 발밑 땅 높이만 따라간다
       if (camZ === null || Math.abs(groundZ - camZ) > 5) camZ = groundZ;
       camZ += (groundZ - camZ) * (1 - Math.exp(-8 * dt));
-      camera.position.set(me.x - fx * back, camZ + 1.7 + pitch * -1.5, -me.y - fz * back);
+      back = camBack(me.x, me.y, groundZ, -fx, fz, back);   // 엔진 y = -three z: 카메라는 몸 뒤(-fx, +fz 방향이 엔진 좌표의 뒤쪽)
+      camera.position.set(me.x - fx * back, camZ + 1.7 + pitch * -1.5 + (3.2 - back) * 0.45, -me.y - fz * back);   // 좁은 곳에서는 카메라가 가까워지는 만큼 높이 올라가 내려다본다
       if (myZone >= 0) {   // 방 안에서는 카메라가 벽/천장을 뚫지 않게
         const r = rooms[myZone];
         camera.position.x = Math.max(r.cx - r.hw + 0.3, Math.min(r.cx + r.hw - 0.3, camera.position.x));
@@ -548,9 +589,9 @@ function frame() {
       }
       camera.lookAt(me.x, camZ + 0.7, -me.y);
     }
-  } else {   // 접속 전: 마을을 천천히 돈다
+  } else {   // 접속 전: 부지를 천천히 돈다
     const t = performance.now() / 20000;
-    camera.position.set(Math.cos(t) * 70, 38, Math.sin(t) * 70);
+    camera.position.set(Math.cos(t) * 62, 40, Math.sin(t) * 62 - 6);
     camera.lookAt(0, 0, 0);
   }
   renderer.render(scene, camera);

@@ -52,6 +52,15 @@ struct Room {
     Room() : outX(0), outY(0), outYaw(0), cx(0), cy(0), hw(0), hd(0), ceil(0), floorZ(1) {}
 };
 
+// 여러 층 건물: 땅 위에 겹쳐 있는 걸을 수 있는 면(바닥판, 경사/계단)과 층마다 다른 벽. layout.txt (map 생성기가 내보낸다)
+//   slab x0 y0 x1 y1 z               바닥판: 이 직사각형 안에서 높이 z 로 걸을 수 있다
+//   ramp x0 y0 x1 y1 z0 z1 x|y       경사/계단: 직사각형 안에서 x(또는 y) 가 커질수록 높이가 z0 에서 z1 으로 바뀐다
+//   spawn x y                        처음 서는 자리
+//   wall x0 y0 x1 y1 두께 zmin zmax  벽: 선분. 발 높이가 [zmin-0.35, zmax-0.35) 일 때만 막는다 (층마다 다른 벽이 막도록)
+struct Slab { double x0, y0, x1, y1, z; };
+struct Ramp { double x0, y0, x1, y1, z0, z1; bool alongX; };
+struct Wall { double x0, y0, x1, y1, half, zmin, zmax; };
+
 class PlayerWorld {
 public:
     static const int kMaxHp = 100;        // 체력
@@ -72,6 +81,10 @@ public:
 
     bool LoadGround(const String& text, String* error);            // tools/make_ground.js 가 만든 ground.txt
     bool ParseObstacles(const String& text, String* error);        // obstacles.txt: "x y 반지름" 줄들
+    bool ParseLayout(const String& text, String* error);           // layout.txt: 바닥판/경사/벽 (여러 층 건물)
+    double SurfaceAt(double x, double y, double zBase) const;      // 발 높이 zBase 에서 걸어갈 수 있는 면의 높이 (없으면 -99). layout 이 없으면 GroundAt 과 같다
+    bool CanStand(double x, double y, double zBase) const { return isFree(x, y, -1, 0.0, zBase); }   // 그 높이에서 그 자리에 설 수 있나 (지도 검사용)
+    int WallCount() const { return static_cast<int>(walls_.size()); }
     bool ParsePortals(const String& text, String* error);          // portals.txt: 방과 가구(막히는 가구는 장애물 원이 된다)
     bool Jump(int id);                                             // 스페이스: 땅에 있을 때만 뛰어오른다
     bool Attack(int id);                                           // F 키: 앞쪽 가까운 접속자 한 명을 때린다 (같은 방/마을 안에서만). 맞혔으면 true
@@ -101,13 +114,16 @@ public:
     static String CleanText(const String& in, int maxChars);      // 채팅 글: 조절 문자 제거, 따옴표/역슬래시 치환, 글자 수 제한 (UTF-8 글자 단위)
 
 private:
-    bool isFree(double x, double y, int self, double margin) const;
+    bool isFree(double x, double y, int self, double margin, double zb = -1e9) const;
     bool findSpawn(double* x, double* y) const;
     bool teleport(Player* p, double x, double y) const;           // 그 자리 근처 빈 곳으로 옮긴다
 
     Array<Player> players_;
     Array<Circle2> obs_;
     Array<Circle2> external_;
+    Array<Slab> slabs_;
+    Array<Ramp> ramps_;
+    Array<Wall> walls_;
     Array<Room> rooms_;
     int gw_, gh_;
     double ox_, oy_, cell_;

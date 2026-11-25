@@ -58,7 +58,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (!ReadText((dir + "/ground.txt").c_str(), &text) || !world.LoadGround(text, &err)) {
-        fprintf(stderr, "땅 높이 파일을 읽을 수 없습니다: %s/ground.txt %s (node tools/make_ground.js)\n", dir.c_str(), err.c_str());
+        fprintf(stderr, "땅 높이 파일을 읽을 수 없습니다: %s/ground.txt %s (node tools/make_factory_map.js)\n", dir.c_str(), err.c_str());
+        return 1;
+    }
+    if (ReadText((dir + "/villagers/layout.txt").c_str(), &text) && !world.ParseLayout(text, &err)) {   // 여러 층 건물 (바닥판/계단/벽)
+        fprintf(stderr, "층 파일이 이상합니다: %s\n", err.c_str());
         return 1;
     }
     if (ReadText((dir + "/villagers/portals.txt").c_str(), &text) && !world.ParsePortals(text, &err)) {

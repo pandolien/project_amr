@@ -1,6 +1,6 @@
 // 주민 순찰 예제 (창 없음, Qt 필요 없음).
 //
-// 지도(merchen_village.glb)와 주민(villager_N.glb)을 올리고, waypoints.txt 의 지점을 위에서 아래로 차례로
+// 지도(factory_map.glb)와 주민(villager_N.glb)을 올리고, waypoints.txt 의 지점을 위에서 아래로 차례로
 // simul_move_to 로 걷게 한다. 길 찾기는 없다: 정해 둔 지점으로 직선으로 가고, 도착 이벤트가 오면 다음 지점으로 보낸다.
 // 마지막 지점에 닿으면 처음으로 돌아간다.
 //
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
     if (nv <= 0) { fprintf(stderr, "지점 파일을 읽지 못했습니다: %s\n", path); return 1; }
 
     simul_sim* sim = simul_create();
-    snprintf(path, sizeof(path), "%.200s/merchen_village.glb", dir);
+    snprintf(path, sizeof(path), "%.200s/factory_map.glb", dir);
     if (simul_add_model(sim, path, 0, 0, 0, 0, 0, 0) < 0) { fprintf(stderr, "지도: %s\n", simul_last_error(sim)); return 1; }
 
     for (int i = 0; i < nv; i++) {
