@@ -1,4 +1,4 @@
-// 공장/사무동 지도를 만든다. 기존 마을 지도를 대신한다 (마을은 git 기록에 남아 있다).
+// 공장/사무동 지도를 만든다 (사용자가 그린 도면 4장: 바깥, 1층, 2층, 3층 기준). 기존 마을 지도를 대신한다 (마을은 git 기록에 남아 있다).
 //   node tools/make_factory_map.js [Data/Object 폴더]
 // 만드는 것
 //   factory_map.glb          지도 모델 (노드: Site, Lanterns, WH1, WH1Roof, WH2, WH2Roof, F1, F2, F3, Roof)
@@ -141,220 +141,257 @@ function furn(node, cx, cy, sx, sy, h, z, col, solid) {
 }
 const obstacles = [];   // [x, y, r]
 
-// ---------------------------------------------------------------- 부지
-const SX0 = -32, SX1 = 32, SY0 = -24, SY1 = 24;   // 걸을 수 있는 땅
+// ---------------------------------------------------------------- 도면 -> 월드 좌표
+// 바깥 도면(1010x650): 부지 전체. 왼쪽 위 창고1, 왼쪽 아래 차고지, 오른쪽 위 창고2, 오른쪽 아래 건물, 건물 입구는 왼쪽 변 아래쪽, 그 왼쪽 차고지 쪽에 바깥 계단.
+// 위쪽이 북(+y), 오른쪽이 동(+x). 부지 90 x 56 m 를 도면 비율대로 나눈다.
+const SX0 = -45, SX1 = 45, SY0 = -28, SY1 = 28;
 const GRASS = 0x6d9a4c, ASPHALT = 0x4a4d55, CONCRETE = 0xb4b8bd, LINE = 0xe8e8d8, FENCE = 0x7d838c;
+const XD = 17.1, YW1 = 4.3, YW2 = -3.2;   // 창고1|창고2 경계 x, 창고1 아래쪽 y(차고지와 닿는 선), 창고2 아래쪽 y(건물과 닿는 선)
+// 건물 바닥 도면(1,2,3층 공통): 가로 25 m, 세로 21.5 m. nx 0..1 은 서->동, ny 0..1 은 북->남.
+const FX0 = 18, FW = 25, FY0 = -5, FHH = 21.5;
+const wx = (n) => FX0 + FW * n, wy = (n) => FY0 - FHH * n;
+const BX0 = wx(0), BX1 = wx(1), BY0 = wy(1), BY1 = wy(0);   // 남쪽 y(작다) .. 북쪽 y
+// (Z, ZR, FH 는 위에서 선언했다)
+const CW = 0x9aa3ad, IW = 0xdfe3e8, FLOORC = [0xc9ccd2, 0xb8a98f, 0xb9bec7];
+const T = 0.3;
+const level = (k) => ['F1', 'F2', 'F3'][k];
+const gp = (c, w) => [c - w / 2, c + w / 2];
+// 계단통 (세 층 도면에서 같은 자리): x 26.0..37.0, 위 칸 A(y -5..-9.41), 아래 칸 B(y -9.41..-13.78)
+const SCX0 = wx(0.32), SCX1 = wx(0.76), YA0 = FY0, YAB = wy(0.205), YB1 = wy(0.4085);
+const LANE = { AN: (YA0 + (YA0 - 2.2)) / 2, AS: YA0 - 3.3, BN: YAB - 1.1, BS: YAB - 3.3 };   // 길(레인) 가운데 y
+const DIV_A = YA0 - 2.2, DIV_B = YAB - 2.2;
+const FL0 = SCX0 + 0.5, FL1 = SCX1 - 0.5;   // 계단 경사의 x 범위
+
+
+// ---------------------------------------------------------------- 부지
 {
   const s = M('Site');
-  s.flat(SX0 - 6, SY0 - 12, SX1 + 6, SY1 + 6, 0.97, GRASS);   // 풀밭 (부지 밖까지 조금 더)
-  s.flat(-30, -22, -6, -6, 1.0, ASPHALT);                       // 차고지
-  s.flat(-3, -24, 3, -4, 1.0, CONCRETE);                        // 정문에서 들어오는 길
-  s.flat(-6, -9, 28, -5, 1.0, CONCRETE);                        // 건물 앞 길
-  s.flat(SX0 - 6, SY0 - 12, SX1 + 6, SY0, 0.98, ASPHALT);       // 정문 밖 도로
-  // 차고지 주차 칸 선
-  for (let i = 0; i <= 8; i++) s.flat(-29 + i * 3, -21.5, -28.9 + i * 3, -14, 1.01, LINE);
-  s.flat(-29, -14, -5.1, -13.9, 1.01, LINE);
-  // 울타리: 둘레, 정문(x -3..3, y -24)만 열려 있다
+  s.flat(SX0 - 8, SY0 - 14, SX1 + 8, SY1 + 6, 0.97, GRASS);                // 풀밭
+  s.flat(SX0 + 1, SY0 + 0.5, XD, YW1, 1.0, ASPHALT);                      // 차고지
+  s.flat(XD, SY0 + 0.5, SX1 - 0.5, YW2, 1.0, CONCRETE);                   // 건물 둘레 바닥
+  s.flat(SX0 - 8, SY0 - 14, SX1 + 8, SY0, 0.98, ASPHALT);                 // 정문 밖 도로
+  s.flat(-27, SY0, -15, SY0 + 6, 1.0, CONCRETE);                          // 정문에서 들어오는 길
+  for (let i = 0; i <= 12; i++) s.flat(SX0 + 2 + i * 3.6, -26.5, SX0 + 2.1 + i * 3.6, -12.5, 1.01, LINE);   // 주차 칸 선
+  s.flat(SX0 + 2, -12.5, 14, -12.4, 1.01, LINE);
   const post = (x, y) => { s.box(x - 0.08, y - 0.08, 1.0, x + 0.08, y + 0.08, 2.4, FENCE); };
   const fenceLine = (x0, y0, x1, y1) => {
     const len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(len / 3));
     for (let i = 0; i <= n; i++) post(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n);
-    if (Math.abs(y1 - y0) < 1e-9) { s.box(Math.min(x0, x1), y0 - 0.03, 1.5, Math.max(x0, x1), y0 + 0.03, 1.6, FENCE); s.box(Math.min(x0, x1), y0 - 0.03, 2.1, Math.max(x0, x1), y0 + 0.03, 2.2, FENCE); }
-    else { s.box(x0 - 0.03, Math.min(y0, y1), 1.5, x0 + 0.03, Math.max(y0, y1), 1.6, FENCE); s.box(x0 - 0.03, Math.min(y0, y1), 2.1, x0 + 0.03, Math.max(y0, y1), 2.2, FENCE); }
+    const hor = Math.abs(y1 - y0) < 1e-9;
+    [1.5, 2.1].forEach((z) => { if (hor) s.box(Math.min(x0, x1), y0 - 0.03, z, Math.max(x0, x1), y0 + 0.03, z + 0.1, FENCE); else s.box(x0 - 0.03, Math.min(y0, y1), z, x0 + 0.03, Math.max(y0, y1), z + 0.1, FENCE); });
   };
-  fenceLine(SX0, SY0, -3, SY0); fenceLine(3, SY0, SX1, SY0); fenceLine(SX0, SY1, SX1, SY1); fenceLine(SX0, SY0, SX0, SY1); fenceLine(SX1, SY0, SX1, SY1);
-  // 정문 기둥과 간판 (입구)
-  s.box(-3.4, -24.3, 1.0, -2.8, -23.7, 4.0, 0x8c929c); s.box(2.8, -24.3, 1.0, 3.4, -23.7, 4.0, 0x8c929c);
-  s.box(-3.4, -24.25, 3.5, 3.4, -23.75, 4.2, 0x2f5f8f);
-  // 경비실 (정문 오른쪽)
-  s.box(4.5, -23.2, 1.0, 7.5, -20.8, 3.4, 0xd9d3c2); s.box(4.3, -23.4, 3.4, 7.7, -20.6, 3.6, 0x555b66);
-  s.box(4.5, -23.25, 1.6, 7.5, -23.15, 2.6, 0x4f7fa8);
-  phys(4.5, -23.2, 7.5, -23.2, 0.1, -5, 99); phys(4.5, -20.8, 7.5, -20.8, 0.1, -5, 99); phys(4.5, -23.2, 4.5, -20.8, 0.1, -5, 99); phys(7.5, -23.2, 7.5, -20.8, 0.1, -5, 99);
-  // 차고지 차량: 트럭 3대, 승용차 3대
+  fenceLine(SX0, SY0, -27, SY0); fenceLine(-15, SY0, SX1, SY0); fenceLine(SX0, SY1, SX1, SY1); fenceLine(SX0, SY0, SX0, SY1); fenceLine(SX1, SY0, SX1, SY1);
+  // 정문 (남쪽 울타리의 열린 곳, x -27..-15)
+  s.box(-27.4, SY0 - 0.3, 1.0, -26.8, SY0 + 0.3, 4.0, 0x8c929c); s.box(-15.2, SY0 - 0.3, 1.0, -14.6, SY0 + 0.3, 4.0, 0x8c929c);
+  s.box(-27.4, SY0 - 0.25, 3.5, -14.6, SY0 + 0.25, 4.2, 0x2f5f8f);
+  // 경비실 (정문 옆)
+  s.box(-13.5, SY0 + 1.0, 1.0, -10.5, SY0 + 3.4, 3.4, 0xd9d3c2); s.box(-13.7, SY0 + 0.8, 3.4, -10.3, SY0 + 3.6, 3.6, 0x555b66); s.box(-13.5, SY0 + 0.95, 1.6, -10.5, SY0 + 1.05, 2.6, 0x4f7fa8);
+  [[-13.5, SY0 + 1.0, -10.5, SY0 + 1.0], [-13.5, SY0 + 3.4, -10.5, SY0 + 3.4], [-13.5, SY0 + 1.0, -13.5, SY0 + 3.4], [-10.5, SY0 + 1.0, -10.5, SY0 + 3.4]].forEach((q) => phys(q[0], q[1], q[2], q[3], 0.1, -5, 99));
+  obstacles.push([-12, SY0 + 2.2, 1.8]);
+  // 차량: 트럭 2줄(위/아래), 승용차
   const truck = (cx, cy, col) => {
     s.box(cx - 1.0, cy - 2.4, 1.35, cx + 1.0, cy + 1.2, 3.1, col); s.box(cx - 1.0, cy + 1.2, 1.35, cx + 1.0, cy + 2.4, 2.7, 0xe6e9ee); s.box(cx - 0.95, cy + 2.1, 2.0, cx + 0.95, cy + 2.4, 2.6, 0x4f7fa8);
     [[-1.05, -1.6], [1.05, -1.6], [-1.05, 1.6], [1.05, 1.6]].forEach((w) => s.box(cx + w[0] - 0.12, cy + w[1] - 0.45, 1.0, cx + w[0] + 0.12, cy + w[1] + 0.45, 1.9, 0x1d1f24));
-    phys(cx, cy - 2.4 + 1.0, cx, cy + 2.4 - 1.0, 2.0, -5, 99);
+    phys(cx, cy - 1.4, cx, cy + 1.4, 2.0, -5, 99);
+    obstacles.push([cx, cy - 1.5, 1.4], [cx, cy, 1.4], [cx, cy + 1.5, 1.4]);
   };
   const car = (cx, cy, col) => {
     s.box(cx - 0.9, cy - 2.1, 1.25, cx + 0.9, cy + 2.1, 2.0, col); s.box(cx - 0.8, cy - 1.0, 2.0, cx + 0.8, cy + 1.0, 2.7, 0x9fc6e3);
     [[-0.9, -1.3], [0.9, -1.3], [-0.9, 1.3], [0.9, 1.3]].forEach((w) => s.box(cx + w[0] - 0.1, cy + w[1] - 0.35, 1.0, cx + w[0] + 0.1, cy + w[1] + 0.35, 1.7, 0x1d1f24));
-    phys(cx, cy - 2.1 + 0.9, cx, cy + 2.1 - 0.9, 1.8, -5, 99);
+    phys(cx, cy - 0.9, cx, cy + 0.9, 1.8, -5, 99);
+    obstacles.push([cx, cy - 1.0, 1.2], [cx, cy + 1.0, 1.2]);
   };
-  truck(-27.5, -18, 0xd9822b); truck(-21.5, -18, 0x3f78b5); truck(-15.5, -18, 0xd9822b);
-  car(-12, -18, 0xc23b3b); car(-9, -18, 0xe8e8e8); car(-27.5, -9.5, 0x2f6f4a);
-  // 주차 안내 콘
-  [[-24, -12], [-18, -12], [-12, -12]].forEach((c) => { s.cone(c[0], c[1], 0.3, 1.0, 1.7, 0xff7a1a, 8); });
+  [-41.6, -34.4, -27.2, -20.0].forEach((x, i) => truck(x, -22.5, i % 2 ? 0x3f78b5 : 0xd9822b));
+  [-41.6, -34.4, -27.2].forEach((x, i) => truck(x, -4.0 + 0 * i, i % 2 ? 0xd9822b : 0x3f78b5));
+  car(-8, -22.5, 0xc23b3b); car(-4.5, -22.5, 0xe8e8e8); car(-1, -22.5, 0x2f6f4a); car(-8, -6, 0x2f6f4a); car(-4.5, -6, 0xc23b3b);
+  [[-24, -14], [-16, -14], [-8, -14], [0, -14]].forEach((c) => { s.cone(c[0], c[1], 0.3, 1.0, 1.7, 0xff7a1a, 8); });
   // 나무
-  [[-31, 22], [31, 22], [-31, -3], [31, -3], [30, -12], [-5, 22], [14, 21], [24, 19]].forEach((t) => {
+  [[-43.5, -26.5], [43.5, -26.5], [30, -27.2], [8, -27], [44, -1.5], [-43.5, 2.5]].forEach((t) => {
     s.cyl(t[0], t[1], 0.25, 1.0, 2.6, 0x7a5232, 8); s.ball(t[0], t[1], 3.6, 1.7, 0x3f7f3c); s.ball(t[0] + 0.5, t[1] + 0.3, 4.5, 1.2, 0x4a8f45);
     obstacles.push([t[0], t[1], 0.55]);
   });
   // 가로등
   const L = M('Lanterns');
-  [[-8, -22], [8, -22], [-4, -12], [0.5, 0], [-12, -3], [-31, -3], [30, -4], [30, 12], [-14, 22], [14, -3.5]].forEach((q) => {
+  [[-20, -26], [-20, -10], [-5, -14], [8, -3], [8, -20], [20, -27], [30, -3.9], [43, -3.9], [-40, 0], [17.5, 3]].forEach((q) => {
     L.cyl(q[0], q[1], 0.09, 1.0, 4.2, 0x41454d, 6); L.box(q[0] - 0.4, q[1] - 0.12, 4.15, q[0] + 0.4, q[1] + 0.12, 4.3, 0x41454d);
     obstacles.push([q[0], q[1], 0.3]);
   });
 }
 
-// ---------------------------------------------------------------- 사무동 (3층)
-const BX0 = 4, BX1 = 26, BY0 = -2, BY1 = 16;   // 건물 바깥 선
-const CW = 0x9aa3ad, IW = 0xdfe3e8, FLOORC = [0xc9ccd2, 0xb8a98f, 0xb9bec7], SLABC = 0x7f858e;
-const T = 0.3;   // 바깥벽 두께
-const level = (k) => ['F1', 'F2', 'F3'][k];
-const doorX = 8.0;   // 정문(1층 입구) x
-// ---- 바깥벽: 층마다
+// ---------------------------------------------------------------- 건물 바깥벽 (층마다)
+const doorWest = [[-23.4, -21.2]], balconyDoor = [[-25.2, -22.6]];   // 1층 입구, 2층 발코니 문 (서쪽 벽)
 for (let k = 0; k < 3; k++) {
   const n = level(k), zl = Z[k], zh = Z[k] + FH;
-  const southGaps = k === 0 ? [[doorX - 1.0, doorX + 1.0]] : (k === 1 ? [[14.2, 15.8]] : []);
-  wallGaps(n, 'x', BY0, BX0, BX1, southGaps, T, zl, zh, CW);
-  wallSeg(n, BX0, BY1, BX1, BY1, T, zl, zh, CW);
-  wallSeg(n, BX0, BY0, BX0, BY1, T, zl, zh, CW);
-  wallSeg(n, BX1, BY0, BX1, BY1, T, zl, zh, CW);
-  // 창문
-  [10.5, 13.0, 18.0, 21.0].forEach((x) => { if (!(k === 0 && Math.abs(x - doorX) < 1.5) && !(k === 1 && Math.abs(x - 15.1) < 1.5)) window_(n, 'x', BY0, x, zl + 1.0, -1); });
-  [8, 12, 16, 20, 24].forEach((x) => window_(n, 'x', BY1, x, zl + 1.0, 1));
-  [2, 6, 10, 14].forEach((y) => { window_(n, 'y', BX0, y, zl + 1.0, -1); window_(n, 'y', BX1, y, zl + 1.0, 1); });
+  wallSeg(n, BX0, BY0, BX1, BY0, T, zl, zh, CW);                                   // 남쪽
+  wallSeg(n, BX0, BY1, BX1, BY1, T, zl, zh, CW);                                   // 북쪽
+  wallGaps(n, 'y', BX0, BY0, BY1, k === 0 ? doorWest : (k === 1 ? balconyDoor : []), T, zl, zh, CW);   // 서쪽
+  wallSeg(n, BX1, BY0, BX1, BY1, T, zl, zh, CW);                                   // 동쪽
+  for (let i = 0; i < 6; i++) window_(n, 'x', BY0, 20.5 + i * 4.2, zl + 1.0, -1);
+  for (let i = 0; i < 6; i++) window_(n, 'x', BY1, 20.5 + i * 4.2, zl + 1.0, 1);
+  [-8, -11, -16].forEach((y) => window_(n, 'y', BX1, y, zl + 1.0, 1));
 }
-// ---- 바닥/천장: 1층은 땅, 2·3층은 바닥판(계단 구멍은 뚫는다), 맨 위는 지붕
-const holeS1 = [4.4, 3.0, 6.2, 8.5], holeS2 = [23.8, 6.5, 25.6, 12.0], holeS3 = [10.6, 4.5, 12.4, 10.0];
+// 바닥판: 1층은 땅, 2·3층은 바닥판 (계단 구멍을 뚫는다), 맨 위는 지붕
+const holesF2 = [], holesF3 = [];
+[LANE.AN, LANE.BN].forEach((c) => holesF2.push([FL0, c - 0.95, SCX0 + 7.4, c + 0.95]));     // 아래 계단 (2층 바닥 아래로 내려가는 쪽)
+[LANE.AS, LANE.BS].forEach((c) => holesF3.push([SCX0 + 3.6, c - 0.95, FL1, c + 0.95]));     // 위 계단
 M('F1').flat(BX0, BY0, BX1, BY1, 1.02, FLOORC[0]);
-slabHoles('F2', BX0, BY0, BX1, BY1, Z[1], 0.25, FLOORC[1], [holeS1, holeS2]);
-slabHoles('F3', BX0, BY0, BX1, BY1, Z[2], 0.25, FLOORC[2], [holeS3]);
+slabHoles('F2', BX0, BY0, BX1, BY1, Z[1], 0.25, FLOORC[1], holesF2);
+slabHoles('F3', BX0, BY0, BX1, BY1, Z[2], 0.25, FLOORC[2], holesF3);
 M('Roof').box(BX0 - 0.3, BY0 - 0.3, ZR - 0.1, BX1 + 0.3, BY1 + 0.3, ZR + 0.35, 0x59606b);
 
-// ---- 계단 (너비 1.8, 길이 8 m, 한 층 3.2 m 오른다)
-const SC1 = 0xb7bcc4, SC2 = 0xa2a8b1;
-stair('F1', 4.4, 6.2, 0.5, 8.5, Z[0], Z[1], Z[0], Z[1], SC1, SC2);       // 계단1: 1층 -> 2층 (서쪽, 남쪽에서 북쪽으로)
-stair('F1', 23.8, 25.6, 14.5, 6.5, Z[0], Z[1], Z[0], Z[1], SC1, SC2);    // 계단2: 1층 -> 2층 (동쪽, 북쪽에서 남쪽으로)
-stair('F2', 10.6, 12.4, 12.5, 4.5, Z[1], Z[2], Z[1], Z[2], SC1, SC2);    // 계단3: 2층 -> 3층
-// 건물 밖 계단: 입구 옆에서 2층 발코니로
-stair('Site', 1.6, 3.4, -12.0, -4.0, Z[0], Z[1], Z[0], Z[1], SC1, SC2);
-// 발코니 (2층 높이, 건물 앞)
-slab('F2', 1.6, -4.0, 18.6, BY0, Z[1], 0.25, 0x9d8b6a);
-rail('F2', 3.4, -4.0, 18.6, -4.0, Z[1]); rail('F2', 18.6, -4.0, 18.6, BY0, Z[1]); rail('F2', 1.6, -4.0, 1.6, BY0, Z[1]);
-// 입구 차양
-M('F1').box(doorX - 1.6, BY0 - 1.6, Z[0] + 2.7, doorX + 1.6, BY0, Z[0] + 2.85, 0x2f5f8f);
-M('F1').box(doorX - 1.5, BY0 - 1.5, Z[0] + 2.85, doorX - 1.4, BY0 - 1.4, Z[0] + 3.1, 0x2f5f8f);
+// ---------------------------------------------------------------- 계단통 (두 칸 A, B. 칸마다 아래 길: 1층 -> 2층, 위 길: 2층 -> 3층)
+const SC1 = 0xb7bcc4, SC2 = 0xa2a8b1, SW = 0x6b6f78;
+// 아래 길(북쪽 레인): 동쪽 끝(1층)에서 서쪽 끝(2층)으로 오른다. 위 길(남쪽 레인): 서쪽 끝(2층)에서 동쪽 끝(3층)으로 오른다.
+[LANE.AN, LANE.BN].forEach((c) => {
+  M('F1').stairs(FL0, c - 0.95, FL1, c + 0.95, Z[1], Z[0], false, SC1, SC2);
+  layout.ramps.push([FL0, c - 0.95, FL1, c + 0.95, Z[1], Z[0], 'x']);
+});
+[LANE.AS, LANE.BS].forEach((c) => {
+  M('F2').stairs(FL0, c - 0.95, FL1, c + 0.95, Z[1], Z[2], false, SC1, SC2);
+  layout.ramps.push([FL0, c - 0.95, FL1, c + 0.95, Z[1], Z[2], 'x']);
+});
+for (let k = 0; k < 3; k++) {
+  const n = level(k), zl = Z[k], zh = Z[k] + FH, W = SW;
+  // 서쪽 벽 (x=SCX0): 2층에서 아래 길 꼭대기가 서쪽 홀로 열린다
+  wallGaps(n, 'y', SCX0, YB1, YA0, k === 1 ? [gp(LANE.AN, 1.8), gp(LANE.BN, 1.8)] : [], 0.2, zl, zh, W);
+  // 동쪽 벽 (x=SCX1): 1층에서 아래 길 입구가 동쪽 방으로 열린다
+  wallGaps(n, 'y', SCX1, YB1, YA0, k === 0 ? [gp(LANE.AN, 1.8), gp(LANE.BN, 1.8)] : [], 0.2, zl, zh, W);
+  // 길 사이 벽: 2층은 서쪽 끝, 3층은 동쪽 끝이 터져 있어 아래 길에서 위 길로 넘어간다
+  [DIV_A, DIV_B].forEach((y) => wallGaps(n, 'x', y, SCX0, SCX1, k === 1 ? [[SCX0, SCX0 + 1.8]] : (k === 2 ? [[SCX1 - 1.8, SCX1]] : []), 0.2, zl, zh, W));
+  // A 칸과 B 칸 사이: 3층 동쪽 끝에 문 (A 의 위 길 -> B 쪽)
+  wallGaps(n, 'x', YAB, SCX0, SCX1, k === 2 ? [[SCX1 - 1.8, SCX1 - 0.2]] : [], 0.2, zl, zh, W);
+}
+// ---- 건물 안쪽 가로선 y = YB1 (계단통 아래, 방들 위): 층마다 다르다 (도면의 위쪽 칸들과 아래쪽 방들의 경계)
+// 1층: 사무실 북쪽 벽 (x 24.6..43), 동쪽 방으로 가는 문 / 2층: 서쪽 홀과 방들 / 3층: 서쪽 홀 + 계단 문
+wallGaps('F1', 'x', YB1, wx(0.2642), BX1, [gp(40, 2.0)], 0.2, Z[0], Z[0] + FH, IW);
+wallGaps('F2', 'x', YB1, BX0, BX1, [gp(21, 2.0)], 0.2, Z[1], Z[1] + FH, IW);
+wallGaps('F3', 'x', YB1, BX0, BX1, [gp(21.5, 4.0), [SCX1 - 1.8, SCX1 - 0.4]], 0.2, Z[2], Z[2] + FH, IW);
 
-// ---- 1층: 입구/로비, 사무실, 계단 x2
+// ---------------------------------------------------------------- 1층: 입구, ㄱ자 복도(홀), 사무실, 계단 2개
 {
   const n = 'F1', zl = Z[0], zh = Z[0] + FH, W = IW;
-  wallGaps(n, 'x', 3.5, 6.2, 23.8, [[14.2, 15.8]], 0.2, zl, zh, W);       // 로비 | 사무실
-  wallGaps(n, 'x', 12.6, 6.3, 23.8, [[14.2, 15.8]], 0.2, zl, zh, W);      // 사무실 | 복도
-  wallSeg(n, 6.3, 8.5, 6.3, 12.6, 0.2, zl, zh, W);                        // 서쪽 구석
-  // 로비: 안내 데스크와 소파
-  furn(n, 14.0, -0.2, 3.0, 0.8, 1.0, zl, 0x7a5a3c); furn(n, 19.5, -1.0, 3.0, 0.8, 0.5, zl, 0x3f5f8f); furn(n, 11.0, 1.8, 1.6, 0.6, 0.5, zl, 0x3f5f8f);
+  const ox = wx(0.2642);   // 사무실 서쪽 벽
+  wallGaps(n, 'y', ox, BY0, YB1, [gp(wy(0.60), 2.0), gp(wy(0.85), 2.0)], 0.2, zl, zh, W);
+  // 입구 칸 (서쪽 벽 아래쪽, 도면의 작은 칸): 위/아래 벽만 있고 동쪽은 홀로 열려 있다
+  const vx = wx(0.0776);
+  wallSeg(n, BX0, wy(0.628), vx, wy(0.628), 0.2, zl, zh, W); wallSeg(n, BX0, wy(0.890), vx, wy(0.890), 0.2, zl, zh, W);
+  M(n).box(BX0 - 1.6, -23.6, zl + 2.7, BX0, -21.0, zl + 2.85, 0x2f5f8f);   // 입구 차양
   // 사무실: 책상 두 줄
-  [8.5, 11.5, 18.5, 21.5].forEach((x) => [6.2, 9.4].forEach((y) => { furn(n, x, y, 1.8, 0.9, 0.75, zl, 0xc2a57a); M(n).box(x - 0.25, y - 0.9, zl, x + 0.25, y - 0.5, zl + 0.5, 0x383d46); }));
-  furn(n, 23.0, 4.4, 0.8, 0.8, 1.6, zl, 0x8c929c); furn(n, 6.9, 11.8, 0.8, 0.8, 1.6, zl, 0x8c929c);
-  // 복도: 화분과 의자
-  furn(n, 19.0, 14.6, 0.9, 0.9, 0.9, zl, 0x4f7f3f); furn(n, 9.0, 14.8, 2.0, 0.6, 0.45, zl, 0x3f5f8f);
+  [28, 32, 36, 40].forEach((x) => [-17.3, -21.0, -24.5].forEach((y) => { furn(n, x, y, 1.8, 0.9, 0.75, zl, 0xc2a57a); M(n).box(x - 0.25, y - 0.9, zl, x + 0.25, y - 0.5, zl + 0.5, 0x383d46); }));
+  furn(n, 42.3, -15.2, 0.8, 0.8, 1.6, zl, 0x8c929c); furn(n, 25.5, -26.0, 0.8, 0.8, 1.6, zl, 0x8c929c);
+  // 홀: 안내 데스크, 소파
+  furn(n, 21.0, -9.5, 3.0, 0.8, 1.0, zl, 0x7a5a3c); furn(n, 22.0, -17.0, 0.7, 2.6, 0.5, zl, 0x3f5f8f); furn(n, 21.0, -5.8, 2.0, 0.6, 0.45, zl, 0x3f5f8f);
+  // 동쪽 방(계단 앞 홀): 의자
+  furn(n, 41.5, -11.0, 1.6, 0.6, 0.45, zl, 0x3f5f8f);
 }
-// ---- 2층: 사무실, 방1, 방2, 화장실, 발코니, 회의실, 계단
+// ---------------------------------------------------------------- 2층: 사무실, 방1, 방2, 화장실, 발코니, 회의실, 계단
 {
   const n = 'F2', zl = Z[1], zh = Z[1] + FH, W = IW;
-  wallGaps(n, 'x', 12.6, 6.3, 23.8, [[7.4, 9.0], [10.6, 12.4], [14.2, 15.8], [20.2, 21.8]], 0.2, zl, zh, W);   // 복도 쪽 벽
-  wallSeg(n, 6.3, 7.9, 6.3, 12.6, 0.2, zl, zh, W);                        // 계단1 출구 옆
-  wallSeg(n, 6.3, 3.0, 6.3, 7.9, 0.1, zl, zl + 1.1, 0x5a5f6b);              // 계단1 구멍 난간 (동쪽)
-  wallSeg(n, 4.3, 3.0, 6.3, 3.0, 0.1, zl, zl + 1.1, 0x5a5f6b);              // 계단1 구멍 난간 (남쪽)
-  wallSeg(n, 6.3, 7.9, 10.5, 7.9, 0.2, zl, zh, W);                        // 방1 | 화장실
-  wallGaps(n, 'y', 10.5, -1.7, 4.5, [[0.8, 2.4]], 0.2, zl, zh, W);       // 방1 | 현관홀
-  wallGaps(n, 'y', 12.5, -1.7, 4.5, [[0.8, 2.4]], 0.2, zl, zh, W);       // 현관홀 | 사무실
-  wallSeg(n, 10.6, 4.5, 12.4, 4.5, 0.2, zl, zh, W);                       // (계단3 위 끝 막이가 이미 있다)
-  wallGaps(n, 'y', 18.9, -1.7, 12.6, [[0.8, 2.4], [7.8, 9.4]], 0.2, zl, zh, W);   // 사무실 | 회의실, 방2
-  wallGaps(n, 'x', 6.3, 19.0, 23.7, [[20.2, 21.8]], 0.2, zl, zh, W);      // 회의실 | 방2
-  wallGaps(n, 'y', 23.7, -1.7, 12.6, [[1.8, 3.4]], 0.2, zl, zh, W);       // 회의실/방2 | 계단2 쪽
-  wallSeg(n, 23.8, 12.0, 25.6, 12.0, 0.1, zl, zl + 1.1, 0x5a5f6b);          // 계단2 구멍 난간 (북쪽)
-  // 사무실(2층): 책상, 칸막이
-  [14.0, 17.0].forEach((x) => [2.0, 5.5, 9.0].forEach((y) => { furn(n, x, y, 1.6, 0.9, 0.75, zl, 0xc2a57a); }));
-  // 방1: 침대와 서랍, 방2: 소파와 탁자
-  furn(n, 8.8, 0.2, 1.2, 2.0, 0.5, zl, 0x6f8fb0); furn(n, 7.6, 5.8, 1.5, 0.6, 1.4, zl, 0x8a5a3c);
-  furn(n, 21.0, 11.0, 2.4, 0.9, 0.5, zl, 0x8b4f3f); furn(n, 21.0, 8.8, 1.2, 0.8, 0.45, zl, 0x8a5a3c);
-  // 회의실: 긴 탁자와 의자
-  furn(n, 21.2, 1.5, 3.4, 1.4, 0.75, zl, 0x7a5a3c);
-  [19.9, 21.2, 22.5].forEach((x) => { M(n).box(x - 0.22, 0.1, zl, x + 0.22, 0.5, zl + 0.5, 0x383d46); M(n).box(x - 0.22, 2.5, zl, x + 0.22, 2.9, zl + 0.5, 0x383d46); });
-  // 화장실: 칸막이와 세면대
-  [9.2].forEach((x) => { furn(n, x, 9.4, 0.1, 2.2, 1.8, zl, 0x9fc0d8); M(n).box(7.0, 11.8, zl, 7.6, 12.3, zl + 0.45, 0xf2f2f2); M(n).box(8.0, 11.8, zl, 8.6, 12.3, zl + 0.45, 0xf2f2f2); });
-  furn(n, 6.9, 9.6, 0.5, 1.6, 0.85, zl, 0xf2f2f2);
-  // 복도
-  furn(n, 20.0, 14.8, 1.6, 0.7, 0.5, zl, 0x3f5f8f);
-  // 발코니: 의자와 탁자
-  furn(n, 10.0, -3.0, 0.8, 0.8, 0.7, zl, 0x8a5a3c); furn(n, 12.5, -3.0, 0.8, 0.8, 0.7, zl, 0x8a5a3c);
+  const yS1 = wy(0.5871), yS2 = wy(0.5124), yBal = wy(0.6998), yMeet = wy(0.6559);
+  const x1a = wx(0.2251), x1b = wx(0.6197), x2b = SCX1, xBal = wx(0.2263), xMeet = wx(0.6991);
+  // 방1
+  wallSeg(n, x1a, YB1, x1a, yS1, 0.2, zl, zh, W); wallSeg(n, x1b, YB1, x1b, yS1, 0.2, zl, zh, W); wallGaps(n, 'x', yS1, x1a, x1b, [gp(28.6, 1.8)], 0.2, zl, zh, W);
+  // 방2 (작은 방)
+  wallSeg(n, x2b, YB1, x2b, yS2, 0.2, zl, zh, W); wallGaps(n, 'x', yS2, x1b, x2b, [gp(35.2, 1.8)], 0.2, zl, zh, W);
+  // 화장실
+  wallSeg(n, x2b, yS2 > yS1 ? YB1 : YB1, x2b, yS1, 0.2, zl, zh, W); wallGaps(n, 'x', yS1, x2b, BX1, [gp(40.2, 1.8)], 0.2, zl, zh, W);
+  // 발코니 (서쪽 바깥 계단에서 들어온다)
+  wallGaps(n, 'y', xBal, BY0, yBal, [gp(-23.3, 2.0)], 0.2, zl, zh, W); wallGaps(n, 'x', yBal, BX0, xBal, [gp(20.8, 2.0)], 0.2, zl, zh, W);
+  // 회의실
+  wallGaps(n, 'y', xMeet, BY0, yMeet, [gp(-22.8, 2.0)], 0.2, zl, zh, W); wallGaps(n, 'x', yMeet, xMeet, BX1, [gp(39.2, 2.0)], 0.2, zl, zh, W);
+  // 가구
+  furn(n, 30.5, -15.4, 1.8, 0.8, 0.75, zl, 0xc2a57a); furn(n, 26.0, -15.4, 0.7, 1.6, 1.6, zl, 0x8a5a3c);   // 방1
+  furn(n, 40.0, -15.4, 0.1, 1.0, 1.8, zl, 0x9fc0d8); M(n).box(38.0, -14.1, zl, 38.6, -14.6, zl + 0.45, 0xf2f2f2);   // 화장실
+  [26.5, 30.5, 34.0].forEach((x) => [-20.5, -24.5].forEach((y) => furn(n, x, y, 1.6, 0.9, 0.75, zl, 0xc2a57a)));    // 사무실 책상
+  furn(n, 39.2, -23.5, 4.4, 1.6, 0.75, zl, 0x7a5a3c);                                                              // 회의실 탁자
+  [37.4, 39.2, 41.0].forEach((x) => { M(n).box(x - 0.22, -21.6, zl, x + 0.22, -21.2, zl + 0.5, 0x383d46); M(n).box(x - 0.22, -25.6, zl, x + 0.22, -25.2, zl + 0.5, 0x383d46); });
+  furn(n, 20.0, -24.8, 0.8, 0.8, 0.7, zl, 0x8a5a3c);                                                               // 발코니 탁자
+  furn(n, 20.8, -11.0, 1.8, 0.7, 0.45, zl, 0x3f5f8f);                                                              // 서쪽 홀 의자
+  // 바깥 계단에서 이어지는 문턱 난간은 아래 '바깥 계단' 에서
 }
-// ---- 3층: 회의실1, 방2, 화장실, 창고, 사장실, 계단
+// ---------------------------------------------------------------- 3층: 회의실1, 방2, 화장실, 창고, 사장실, 계단
 {
   const n = 'F3', zl = Z[2], zh = Z[2] + FH, W = IW;
-  wallGaps(n, 'y', 10.5, -1.7, 15.7, [[1.4, 3.0], [10.4, 12.0], [12.6, 14.2]], 0.2, zl, zh, W);   // 사장실/화장실/창고 | 중앙 통로
-  wallGaps(n, 'y', 12.5, -1.7, 15.7, [[1.4, 3.0], [12.6, 14.2]], 0.2, zl, zh, W);                 // 중앙 통로 | 회의실1/방2
-  wallSeg(n, 10.6, 10.0, 12.4, 10.0, 0.1, zl, zl + 1.1, 0x5a5f6b);                               // 계단3 구멍 난간 (북쪽)
-  wallSeg(n, 4.3, 6.9, 10.4, 6.9, 0.2, zl, zh, W);                                              // 사장실 | 화장실
-  wallGaps(n, 'x', 6.9, 12.6, 25.7, [[17.8, 19.4]], 0.2, zl, zh, W);                              // 회의실1 | 방2
-  wallSeg(n, 4.3, 12.1, 10.4, 12.1, 0.2, zl, zh, W);                                            // 화장실 | 창고
-  // 사장실: 큰 책상, 소파, 책장
-  furn('F3', 7.0, 4.6, 2.6, 1.1, 0.8, zl, 0x5a3b26); M('F3').box(6.5, 3.4, zl, 7.5, 3.9, zl + 0.55, 0x2b2e35);
-  furn('F3', 5.2, 0.4, 0.8, 2.2, 0.5, zl, 0x2f4f6f); furn('F3', 9.8, -0.2, 0.5, 2.0, 2.0, zl, 0x6b4a30);
-  // 회의실1: 큰 탁자와 의자, 화면
-  furn('F3', 19.0, 2.2, 5.2, 1.6, 0.75, zl, 0x7a5a3c);
-  [16.8, 18.2, 19.6, 21.0].forEach((x) => { M('F3').box(x - 0.22, 0.7, zl, x + 0.22, 1.1, zl + 0.5, 0x383d46); M('F3').box(x - 0.22, 3.3, zl, x + 0.22, 3.7, zl + 0.5, 0x383d46); });
-  M('F3').box(23.5, 1.2, zl + 0.9, 25.6, 3.4, zl + 2.2, 0x1d2430);
-  // 방2: 작업 책상
-  furn('F3', 15.0, 9.4, 1.8, 0.9, 0.75, zl, 0xc2a57a); furn('F3', 19.0, 9.4, 1.8, 0.9, 0.75, zl, 0xc2a57a); furn('F3', 23.0, 9.4, 1.8, 0.9, 0.75, zl, 0xc2a57a);
-  furn('F3', 15.0, 13.4, 1.8, 0.9, 0.75, zl, 0xc2a57a); furn('F3', 19.0, 13.4, 1.8, 0.9, 0.75, zl, 0xc2a57a);
+  const yR2 = wy(0.52), yMt0 = wy(0.5988), yMt1 = wy(0.7438), yBoss = wy(0.8023);
+  const x2a = wx(0.4436), x2b = 35.0, xWc = 37.4, xMa = wx(0.3203), xMb = wx(0.7141), xSto = wx(0.2598), xBoss = wx(0.5089);
+  // 방2
+  wallSeg(n, x2a, YB1, x2a, yR2, 0.2, zl, zh, W); wallSeg(n, x2b, YB1, x2b, yR2, 0.2, zl, zh, W); wallGaps(n, 'x', yR2, x2a, x2b, [gp(32.0, 1.8)], 0.2, zl, zh, W);
   // 화장실
-  furn('F3', 9.6, 9.0, 0.1, 2.6, 1.8, zl, 0x9fc0d8); M('F3').box(5.0, 10.4, zl, 5.6, 11.0, zl + 0.45, 0xf2f2f2); M('F3').box(6.2, 10.4, zl, 6.8, 11.0, zl + 0.45, 0xf2f2f2);
-  // 창고: 선반과 상자
-  furn('F3', 5.0, 14.0, 0.6, 3.0, 2.0, zl, 0x6b4a30); furn('F3', 6.6, 14.0, 0.6, 3.0, 2.0, zl, 0x6b4a30); furn('F3', 9.4, 15.0, 1.0, 1.0, 0.9, zl, 0xb08a52);
+  wallGaps(n, 'y', xWc, YB1, yR2, [gp(wy(0.48), 1.8)], 0.2, zl, zh, W); wallSeg(n, xWc, yR2, BX1, yR2, 0.2, zl, zh, W);
+  // 회의실1
+  wallGaps(n, 'y', xMa, yMt0, yMt1, [gp(-19.4, 1.8)], 0.2, zl, zh, W); wallGaps(n, 'y', xMb, yMt0, yMt1, [gp(-19.4, 1.8)], 0.2, zl, zh, W);
+  wallSeg(n, xMa, yMt0, xMb, yMt0, 0.2, zl, zh, W); wallSeg(n, xMa, yMt1, xMb, yMt1, 0.2, zl, zh, W);
+  // 창고, 사장실
+  wallGaps(n, 'x', yBoss, BX0, xSto, [gp(21.2, 1.8)], 0.2, zl, zh, W); wallSeg(n, xSto, yBoss, xSto, BY0, 0.2, zl, zh, W);
+  wallSeg(n, xSto, yBoss, xBoss, yBoss, 0.2, zl, zh, W); wallGaps(n, 'y', xBoss, yBoss, BY0, [gp(-24.4, 1.8)], 0.2, zl, zh, W);
+  // 가구
+  furn(n, 34.0, -15.5, 1.8, 0.8, 0.75, zl, 0xc2a57a); furn(n, 30.2, -15.5, 1.8, 0.8, 0.75, zl, 0xc2a57a);                 // 방2
+  M(n).box(38.0, -14.2, zl, 38.6, -14.8, zl + 0.45, 0xf2f2f2); M(n).box(38.0, -15.6, zl, 38.6, -16.2, zl + 0.45, 0xf2f2f2); // 화장실
+  furn(n, 30.9, -19.4, 4.8, 1.2, 0.75, zl, 0x7a5a3c);                                                                      // 회의실1 탁자
+  [28.4, 29.9, 31.4, 32.9].forEach((x) => { M(n).box(x - 0.22, -18.3, zl, x + 0.22, -17.95, zl + 0.5, 0x383d46); M(n).box(x - 0.22, -20.85, zl, x + 0.22, -20.5, zl + 0.5, 0x383d46); });
+  furn(n, 27.5, -25.4, 2.6, 1.0, 0.8, zl, 0x5a3b26);                                                                       // 사장실 책상
+  furn(n, 29.8, -23.2, 0.5, 2.0, 1.9, zl, 0x6b4a30);
+  furn(n, 20.0, -25.2, 0.6, 2.0, 2.0, zl, 0x6b4a30); furn(n, 22.8, -25.2, 0.6, 2.0, 2.0, zl, 0x6b4a30);                   // 창고 선반
+  furn(n, 21.0, -10.0, 4.0, 1.0, 0.45, zl, 0x2f4f6f);                                                                      // 서쪽 홀 소파
+  furn(n, 40.0, -30 + 20, 0.01, 0.01, 0.01, zl, 0xffffff, false);
 }
-// 층 가림: 건물 안에 있을 때 내 층보다 위는 숨긴다 (카메라가 천장에 가리지 않게)
+// 건물 안: 내 층보다 위는 숨긴다 (카메라가 천장에 가리지 않게)
 layout.hides.push(['F2', BX0, BY0, BX1, BY1, Z[1] - 0.35], ['F3', BX0, BY0, BX1, BY1, Z[2] - 0.35], ['Roof', BX0, BY0, BX1, BY1, ZR - 0.35]);
 
-// ---------------------------------------------------------------- 창고 1, 2 (3층 높이, 안으로 들어간다)
-function warehouse(name, x0, y0, x1, y1, doorA, doorB, roofCol) {
-  const wh = name, top = Z[0] + 10.6;   // 3층(10.6 m) 높이
-  const col = 0x7d8794, T2 = 0.4;
-  wallGaps(wh, 'x', y0, x0, x1, [[doorA, doorB]], T2, Z[0], top, col);     // 남쪽: 문 (너비 3 m)
-  wallSeg(wh, x0, y1, x1, y1, T2, Z[0], top, col);
-  wallSeg(wh, x0, y0, x0, y1, T2, Z[0], top, col);
-  wallSeg(wh, x1, y0, x1, y1, T2, Z[0], top, col);
-  M(wh).flat(x0, y0, x1, y1, 1.02, 0x8f949c);
-  // 높은 창 (눈에 보이기만 한다)
-  for (let x = x0 + 2.5; x < x1 - 1.5; x += 3.5) { M(wh).box(x - 0.8, y1 + 0.2, top - 3.0, x + 0.8, y1 + 0.25, top - 1.6, 0x4f7fa8); }
-  // 노란 문틀 표시
-  M(wh).box(doorA - 0.2, y0 - 0.25, Z[0], doorA, y0 + 0.25, Z[0] + 3.6, 0xe0b440); M(wh).box(doorB, y0 - 0.25, Z[0], doorB + 0.2, y0 + 0.25, Z[0] + 3.6, 0xe0b440);
-  // 지붕은 안에 들어가면 숨긴다
-  M(wh + 'Roof').box(x0 - 0.4, y0 - 0.4, top, x1 + 0.4, y1 + 0.4, top + 0.45, roofCol);
-  layout.hides.push([wh + 'Roof', x0, y0, x1, y1, 99]);
+// ---------------------------------------------------------------- 바깥 계단 (입구 옆, 차고지 쪽): 2층 발코니로 올라간다
+{
+  const ex0 = 13.6, ex1 = 15.4;
+  stair('Site', ex0, ex1, -13.0, -21.0, Z[0], Z[1], Z[0], Z[1], SC1, SC2);
+  slab('Site', 11.8, -26.4, BX0 - 0.15, -21.0, Z[1], 0.25, 0x9d8b6a);   // 꼭대기 층계참 (발코니 문까지 이어진다)
+  [[11.9, -26.3], [17.9, -26.3], [11.9, -21.2]].forEach((q) => M('Site').box(q[0] - 0.12, q[1] - 0.12, 1.0, q[0] + 0.12, q[1] + 0.12, Z[1] - 0.25, 0x6b6f78));   // 받침 기둥
+  rail('Site', 11.8, -26.4, 11.8, -21.0, Z[1]); rail('Site', 11.8, -26.4, BX0 - 0.2, -26.4, Z[1]); rail('Site', 11.8, -21.0, ex0, -21.0, Z[1]); rail('Site', ex1, -21.0, BX0 - 0.15, -21.0, Z[1]);
 }
-function rack(wh, xa, xb, y, z0) {   // 선반: 기둥 + 3단 + 상자. 막는 것은 선분
-  const m = M(wh);
-  for (let i = 0; i <= Math.round((xb - xa) / 1.5); i++) { const x = xa + (xb - xa) * i / Math.max(1, Math.round((xb - xa) / 1.5)); m.box(x - 0.05, y - 0.45, z0, x + 0.05, y + 0.45, z0 + 5.4, 0x2f5f8f); }
+
+// ---------------------------------------------------------------- 창고 1, 2 (3층 높이, 안으로 들어간다)
+function warehouse(name, x0, y0, x1, y1, doors, col) {   // doors: 남쪽 벽의 문 [[a,b],...]
+  const top = Z[0] + 10.6, T2 = 0.4;
+  wallGaps(name, 'x', y0, x0, x1, doors.south || [], T2, Z[0], top, col);
+  wallSeg(name, x0, y1, x1, y1, T2, Z[0], top, col);
+  wallGaps(name, 'y', x0, y0, y1, doors.west || [], T2, Z[0], top, col);
+  wallGaps(name, 'y', x1, y0, y1, doors.east || [], T2, Z[0], top, col);
+  M(name).flat(x0, y0, x1, y1, 1.02, 0x8f949c);
+  for (let x = x0 + 3; x < x1 - 2; x += 4) M(name).box(x - 0.8, y1 + 0.2, top - 3.0, x + 0.8, y1 + 0.25, top - 1.6, 0x4f7fa8);   // 높은 창
+  (doors.south || []).forEach((d) => { M(name).box(d[0] - 0.2, y0 - 0.25, Z[0], d[0], y0 + 0.25, Z[0] + 4.2, 0xe0b440); M(name).box(d[1], y0 - 0.25, Z[0], d[1] + 0.2, y0 + 0.25, Z[0] + 4.2, 0xe0b440); });
+  M(name + 'Roof').box(x0 - 0.4, y0 - 0.4, top, x1 + 0.4, y1 + 0.4, top + 0.45, 0x59606b);
+  layout.hides.push([name + 'Roof', x0, y0, x1, y1, 99]);
+}
+function rack(wh, xa, xb, y, z0) {
+  const m = M(wh), nseg = Math.max(1, Math.round((xb - xa) / 1.5));
+  for (let i = 0; i <= nseg; i++) { const x = xa + (xb - xa) * i / nseg; m.box(x - 0.05, y - 0.45, z0, x + 0.05, y + 0.45, z0 + 5.4, 0x2f5f8f); }
+  const pick = (v) => ((v % 3) + 3) % 3;
   for (let lv = 0; lv < 3; lv++) {
     const zz = z0 + 0.3 + lv * 1.7;
     m.box(xa, y - 0.45, zz, xb, y + 0.45, zz + 0.08, 0xe0792a);
-    for (let x = xa + 0.2; x + 0.9 < xb; x += 1.3) m.box(x, y - 0.35, zz + 0.08, x + 0.9, y + 0.35, zz + 0.08 + 0.4 + 0.5 * ((((Math.round(x * 7) + lv) % 3) + 3) % 3) / 2, [0xb08a52, 0xc79c63, 0x9a7442][(((Math.round(x * 3) + lv) % 3) + 3) % 3]);
+    for (let x = xa + 0.2; x + 0.9 < xb; x += 1.3) m.box(x, y - 0.35, zz + 0.08, x + 0.9, y + 0.35, zz + 0.08 + 0.4 + 0.25 * pick(Math.round(x * 7) + lv), [0xb08a52, 0xc79c63, 0x9a7442][pick(Math.round(x * 3) + lv)]);
   }
   phys(xa, y, xb, y, 0.9, -5, 99);
 }
-function crate(wh, cx, cy, s, h, col) { furn(wh, cx, cy, s, s, h, 1.0, col, true); }
-function forklift(wh, cx, cy) {   // 지게차
+function crate(wh, cx, cy, sz, h, col) { furn(wh, cx, cy, sz, sz, h, 1.0, col, true); }
+function forklift(wh, cx, cy) {
   const m = M(wh);
   m.box(cx - 0.55, cy - 0.9, 1.25, cx + 0.55, cy + 0.9, 1.9, 0xe0b440); m.box(cx - 0.5, cy - 0.9, 1.9, cx + 0.5, cy - 0.1, 3.0, 0x2b2e35);
   m.box(cx - 0.5, cy + 0.9, 1.1, cx + 0.5, cy + 2.0, 1.2, 0x555b66); m.box(cx - 0.55, cy + 0.85, 1.1, cx - 0.45, cy + 0.95, 3.2, 0x555b66); m.box(cx + 0.45, cy + 0.85, 1.1, cx + 0.55, cy + 0.95, 3.2, 0x555b66);
   [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.5], [0.6, 0.5]].forEach((w) => m.box(cx + w[0] - 0.1, cy + w[1] - 0.3, 1.0, cx + w[0] + 0.1, cy + w[1] + 0.3, 1.6, 0x1d1f24));
   phys(cx, cy - 0.5, cx, cy + 1.7, 1.2, -5, 99);
 }
-warehouse('WH1', -29, 4, -15, 20, -23.5, -20.5, 0x59606b);
-for (const y of [9.0, 12.5, 16.0]) { rack('WH1', -27.6, -24.2, y, 1.0); rack('WH1', -19.8, -16.4, y, 1.0); }
-crate('WH1', -26.8, 6.0, 1.2, 1.2, 0xb08a52); crate('WH1', -17.6, 6.0, 1.2, 1.2, 0xc79c63); crate('WH1', -17.6, 7.4, 1.2, 0.8, 0x9a7442);
-forklift('WH1', -21.6, 17.4);
-warehouse('WH2', -12, 4, 0, 20, -7.5, -4.5, 0x59606b);
-for (const y of [8.5, 11.5]) { crate('WH2', -10.2, y, 1.4, 1.4, 0xb08a52); crate('WH2', -10.2, y + 1.5, 1.4, 1.0, 0xc79c63); crate('WH2', -1.8, y, 1.4, 1.4, 0xc79c63); crate('WH2', -1.8, y + 1.5, 1.4, 2.0, 0xb08a52); }
-rack('WH2', -10.6, -7.6, 15.5, 1.0); rack('WH2', -4.4, -1.4, 15.5, 1.0);
-furn('WH2', -6.0, 18.4, 7.0, 1.8, 2.2, 1.0, 0x2f5f8f, true);   // 컨베이어/기계
-M('WH2').box(-9.0, 17.6, 3.2, -3.0, 19.2, 3.5, 0x555b66);
-forklift('WH2', -6.0, 6.8);
+// 창고1: 왼쪽 위 (x -44.2..17.1, y 4.3..27.2). 남쪽에 큰 문 둘(차고지 쪽), 동쪽 벽에 창고2 로 가는 문
+warehouse('WH1', -44.2, YW1, XD, 27.2, { south: [[-30, -26], [-8, -4]], east: [[14, 18]] }, 0x7d8794);
+[9.5, 13.5, 17.5, 21.5, 25.0].forEach((y) => { rack('WH1', -42, -33, y, 1.0); rack('WH1', -23, -11, y, 1.0); rack('WH1', -1, 11.5, y, 1.0); });
+crate('WH1', -40.5, 6.4, 1.2, 1.2, 0xb08a52); crate('WH1', -38.9, 6.4, 1.2, 1.6, 0xc79c63); crate('WH1', 14.5, 6.4, 1.4, 1.4, 0x9a7442); crate('WH1', 14.5, 8.0, 1.4, 0.9, 0xb08a52);
+forklift('WH1', -18, 6.5); forklift('WH1', 3, 6.5);
+// 창고2: 오른쪽 위 (x 17.1..44.2, y -3.2..27.2). 서쪽 벽의 문으로 창고1 과 이어진다
+warehouse('WH2', XD, YW2, 44.2, 27.2, { west: [[14, 18]] }, 0x7d8794);
+[2.5, 5.5, 8.5, 11.0].forEach((y) => { crate('WH2', 21.0, y, 1.5, 1.4, 0xb08a52); crate('WH2', 24.0, y, 1.5, 1.8, 0xc79c63); crate('WH2', 40.5, y, 1.5, 1.4, 0xc79c63); crate('WH2', 43.0, y, 1.3, 2.0, 0xb08a52); });
+[22.0, 25.0].forEach((y) => { rack('WH2', 22, 30, y, 1.0); rack('WH2', 34, 42, y, 1.0); });
+furn('WH2', 31.0, 14.5, 9.0, 1.8, 2.2, 1.0, 0x2f5f8f, true); M('WH2').box(26.5, 13.7, 3.2, 35.5, 15.3, 3.5, 0x555b66);   // 컨베이어/기계
+forklift('WH2', 27.0, 6.0);
+// 창고 입구 근처 표지
+M('Site').box(-30.2, YW1 - 0.8, 1.0, -26.2, YW1 - 0.6, 1.1, 0xe0b440); M('Site').box(-8.2, YW1 - 0.8, 1.0, -3.8, YW1 - 0.6, 1.1, 0xe0b440);
 
 // ---------------------------------------------------------------- 파일로 쓴다
 function writeGlb(file, nodeMap) {
@@ -395,7 +432,7 @@ const names = writeGlb(path.join(outDir, 'factory_map.glb'), nodes);
   fs.writeFileSync(path.join(outDir, 'ground.txt'), t);
 }
 let lay = '# 여러 층 (엔진 좌표). tools/make_factory_map.js 가 만든다.\n# slab x0 y0 x1 y1 z / ramp x0 y0 x1 y1 z0 z1 x|y / wall x0 y0 x1 y1 두께 zmin zmax / hide 노드 x0 y0 x1 y1 zlim (그 안에서 발 높이가 zlim 보다 낮으면 숨긴다)\n';
-lay += 'spawn 0 -20\n';
+lay += 'spawn 6 -18\n';
 layout.slabs.forEach((v) => { lay += 'slab ' + v.map(f2).join(' ') + '\n'; });
 layout.ramps.forEach((v) => { lay += 'ramp ' + v.slice(0, 6).map(f2).join(' ') + ' ' + v[6] + '\n'; });
 layout.walls.forEach((v) => { lay += 'wall ' + v.map(f2).join(' ') + '\n'; });
@@ -408,10 +445,10 @@ fs.writeFileSync(path.join(vdir, 'obstacles.txt'), ob);
 fs.writeFileSync(path.join(vdir, 'portals.txt'), '# 이 지도에는 B 키로 들어가는 방이 없다 (건물은 걸어서 들어간다). 방 형식은 README 참고.\n');
 // 주민 순찰: 건물 앞 마당과 차고지 앞길 (벽을 지나지 않는 직선 길)
 const wps = {
-  villager_1: [[-5, -20], [-5, -8], [2, -8], [2, -20]],
-  villager_2: [[8, -18], [26, -18], [26, -7], [8, -7]],
-  villager_3: [[-20, -11], [-9, -11], [-9, 1], [-20, 1]],
-  villager_4: [[12, -20], [12, -10], [22, -10], [22, -20]]
+  villager_1: [[-43, -14], [-12, -14], [-12, -25], [-43, -25]],
+  villager_2: [[4, -26], [4, -3], [9, -3], [9, -26]],
+  villager_3: [[-43, -13], [-10, -13]],
+  villager_4: [[-6, -12], [-6, 2], [8, 2], [8, -12]]
 };
 let w = '# 주민 이동 지점 (엔진 좌표: x y z, Z-up, 단위 m).\n# [이름] 아래 "speed" 는 m/s, 이어지는 줄이 지점이다. 위에서 아래로 차례로 직선으로 가고, 끝에 닿으면 처음으로 돌아간다.\n# 주민 모델(villager_N.glb)은 첫 지점에 놓고 시작한다. tools/make_factory_map.js 가 만든다.\n';
 Object.keys(wps).forEach((k) => { w += '\n[' + k + ']\nspeed 1.2\n'; wps[k].forEach((q) => { w += q[0].toFixed(3) + ' ' + q[1].toFixed(3) + ' 1.000\n'; }); });
