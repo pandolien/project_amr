@@ -2096,7 +2096,17 @@ private:
             const int n = 1 + ((id > 0 ? id - 1 : 0) % 4);   // 접속 순서대로 주민 모델 4종을 돌려 쓴다
             const int before = owner->viewer_->ModelCount();
             CamSave cam(owner->viewer_);   // 모델을 올리면 화면이 전체 맞춤으로 바뀌므로 보던 시점을 되돌린다
-            if (!owner->openFile(dir + QString("/villagers/villager_%1.glb").arg(n)) || owner->viewer_->ModelCount() <= before) return false;
+            // 접속자는 무기를 쥘 오른팔을 따로 올리므로, 몸에서 오른팔을 뺀 모델(_p)이 있으면 그것을 쓴다
+            QString file = dir + QString("/villagers/villager_%1_p.glb").arg(n);
+            if (!QFileInfo(file).isFile()) file = dir + QString("/villagers/villager_%1.glb").arg(n);
+            if (!owner->openFile(file) || owner->viewer_->ModelCount() <= before) return false;
+            *modelName = owner->viewer_->ModelName(owner->viewer_->ModelCount() - 1).toUtf8().constData();
+            return true;
+        }
+        bool AddPart(const simul::String& file, simul::String* modelName) override {   // 팔/무기 부품
+            const int before = owner->viewer_->ModelCount();
+            CamSave cam(owner->viewer_);
+            if (!owner->openFile(dir + "/villagers/" + QString::fromUtf8(file.c_str())) || owner->viewer_->ModelCount() <= before) return false;
             *modelName = owner->viewer_->ModelName(owner->viewer_->ModelCount() - 1).toUtf8().constData();
             return true;
         }

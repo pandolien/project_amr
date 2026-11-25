@@ -298,7 +298,7 @@ function onState(s) {
   const dp = doorPrompt(me);
   $('prompt').hidden = !dp;
   if (dp) $('prompt').textContent = dp;
-  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · B 문 앞에서 들어가기/나가기 · F/클릭 공격 · 1·2·3 무기 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
+  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · B 문 앞에서 들어가기/나가기 · Space 점프 · F/클릭 공격 · 1·2·3 무기 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
 }
 
 
@@ -406,6 +406,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && myId) { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyN' && !e.repeat) { nextTime(); return; }
   if (/^Digit[123]$/.test(e.code) && !e.repeat) { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'weapon', w: Number(e.code.slice(5)) - 1 })); return; }
+  if (e.code === 'Space' && !e.repeat) { e.preventDefault(); if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'jump' })); return; }
   if (e.code === 'KeyF' && !e.repeat) { attack(); return; }
   if (e.code === 'KeyB' && !e.repeat) { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'enter' })); return; }
   keys.add(e.code);

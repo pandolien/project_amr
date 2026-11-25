@@ -34,8 +34,12 @@ struct Player {
     double sinceHit;        // 마지막으로 맞은 뒤 지난 시간 (s). 오래 안 맞으면 천천히 회복
     double attackCd;        // 다음 공격까지 남은 시간 (s)
     int weapon;             // 0 검, 1 창, 2 도끼
+    String armModel, weaponModel;   // 데스크톱 화면에 올린 팔/무기 모델 이름 (Players 가 채운다)
+    int weaponShown;                // weaponModel 이 어느 무기인지 (-1 이면 없음)
+    double swing;                   // 휘두르는 동작이 앞으로 남은 시간 (s). 0 이면 가만히
+    double jumpH, jumpV;    // 점프: 땅에서 떠 있는 높이(m)와 위로 향하는 속도(m/s). 땅에 있으면 둘 다 0
     int atkId;              // 휘두를 때마다 하나씩 늘어난다 (받는 쪽이 새 공격인지 알아보게)
-    Player() : id(0), x(0), y(0), z(0), yaw(0), fwd(0), side(0), run(0), inYaw(0), sayLeft(0), sayId(0), hp(100), sinceHit(99), attackCd(0), weapon(0), atkId(0) {}
+    Player() : id(0), x(0), y(0), z(0), yaw(0), fwd(0), side(0), run(0), inYaw(0), sayLeft(0), sayId(0), hp(100), sinceHit(99), attackCd(0), weapon(0), weaponShown(-1), swing(0), jumpH(0), jumpV(0), atkId(0) {}
 };
 
 // 건물 내부: 문 앞(밖)에서 B 를 누르면 지도 밖에 따로 놓인 방으로 옮겨지고, 방 안 문 앞에서 B 를 누르면 도로 나온다.
@@ -51,15 +55,25 @@ struct Room {
 class PlayerWorld {
 public:
     static const int kMaxHp = 100;        // 체력
+    static const double kJumpSpeed() { return 5.0; }   // 뛰어오르는 속도 (m/s) -> 높이 0.9 m
+    static const double kGravity() { return 14.0; }    // 중력 가속도 (m/s^2)
     static const int kWeapons = 3;        // 검, 창, 도끼
     // 무기마다: 닿는 거리(m), 앞쪽 각도의 cos (작을수록 넓게 휘두른다), 피해, 다시 휘두르기까지(s)
     static void WeaponStats(int w, double* reach, double* cosCone, int* damage, double* cooldown);
+    // 휘두르는 동안 팔과 무기의 자세 (웹 화면 client.js 와 같은 식). phi: 팔이 아래(0)에서 앞(1.57)·위(3.14)로 든 각도, rx: 무기가 앞으로 기운 각도, slide: 창이 앞으로 미끄러진 거리
+    struct FighterPose { double phi, rx, slide; };
+    static FighterPose PoseOf(int weapon, double swingLeft);
+    static const double kSwingTime() { return 0.32; }
+    static const double kArm() { return 0.36; }          // 어깨에서 손까지
+    static const double kShoulderUp() { return 0.57; }   // 어깨 높이
+    static const double kShoulderSide() { return 0.17; } // 몸 오른쪽으로 어깨까지
     bool SetWeapon(int id, int w);                                 // 1/2/3 키
     PlayerWorld();
 
     bool LoadGround(const String& text, String* error);            // tools/make_ground.js 가 만든 ground.txt
     bool ParseObstacles(const String& text, String* error);        // obstacles.txt: "x y 반지름" 줄들
     bool ParsePortals(const String& text, String* error);          // portals.txt: 방과 가구(막히는 가구는 장애물 원이 된다)
+    bool Jump(int id);                                             // 스페이스: 땅에 있을 때만 뛰어오른다
     bool Attack(int id);                                           // F 키: 앞쪽 가까운 접속자 한 명을 때린다 (같은 방/마을 안에서만). 맞혔으면 true
     bool Enter(int id);                                            // B 키: 문 앞이면 들어가거나 나온다. 옮겼으면 true
     int RoomAt(double x, double y) const;                          // 이 자리가 들어 있는 방 번호 (밖이면 -1)
@@ -109,6 +123,7 @@ public:
     virtual ~PlayerSpawner() {}
     virtual bool AddModel(int id, String* modelName) = 0;          // id 에 맞는 주민 모델을 올리고 장면 이름을 돌려준다
     virtual void RemoveModel(const String& modelName) = 0;
+    virtual bool AddPart(const String& file, String* modelName) { (void)file; (void)modelName; return false; }   // 팔/무기 같은 부품 모델 (arm.glb, sword.glb, ...) 을 올린다
 };
 
 class Players : public Listener {
@@ -121,7 +136,7 @@ public:
 
     bool Join(int id, const String& name);
     void Leave(int id);
-    // 한 줄 명령: "join <id> <이름>", "leave <id>", "input <id> <앞뒤> <좌우> <달리기> <방향>", "chat <id> <글>", "enter <id>" (문 앞에서 B), "attack <id>" (F), "weapon <id> <0|1|2>" (검/창/도끼). 처리했으면 true
+    // 한 줄 명령: "join <id> <이름>", "leave <id>", "input <id> <앞뒤> <좌우> <달리기> <방향>", "chat <id> <글>", "enter <id>" (문 앞에서 B), "attack <id>" (F), "jump <id>" (스페이스), "weapon <id> <0|1|2>" (검/창/도끼). 처리했으면 true
     bool Command(const String& line);
     // 지금 모두의 상태: {"t":..,"p":[{"id":..,"n":"..","x":..,"y":..,"z":..,"yaw":..},...]} (NPC 의 id 는 -1, -2, ...)
     String StateJson(Engine& e, double time);
@@ -134,6 +149,8 @@ public:
     void OnStop(Engine& e) override;
 
 private:
+    void attachFighter(Player* p);
+    void poseFighter(Engine& e, Player* p);
     PlayerWorld world_;
     PlayerSpawner* spawner_;
     Listener* next_;

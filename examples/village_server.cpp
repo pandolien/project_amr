@@ -89,6 +89,8 @@ int main(int argc, char** argv) {
         } else if (strcmp(cmd, "chat") == 0) {
             int n = 0;
             if (sscanf(line, "%*s %d %n", &id, &n) >= 1 && n > 0) world.Say(id, line + n);
+        } else if (strcmp(cmd, "jump") == 0) {
+            if (sscanf(line, "%*s %d", &id) == 1) world.Jump(id);
         } else if (strcmp(cmd, "weapon") == 0) {
             int w = 0;
             if (sscanf(line, "%*s %d %d", &id, &w) == 2) world.SetWeapon(id, w);

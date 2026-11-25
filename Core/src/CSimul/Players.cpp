@@ -163,6 +163,7 @@ bool PlayerWorld::teleport(Player* p, double x, double y) const {
                 p->x = tx;
                 p->y = ty;
                 p->z = GroundAt(tx, ty);
+                p->jumpH = p->jumpV = 0;
                 return true;
             }
         }
@@ -176,6 +177,32 @@ void PlayerWorld::WeaponStats(int w, double* reach, double* cosCone, int* damage
         case 2: *reach = 1.5; *cosCone = 0.3; *damage = 16; *cooldown = 1.1; break;    // 도끼: 가깝고 넓게, 아프지만 느리다
         default: *reach = 1.8; *cosCone = 0.5; *damage = 10; *cooldown = 0.6; break;   // 검
     }
+}
+
+PlayerWorld::FighterPose PlayerWorld::PoseOf(int weapon, double swingLeft) {
+    FighterPose f;
+    f.phi = 1.0; f.rx = 0; f.slide = 0;
+    const double tt = swingLeft > 0 ? 1 - swingLeft / kSwingTime() : 0;
+    if (weapon == 1) {   // 창: 팔을 앞으로 뻗으며 찌른다
+        const double s = sin(kPi * tt);
+        f.phi = 1.0 + 0.5 * s;
+        f.slide = 0.55 * s;
+    } else if (tt > 0) {   // 검/도끼: 머리 위로 들었다가 앞으로 내려친다
+        if (tt < 0.4) { f.phi = 1.0 + 1.3 * (tt / 0.4); f.rx = -(f.phi - 1.0); }
+        else {
+            const double u = (tt - 0.4) / 0.6;
+            f.phi = 2.3 - 1.3 * u - 0.9 * sin(kPi * u);
+            f.rx = -(f.phi - 1.0) + (weapon == 2 ? 1.9 : 1.6) * sin(kPi * u);
+        }
+    }
+    return f;
+}
+
+bool PlayerWorld::Jump(int id) {
+    Player* p = Find(id);
+    if (!p || p->jumpH > 0 || p->jumpV > 0) return false;   // 공중에서는 다시 못 뛴다
+    p->jumpV = kJumpSpeed();
+    return true;
 }
 
 bool PlayerWorld::SetWeapon(int id, int w) {
@@ -193,6 +220,7 @@ bool PlayerWorld::Attack(int id) {
     WeaponStats(a->weapon, &reach, &cosCone, &damage, &cooldown);
     a->attackCd = cooldown;
     a->atkId++;   // 헛스윙도 휘두른 것
+    a->swing = kSwingTime();
     const double fx = sin(a->inYaw), fy = -cos(a->inYaw);
     const int zone = RoomAt(a->x, a->y);
     Player* best = NULL;
@@ -371,6 +399,7 @@ void PlayerWorld::Step(double dt) {
         Player& p = players_[i];
         p.yaw = p.inYaw;
         if (p.attackCd > 0) p.attackCd -= dt;
+        if (p.swing > 0) { p.swing -= dt; if (p.swing < 0) p.swing = 0; }
         p.sinceHit += dt;
         if (p.sinceHit > 6 && p.hp < kMaxHp) { p.hp += 5 * dt; if (p.hp > kMaxHp) p.hp = kMaxHp; }   // 6 초 안 맞으면 초당 5 씩 회복
         if (p.sayLeft > 0) { p.sayLeft -= dt; if (p.sayLeft <= 0) { p.sayLeft = 0; p.say.clear(); } }
@@ -397,7 +426,12 @@ void PlayerWorld::Step(double dt) {
                 p.y += vy;
             }
         }
-        p.z = GroundAt(p.x, p.y);
+        if (p.jumpV != 0 || p.jumpH > 0) {   // 점프: 위로 던져 올리고 중력으로 떨어진다 (이동은 공중에서도 그대로)
+            p.jumpV -= kGravity() * dt;
+            p.jumpH += p.jumpV * dt;
+            if (p.jumpH <= 0) { p.jumpH = 0; p.jumpV = 0; }
+        }
+        p.z = GroundAt(p.x, p.y) + p.jumpH;
     }
 }
 
@@ -413,7 +447,7 @@ bool Players::Join(int id, const String& name) {
         return false;
     }
     Player* p = world_.Find(id);
-    if (p) p->model = model;
+    if (p) { p->model = model; attachFighter(p); }
     return true;
 }
 
@@ -421,8 +455,11 @@ void Players::Leave(int id) {
     Player* p = world_.Find(id);
     if (!p) return;
     const String model = p->model;
+    const String arm = p->armModel, weapon = p->weaponModel;
     world_.Leave(id);
     if (spawner_ && !model.empty()) spawner_->RemoveModel(model);
+    if (spawner_ && !arm.empty()) spawner_->RemoveModel(arm);
+    if (spawner_ && !weapon.empty()) spawner_->RemoveModel(weapon);
 }
 
 bool Players::Command(const String& line) {
@@ -441,9 +478,15 @@ bool Players::Command(const String& line) {
         int fwd = 0, side = 0, run = 0;
         double yaw = 0;
         if (sscanf(line.c_str(), "%*s %d %d %d %d %lf", &id, &fwd, &side, &run, &yaw) == 5) return world_.SetInput(id, fwd, side, run, yaw);
+    } else if (strcmp(cmd, "jump") == 0) {
+        if (sscanf(line.c_str(), "%*s %d", &id) == 1) return world_.Jump(id);
     } else if (strcmp(cmd, "weapon") == 0) {
         int w = 0;
-        if (sscanf(line.c_str(), "%*s %d %d", &id, &w) == 2) return world_.SetWeapon(id, w);
+        if (sscanf(line.c_str(), "%*s %d %d", &id, &w) == 2) {
+            const bool ok = world_.SetWeapon(id, w);
+            if (ok) attachFighter(world_.Find(id));
+            return ok;
+        }
     } else if (strcmp(cmd, "attack") == 0) {
         if (sscanf(line.c_str(), "%*s %d", &id) == 1) return world_.Attack(id);
     } else if (strcmp(cmd, "enter") == 0) {
@@ -454,6 +497,36 @@ bool Players::Command(const String& line) {
 
 void Players::OnStart(Engine& e) {
     if (next_) next_->OnStart(e);
+}
+
+// 웹 화면과 같게: 몸에서 뺀 오른팔 대신, 어깨에 붙은 팔과 손에 쥔 무기를 따로 올려 매 틱 자세를 준다.
+// 모델은 GLB 좌표(앞 +Z, 위 +Y)로 만들어 엔진에서는 앞 -Y, 위 +Z 가 된다. 팔은 어깨가 원점이고 아래로 늘어진 모양, 무기는 쥐는 자리가 원점이다.
+// 팔/무기 모델을 올리고 바꾸는 일은 엔진이 도는 중(OnTick)이 아니라 접속/명령을 받을 때만 한다.
+void Players::attachFighter(Player* p) {
+    if (!spawner_ || !p) return;
+    if (p->armModel.empty()) spawner_->AddPart("arm.glb", &p->armModel);
+    if (p->weaponShown != p->weapon) {
+        if (!p->weaponModel.empty()) spawner_->RemoveModel(p->weaponModel);
+        static const char* kFiles[PlayerWorld::kWeapons] = {"sword.glb", "spear.glb", "axe.glb"};
+        p->weaponModel.clear();
+        spawner_->AddPart(kFiles[p->weapon], &p->weaponModel);
+        p->weaponShown = p->weapon;
+    }
+}
+
+void Players::poseFighter(Engine& e, Player* p) {
+    if (!spawner_ || !p) return;
+    const double fx = sin(p->yaw), fy = -cos(p->yaw), rx = -cos(p->yaw), ry = -sin(p->yaw);
+    const PlayerWorld::FighterPose fp = PlayerWorld::PoseOf(p->weapon, p->swing);
+    const double sx = p->x + rx * PlayerWorld::kShoulderSide(), sy = p->y + ry * PlayerWorld::kShoulderSide(), sz = p->z + PlayerWorld::kShoulderUp();
+    const double hx = sx + fx * PlayerWorld::kArm() * sin(fp.phi), hy = sy + fy * PlayerWorld::kArm() * sin(fp.phi), hz = sz - PlayerWorld::kArm() * cos(fp.phi);
+    const dhQuat yaw = dhQuat::FromAxisAngle(static_cast<float>(p->yaw), dhVector(0, 0, 1));
+    const dhVector X(1, 0, 0);
+    const Handle ha = e.Find(p->armModel);
+    if (ha.slot >= 0) e.SetPose(ha, dhPose(dhVector(static_cast<float>(sx), static_cast<float>(sy), static_cast<float>(sz)), yaw * dhQuat::FromAxisAngle(static_cast<float>(-fp.phi), X)));
+    const Handle hw = e.Find(p->weaponModel);
+    if (hw.slot >= 0)
+        e.SetPose(hw, dhPose(dhVector(static_cast<float>(hx + fx * fp.slide), static_cast<float>(hy + fy * fp.slide), static_cast<float>(hz)), yaw * dhQuat::FromAxisAngle(static_cast<float>(fp.rx), X)));
 }
 
 void Players::OnTick(Engine& e, double time, double dt) {
@@ -473,6 +546,7 @@ void Players::OnTick(Engine& e, double time, double dt) {
         if (h.slot < 0) continue;   // 모델이 아직 엔진에 등록되기 전
         e.SetPose(h, dhPose(dhVector(static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)),
                             dhQuat::FromAxisAngle(static_cast<float>(p.yaw), dhVector(0, 0, 1))));
+        poseFighter(e, world_.Find(p.id));
     }
     if (next_) next_->OnTick(e, time, dt);
 }

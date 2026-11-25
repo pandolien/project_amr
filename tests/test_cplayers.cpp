@@ -185,6 +185,20 @@ void testRooms() {
     check(hypot(w.Find(2)->x - w.Find(1)->x, w.Find(2)->y - w.Find(1)->y) >= 0.8, "문 앞이 차 있으면 가까운 빈 곳에 나온다 (겹치지 않는다)");
 }
 
+void testJump() {
+    PlayerWorld w;
+    w.SetSpawn(0, 0);
+    w.Join(1, "a");
+    const double g0 = w.Find(1)->z;
+    check(w.Jump(1), "땅에서 뛴다");
+    check(!w.Jump(1), "공중에서는 다시 못 뛴다");
+    double top = 0;
+    for (int i = 0; i < 10; i++) { w.Step(0.05); if (w.Find(1)->z - g0 > top) top = w.Find(1)->z - g0; }
+    check(top > 0.5 && top < 1.1, "0.9 m 안팎까지 올라간다");
+    for (int i = 0; i < 20; i++) w.Step(0.05);
+    check(near(w.Find(1)->z, g0, 1e-6) && w.Jump(1), "1 초 안에 내려와 다시 뛸 수 있다");
+}
+
 void testHp() {
     PlayerWorld w;
     w.SetSpawn(0, 0);
@@ -239,6 +253,7 @@ int main() {
     testCommands();
     testRooms();
     testHp();
+    testJump();
     if (g_fail == 0) printf("OK: test_cplayers\n");
     return g_fail == 0 ? 0 : 1;
 }

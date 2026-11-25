@@ -179,6 +179,11 @@ wss.on('connection', function (ws, req) {
       if (!text) return;
       c.lastChat = now;
       toChild('chat ' + c.id + ' ' + text);
+    } else if (m.type === 'jump' && c.id) {   // 스페이스: 서버가 땅에 있을 때만 받아 준다
+      const now = Date.now();
+      if (now - (c.lastJump || 0) < 200) return;
+      c.lastJump = now;
+      toChild('jump ' + c.id);
     } else if (m.type === 'weapon' && c.id) {   // 1 검, 2 창, 3 도끼
       const w = Math.floor(Number(m.w));
       if (w >= 0 && w <= 2) toChild('weapon ' + c.id + ' ' + w);
