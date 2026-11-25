@@ -1,4 +1,4 @@
-// 마을 웹 클라이언트: 내 캐릭터 시점(1인칭)으로 걷고, 다른 접속자는 주민 모델로 보인다.
+// 마을 웹 클라이언트: 내 캐릭터를 뒤에서 따라가는 3인칭으로 걷고, 다른 접속자는 주민 모델로 보인다.
 // 위치/충돌은 서버(village_server)가 정한다. 여기서는 입력을 보내고, 받은 위치를 부드럽게 이어서 그린다.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -102,7 +102,7 @@ function nextTime() { timeIdx = (timeIdx + 1) % TIMES.length; applyTime(); }
 
 // ---- 접속자 ----
 const players = new Map();   // id -> { group, model, label, tx, ty, tz, x, y, z, yaw, name }
-let myId = 0, third = false, myZoneInit = false, lastZone = -1;
+let myId = 0, third = true, myZoneInit = false, lastZone = -1;
 let lastState = null;
 
 function makeLabel(text) {
@@ -191,29 +191,6 @@ function swingPose(w, t) {   // t: 0(시작)..1(끝) -> 무기 손의 자세 { r
   return { rx: (w === 2 ? 1.9 : 1.6) * s, z: 0.15 * s };   // 검/도끼: 앞으로 내려친다
 }
 const SWING = 0.32;
-const viewmodel = new THREE.Group();   // 1인칭: 카메라에 붙은, 내 손에 든 무기
-let vmWeapon = -1, vmMesh = null;
-const vmArm = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 1.6, 8), new THREE.MeshLambertMaterial({ color: 0xb5473f }));   // 1인칭 팔: 화면 아래 오른쪽에서 손까지
-vmArm.position.set(0.28, -0.72, 0.48); vmArm.rotation.set(0.55, 0, -0.32);
-const vmFist = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshLambertMaterial({ color: 0xf0c9a0 }));
-viewmodel.add(vmArm); viewmodel.add(vmFist);
-camera.add(viewmodel);
-scene.add(camera);
-function updateViewmodel(e, show) {
-  viewmodel.visible = show;
-  if (!show || !e) return;
-  if (vmWeapon !== e.weaponId) {
-    vmWeapon = e.weaponId;
-    if (vmMesh) viewmodel.remove(vmMesh);
-    vmMesh = makeWeapon(vmWeapon);
-    if (vmWeapon === 1) { vmMesh.rotation.y = Math.PI; vmMesh.position.set(0, 0, -0.1); } else vmMesh.position.set(0, 0, 0);
-    viewmodel.add(vmMesh);
-  }
-  const sp = swingPose(vmWeapon, e.swing > 0 ? 1 - e.swing / SWING : 0);
-  viewmodel.scale.setScalar(0.55);
-  viewmodel.position.set(0.3, vmWeapon === 1 ? -0.28 : -0.4, -0.6 - sp.z * 0.5);
-  viewmodel.rotation.set(-sp.rx * 0.9, 0, 0);
-}
 function drawHp(e, hp) {   // 머리 위 체력 바
   if (e.hp === hp) return;
   e.hp = hp;
@@ -302,7 +279,7 @@ function onState(s) {
   const dp = doorPrompt(me);
   $('prompt').hidden = !dp;
   if (dp) $('prompt').textContent = dp;
-  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · V 3인칭 · B 문 앞에서 들어가기/나가기 · F/클릭 공격 · 1·2·3 무기 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
+  $('hud').textContent = (me ? me.name : '') + ' · 접속 ' + s.p.length + '명 | WASD 이동 · Shift 달리기 · 마우스 시점 · B 문 앞에서 들어가기/나가기 · F/클릭 공격 · 1·2·3 무기 · N 낮/노을/밤 · Enter 채팅 · Esc 마우스 풀기';
 }
 
 
@@ -408,7 +385,6 @@ window.addEventListener('keydown', (e) => {
   if ($('join').style.display !== 'none') return;
   if (typing) return;
   if (e.code === 'Enter' && myId) { e.preventDefault(); openChat(); return; }
-  if (e.code === 'KeyV' && !e.repeat) { third = !third; return; }
   if (e.code === 'KeyN' && !e.repeat) { nextTime(); return; }
   if (/^Digit[123]$/.test(e.code) && !e.repeat) { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ type: 'weapon', w: Number(e.code.slice(5)) - 1 })); return; }
   if (e.code === 'KeyF' && !e.repeat) { attack(); return; }
@@ -463,7 +439,7 @@ async function join() {
     if (m.type === 'welcome') {
       myId = m.id;
       $('join').style.display = 'none';
-      $('hud').hidden = false; $('hpbar').hidden = false; $('wpn').hidden = false; $('hint').hidden = false; $('cross').hidden = false;
+      $('hud').hidden = false; $('hpbar').hidden = false; $('wpn').hidden = false; $('hint').hidden = false; $('cross').hidden = true;
     } else if (m.type === 'full') {
       $('msg').textContent = '지금은 가득 찼어요 (최대 ' + m.max + '명). 조금 뒤에 다시 와 주세요.';
     } else if (m.p) onState(m);
@@ -494,7 +470,6 @@ function frame() {
     e.group.visible = id === myId || e.zone === myZone;   // 다른 건물 안/밖에 있는 사람은 안 보인다
     e.group.position.set(e.x, e.z, -e.y);   // 엔진(x, y, 높이 z) -> three(x, 높이, -y)
     e.model.rotation.y = id === myId ? yaw : e.yaw;
-    e.model.visible = !(id === myId && !third);
     if (e.hand) {   // 무기를 쥔 손: 어깨에서 팔이 뻗어 나가고, 휘두르는 동안 손이 앞으로 나가며 내려친다/찌른다
       if (e.swing > 0) e.swing = Math.max(0, e.swing - dt);
       const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, sp = swingPose(e.weaponId, tt), ry = id === myId ? yaw : e.yaw;
@@ -509,15 +484,11 @@ function frame() {
       e.sleeve.scale.set(1, len, 1);
       e.sleeve.position.set(sx + dx / 2, 0.88 + dy / 2, sz + dz / 2);
       e.sleeve.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / len, dy / len, dz / len));
-      e.sleeve.visible = id !== myId || third;
-      e.hand.visible = id !== myId || third;   // 1인칭에서는 아래 viewmodel 로 보인다
     }
     e.label.visible = id !== myId;
     if (e.hpSprite) e.hpSprite.visible = id !== myId;
-    if (e.bubble) e.bubble.visible = id !== myId || third;   // 내 말풍선은 1인칭에서는 내 눈앞이라 숨긴다 (왼쪽 아래 대화 기록에는 보인다)
   }
   const me = players.get(myId);
-  updateViewmodel(me, !!me && !third);
   if (me) {
     updateLampLights(me.x, -me.y);
     const fx = Math.sin(yaw), fz = Math.cos(yaw);   // 내가 보는 방향 (three 좌표)
