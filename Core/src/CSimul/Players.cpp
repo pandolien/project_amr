@@ -581,7 +581,7 @@ String Players::StateJson(Engine& e, double time) {
     bool first = true;
     for (int i = 0; i < world_.Count(); i++) {
         const Player& p = world_.At(i);
-        snprintf(buf, sizeof(buf), "%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d,\"w\":%d,\"ak\":%d", first ? "" : ",", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5), p.weapon, p.atkId);
+        snprintf(buf, sizeof(buf), "%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d,\"w\":%d,\"ak\":%d,\"jh\":%.2f", first ? "" : ",", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5), p.weapon, p.atkId, p.jumpH);
         out += buf;
         if (p.sayLeft > 0 && !p.say.empty()) { out += ",\"s\":\""; out += p.say; out += "\""; }
         out += "}";

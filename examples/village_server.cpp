@@ -38,7 +38,7 @@ void PrintState(const PlayerWorld& w, double t) {
     printf("{\"t\":%.3f,\"p\":[", t);
     for (int i = 0; i < w.Count(); i++) {
         const Player& p = w.At(i);
-        printf("%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d,\"w\":%d,\"ak\":%d", i ? "," : "", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5), p.weapon, p.atkId);
+        printf("%s{\"id\":%d,\"n\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.4f,\"sid\":%d,\"hp\":%d,\"w\":%d,\"ak\":%d,\"jh\":%.2f", i ? "," : "", p.id, p.name.c_str(), p.x, p.y, p.z, p.yaw, p.sayId, static_cast<int>(p.hp + 0.5), p.weapon, p.atkId, p.jumpH);
         if (p.sayLeft > 0 && !p.say.empty()) printf(",\"s\":\"%s\"", p.say.c_str());
         printf("}");
     }

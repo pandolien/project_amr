@@ -237,6 +237,9 @@ function makePlayer(p) {
     hpSprite.scale.set(0.64, 0.08, 1); hpSprite.position.y = NAME_HEIGHT - 0.2; hpSprite.renderOrder = 998;
     group.add(hpSprite);
   }
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.28, 14), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }));   // 발밑 그림자: 점프하면 땅에 남아 높이가 보인다
+  shadow.rotation.x = -Math.PI / 2; shadow.renderOrder = 1;
+  scene.add(shadow);
   const hand = new THREE.Group();   // 오른손 자리 (몸 방향을 따라 돈다)
   hand.position.set(-0.3, 0.45, 0.12);
   group.add(hand);
@@ -246,7 +249,7 @@ function makePlayer(p) {
   const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), sleeve.material);   // 어깨 관절: 몸과 팔 사이가 벌어져 보이지 않게
   group.add(sleeve); group.add(shoulder);
   scene.add(group);
-  const e = { hand, sleeve, shoulder, weaponId: -1, weaponMesh: null, swing: 0, lastAk: p.ak || 0, hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
+  const e = { shadow, jh: 0, hand, sleeve, shoulder, weaponId: -1, weaponMesh: null, swing: 0, lastAk: p.ak || 0, hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
   players.set(p.id, e);
   return e;
 }
@@ -259,6 +262,7 @@ function onState(s) {
     if (Math.hypot(p.x - e.x, p.y - e.y) > 15) { e.x = p.x; e.y = p.y; e.z = p.z; e.yaw = p.yaw; }   // 건물 안팎으로 옮겨졌다: 미끄러지지 않고 바로
     e.tx = p.x; e.ty = p.y; e.tz = p.z; e.tyaw = p.yaw;
     e.zone = zoneAt(p.x, p.y);
+    e.jh = p.jh || 0;   // 땅에서 떠 있는 높이 (점프)
     if (e.hpSprite && p.w !== undefined) {
       setWeapon(e, p.w);
       if (p.ak !== e.lastAk) { e.lastAk = p.ak; e.swing = SWING; }
@@ -286,7 +290,7 @@ function onState(s) {
       e.bubble = null; e.bubbleText = '';
     }
   }
-  for (const [id, e] of players) if (!seen.has(id)) { scene.remove(e.group); players.delete(id); }
+  for (const [id, e] of players) if (!seen.has(id)) { scene.remove(e.group); scene.remove(e.shadow); players.delete(id); }
   const me = players.get(myId);
   if (me && me.zone !== myZone) {   // 건물에 들어가거나 나왔다: 방을 보이게 하고 바라보는 방향을 맞춘다
     const entering = me.zone >= 0;
@@ -474,6 +478,7 @@ $('go').addEventListener('click', join);
 $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 
 // ---- 그리기 ----
+let camZ = null;   // 카메라가 보는 높이 (캐릭터 높이를 천천히 따라간다)
 const clock = new THREE.Clock();
 function frame() {
   requestAnimationFrame(frame);
@@ -488,6 +493,9 @@ function frame() {
     while (d < -Math.PI) d += 2 * Math.PI;
     e.yaw += d * k;
     e.group.visible = id === myId || e.zone === myZone;   // 다른 건물 안/밖에 있는 사람은 안 보인다
+    e.shadow.visible = e.group.visible && e.hpSprite !== null;
+    e.shadow.position.set(e.x, e.z - (e.jh || 0) + 0.04, -e.y);
+    e.shadow.scale.setScalar(Math.max(0.5, 1 - (e.jh || 0) * 0.5));
     e.group.position.set(e.x, e.z, -e.y);   // 엔진(x, y, 높이 z) -> three(x, 높이, -y)
     e.model.rotation.y = id === myId ? yaw : e.yaw;
     if (e.hand) {   // 무기를 쥔 손: 어깨에서 팔이 뻗어 나가고, 휘두르는 동안 손이 앞으로 나가며 내려친다/찌른다
@@ -527,14 +535,18 @@ function frame() {
       camera.rotation.set(pitch, yaw + Math.PI, 0, 'YXZ');
     } else {
       const back = 3.2;
-      camera.position.set(me.x - fx * back, me.z + 1.7 + pitch * -1.5, -me.y - fz * back);
+      // 점프하면 캐릭터가 화면에서 위로 올라갔다 내려와야 한다 (카메라가 같이 뛰면 안 뛰는 것처럼 보인다)
+      const groundZ = me.z - (me.jh || 0);   // 카메라는 점프를 따라 오르지 않고 발밑 땅 높이만 따라간다
+      if (camZ === null || Math.abs(groundZ - camZ) > 5) camZ = groundZ;
+      camZ += (groundZ - camZ) * (1 - Math.exp(-8 * dt));
+      camera.position.set(me.x - fx * back, camZ + 1.7 + pitch * -1.5, -me.y - fz * back);
       if (myZone >= 0) {   // 방 안에서는 카메라가 벽/천장을 뚫지 않게
         const r = rooms[myZone];
         camera.position.x = Math.max(r.cx - r.hw + 0.3, Math.min(r.cx + r.hw - 0.3, camera.position.x));
         camera.position.z = Math.max(-r.cy - r.hd + 0.3, Math.min(-r.cy + r.hd - 0.3, camera.position.z));
         camera.position.y = Math.min(camera.position.y, r.floorZ + r.ceil - 0.2);
       }
-      camera.lookAt(me.x, me.z + 0.7, -me.y);
+      camera.lookAt(me.x, camZ + 0.7, -me.y);
     }
   } else {   // 접속 전: 마을을 천천히 돈다
     const t = performance.now() / 20000;
@@ -544,4 +556,4 @@ function frame() {
   renderer.render(scene, camera);
 }
 frame();
-window.__game = { players, rooms, get zone() { return myZone; }, enter: () => ws.send(JSON.stringify({ type: 'enter' })), look: (y, p) => { yaw = y; pitch = p || 0; }, setTime: (i) => { timeIdx = i; applyTime(); }, lamps, get myId() { return myId; }, get state() { return lastState; } };   // 시험용
+window.__game = { project: (x, y, z) => new THREE.Vector3(x, y, z).project(camera).y, players, rooms, get zone() { return myZone; }, enter: () => ws.send(JSON.stringify({ type: 'enter' })), look: (y, p) => { yaw = y; pitch = p || 0; }, setTime: (i) => { timeIdx = i; applyTime(); }, lamps, get myId() { return myId; }, get state() { return lastState; } };   // 시험용
