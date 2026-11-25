@@ -183,12 +183,7 @@ function setWeapon(e, w) {   // 손(hand)에 든 무기를 바꾼다
   if (e.weaponMesh) e.hand.remove(e.weaponMesh);
   e.weaponMesh = makeWeapon(w);
   e.hand.add(e.weaponMesh);
-  e.weaponMesh.position.set(0, 0, 0);   // 손(주먹) 자리가 무기를 쥐는 곳
-}
-function swingPose(w, t) {   // t: 0(시작)..1(끝) -> 무기 손의 자세 { rx, z }
-  const s = Math.sin(Math.PI * t);
-  if (w === 1) return { rx: 0, z: 0.9 * s };           // 창: 앞으로 찌른다
-  return { rx: (w === 2 ? 1.9 : 1.6) * s, z: 0.15 * s };   // 검/도끼: 앞으로 내려친다
+  e.weaponMesh.position.set(0, 0, 0);   // 손(주먹) 자리가 무기를 쥐는 곳 (창은 이 안에서 미끄러진다)
 }
 const SWING = 0.32;
 function drawHp(e, hp) {   // 머리 위 체력 바
@@ -201,11 +196,34 @@ function drawHp(e, hp) {   // 머리 위 체력 바
   g.fillRect(2, 2, Math.max(0, 124 * hp / 100), 12);
   e.hpTex.needsUpdate = true;
 }
+// 주민 모델은 한 덩어리라 팔을 따로 움직일 수 없다. 오른팔(삼각형 76~147: 소매 76~93, 손 94~147) 만 빼고, 그 자리에 무기를 쥔 팔을 따로 그린다.
+const ARM_TRIS = [76, 147], armlessCache = new Map();
+function armlessCopy(tpl) {
+  const model = tpl.clone(true);
+  model.traverse((o) => {
+    if (!o.isMesh || o.geometry.index || o.geometry.getAttribute('position').count !== 544 * 3) return;   // 예상한 모양(544 삼각형)일 때만
+    let g = armlessCache.get(o.geometry);
+    if (!g) {
+      g = new THREE.BufferGeometry();
+      for (const name of ['position', 'normal', 'color']) {
+        const a = o.geometry.getAttribute(name);
+        if (!a) continue;
+        const n = a.itemSize, out = [];
+        for (let t = 0; t < 544; t++) if (t < ARM_TRIS[0] || t > ARM_TRIS[1]) for (let i = 0; i < 9 * n / 3; i++) out.push(a.array[t * 3 * n + i]);
+        g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(out), n));
+      }
+      armlessCache.set(o.geometry, g);
+    }
+    o.geometry = g;
+  });
+  return model;
+}
 function makePlayer(p) {
   const group = new THREE.Group();
   const tpl = villagerTemplates[(p.id > 0 ? p.id - 1 : -p.id - 1) % 4];   // NPC 는 id 가 음수 (-k = k 번째 주민)
+  const fighter = p.hp !== undefined;   // 접속자는 무기를 쥘 오른팔을 따로 그리므로 모델의 원래 오른팔은 뺀다 (NPC 는 그대로)
   let model;
-  if (tpl) model = tpl.clone(true);
+  if (tpl) model = fighter ? armlessCopy(tpl) : tpl.clone(true);
   else { model = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.6, 4, 8), new THREE.MeshLambertMaterial({ color: 0xe8a0a0 })); model.position.y = 0.55; }
   group.add(model);
   const label = makeLabel(p.n);
@@ -222,12 +240,13 @@ function makePlayer(p) {
   const hand = new THREE.Group();   // 오른손 자리 (몸 방향을 따라 돈다)
   hand.position.set(-0.3, 0.45, 0.12);
   group.add(hand);
-  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 1, 8), new THREE.MeshLambertMaterial({ color: 0xb5473f }));   // 어깨에서 손까지 이어지는 팔
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.055, 1, 8), new THREE.MeshLambertMaterial({ color: 0xb5473f }));   // 어깨에서 손까지 이어지는 팔
   const fist = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshLambertMaterial({ color: 0xf0c9a0 }));
   hand.add(fist);   // 무기를 쥔 손은 hand 에 붙어 같이 움직인다
-  group.add(sleeve);
+  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), sleeve.material);   // 어깨 관절: 몸과 팔 사이가 벌어져 보이지 않게
+  group.add(sleeve); group.add(shoulder);
   scene.add(group);
-  const e = { hand, sleeve, weaponId: -1, weaponMesh: null, swing: 0, lastAk: p.ak || 0, hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
+  const e = { hand, sleeve, shoulder, weaponId: -1, weaponMesh: null, swing: 0, lastAk: p.ak || 0, hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
   players.set(p.id, e);
   return e;
 }
@@ -471,18 +490,28 @@ function frame() {
     e.group.position.set(e.x, e.z, -e.y);   // 엔진(x, y, 높이 z) -> three(x, 높이, -y)
     e.model.rotation.y = id === myId ? yaw : e.yaw;
     if (e.hand) {   // 무기를 쥔 손: 어깨에서 팔이 뻗어 나가고, 휘두르는 동안 손이 앞으로 나가며 내려친다/찌른다
-      if (e.swing > 0) e.swing = Math.max(0, e.swing - dt);
-      const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, sp = swingPose(e.weaponId, tt), ry = id === myId ? yaw : e.yaw;
+      if (e.swing > 0 && window.__swingFreeze === undefined) e.swing = Math.max(0, e.swing - dt);   // (__swingFreeze: 시험용으로 휘두르는 동작을 멈춰 두는 스위치)
+      const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, ry = id === myId ? yaw : e.yaw;
       const fxh = Math.sin(ry), fzh = Math.cos(ry), rxh = -Math.cos(ry), rzh = Math.sin(ry);   // 몸 앞 / 오른쪽 (three)
-      const reach = 0.3 + (e.weaponId === 1 ? 0.55 : 0.28) * Math.sin(Math.PI * tt);          // 손이 앞으로 나가는 거리
-      const lift = 0.62 + 0.14 * Math.sin(Math.PI * tt);
-      const sx = rxh * 0.27, sz = rzh * 0.27;   // 어깨 (몸 기준 오른쪽)
-      const hx = sx + rxh * 0.04 + fxh * reach, hy = lift, hz = sz + rzh * 0.04 + fzh * reach;
-      e.hand.rotation.set(sp.rx, ry, 0, 'YXZ');
+      // 팔은 어깨에 붙은 채 길이가 일정하게 돈다. phi: 0 아래 .. 1.57 앞 .. 3.14 위 (처음엔 비스듬히 앞-아래)
+      let phi = 1.0, rx = 0, slide = 0;
+      if (e.weaponId === 1) {                       // 창: 팔을 앞으로 뻗으며 찌른다
+        const s = Math.sin(Math.PI * tt);
+        phi = 1.0 + 0.5 * s; slide = 0.55 * s;
+      } else if (tt > 0) {                          // 검/도끼: 머리 위로 들었다가 앞으로 내려친다
+        if (tt < 0.4) { phi = 1.0 + 1.3 * (tt / 0.4); rx = -(phi - 1.0); }
+        else { const u = (tt - 0.4) / 0.6; phi = 2.3 - 1.3 * u - 0.9 * Math.sin(Math.PI * u); rx = -(phi - 1.0) + (e.weaponId === 2 ? 1.9 : 1.6) * Math.sin(Math.PI * u); }
+      }
+      const SH = 0.57, ARM = 0.36, SIDE = 0.17;    // 어깨 높이, 팔 길이, 어깨의 옆 거리
+      const sx = rxh * SIDE, sz = rzh * SIDE;       // 어깨 (몸 기준 오른쪽)
+      const hx = sx + fxh * ARM * Math.sin(phi), hy = SH - ARM * Math.cos(phi), hz = sz + fzh * ARM * Math.sin(phi);
+      e.hand.rotation.set(rx, ry, 0, 'YXZ');
       e.hand.position.set(hx, hy, hz);
-      const dx = hx - sx, dy = hy - 0.88, dz = hz - sz, len = Math.hypot(dx, dy, dz);   // 어깨(높이 0.88)에서 손까지 팔 한 줄
+      if (e.weaponMesh) e.weaponMesh.position.z = slide;   // 창은 쥔 손 사이로 앞으로 미끄러진다
+      e.shoulder.position.set(sx, SH, sz);
+      const dx = hx - sx, dy = hy - SH, dz = hz - sz, len = Math.hypot(dx, dy, dz);
       e.sleeve.scale.set(1, len, 1);
-      e.sleeve.position.set(sx + dx / 2, 0.88 + dy / 2, sz + dz / 2);
+      e.sleeve.position.set(sx + dx / 2, SH + dy / 2, sz + dz / 2);
       e.sleeve.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / len, dy / len, dz / len));
     }
     e.label.visible = id !== myId;
