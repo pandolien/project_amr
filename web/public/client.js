@@ -69,36 +69,49 @@ function camBack(x, y, zb, dx, dy, want) {   // (x, y) 에서 (dx, dy) 방향으
   return want;
 }
 // 사람 모델(human.glb: 뼈대가 있고 Idle/Walk/Run 동작이 들어 있다). 못 읽으면 예전 주민 모델로 대신한다.
-let humanTpl = null, humanScale = 1, humanFlip = 0;
-const humanClips = {};
-// 몸은 평상복 여자 모델(human_w.glb: 동작 없음), 동작(대기/걷기/달리기)은 군인 모델(human.glb)의 것을 가져온다. 두 모델은 뼈 이름이 같아 그대로 맞는다.
-const humanReady = Promise.all([load('/assets/human_w.glb').catch(() => null), load('/assets/human.glb')]).then(([body, anim]) => {
-  humanTpl = (body || anim).scene;
-  humanFlip = body ? 0 : Math.PI;   // 군인 모델은 -Z 쪽을 본다
-  for (const c of anim.animations) {
-    if (body) c.tracks = c.tracks.filter((t) => t.name.endsWith('.quaternion') && !t.name.startsWith('mixamorigHips.'));   // 다른 몸에 입힐 때는 회전만 쓴다 (크기·위치 값은 몸마다 달라 망가진다)
-    humanClips[c.name] = c;
+let humanTpl = null;
+const humanTpls = [];
+// 사람 모델 두 가지: 군인(human.glb, 자기 동작을 그대로 쓴다)과 평상복 여자(human_w.glb, 동작이 없어 군인의 뼈 회전을 빌린다). 접속자 번호에 따라 둘 중 하나가 된다.
+const humanReady = Promise.all([load('/assets/human.glb').catch(() => null), load('/assets/human_w.glb').catch(() => null)]).then(([sol, wom]) => {
+  const mk = (g, flip) => {
+    const scene = g.scene;
+    scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(scene);
+    return { scene, flip, scale: HUMAN_H / Math.max(0.1, box.max.y - box.min.y), clips: {} };
+  };
+  if (sol) {
+    const t = mk(sol, Math.PI);   // 군인 모델은 -Z 쪽을 본다
+    for (const c of sol.animations) t.clips[c.name] = c;
+    humanTpls.push(t);
+    if (wom) {
+      const w = mk(wom, 0);
+      for (const c of sol.animations) {   // 다른 몸에 입힐 때는 회전만 쓴다 (크기·위치 값은 몸마다 달라 망가진다)
+        const cc = c.clone();
+        cc.tracks = cc.tracks.filter((q) => q.name.endsWith('.quaternion') && !q.name.startsWith('mixamorigHips.'));
+        w.clips[c.name] = cc;
+      }
+      humanTpls.push(w);
+    }
   }
-  humanTpl.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(humanTpl);
-  humanScale = HUMAN_H / Math.max(0.1, box.max.y - box.min.y);
+  humanTpl = humanTpls[0] ? humanTpls[0].scene : null;
 }).catch((e) => console.warn('사람 모델을 못 읽었습니다', e));
 function makeHuman(id) {
   const root = new THREE.Group();   // 몸 방향(yaw)은 이 그룹을 돌린다
-  const inner = cloneSkinned(humanTpl);
-  inner.scale.multiplyScalar(humanScale);
-  inner.rotation.y = humanFlip;
+  const T = humanTpls[(((id > 0 ? id : 7 - id) % humanTpls.length) + humanTpls.length) % humanTpls.length];   // 홀수/짝수 번호가 다른 모델
+  const inner = cloneSkinned(T.scene);
+  inner.scale.multiplyScalar(T.scale);
+  inner.rotation.y = T.flip;
   root.add(inner);
   const hue = (((id > 0 ? id : 40 - id) * 0.173) % 1 + 1) % 1;   // 사람마다 옷 빛깔을 조금씩 다르게
   inner.traverse((o) => {
     if (!o.isMesh) return;
     o.frustumCulled = false;
     o.material = o.material.clone();
-    if (humanFlip && o.material.color) o.material.color.setHSL(hue, 0.35, 0.75);   // 군인 모델일 때만 옷 빛깔을 바꾼다
+    if (T.flip && o.material.color) o.material.color.setHSL(hue, 0.35, 0.75);   // 군인 모델일 때만 옷 빛깔을 바꾼다
   });
   const mixer = new THREE.AnimationMixer(inner);
   const acts = {};
-  for (const n of ['Idle', 'Walk', 'Run']) if (humanClips[n]) acts[n] = mixer.clipAction(humanClips[n]);
+  for (const n of ['Idle', 'Walk', 'Run']) if (T.clips[n]) acts[n] = mixer.clipAction(T.clips[n]);
   if (acts.Idle) { acts.Idle.play(); mixer.update(Math.random()); }
   root.updateMatrixWorld(true);
   const handBone = inner.getObjectByName('mixamorigRightHand');
