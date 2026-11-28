@@ -2,9 +2,10 @@
 // 위치/충돌은 서버(village_server)가 정한다. 여기서는 입력을 보내고, 받은 위치를 부드럽게 이어서 그린다.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 const $ = (id) => document.getElementById(id);
-const EYE = 0.78, EYE_FORWARD = 0.22, NAME_HEIGHT = 1.3;
+const EYE = 0.78, EYE_FORWARD = 0.22, NAME_HEIGHT = 2.05, HUMAN_H = 1.75;
 
 // ---- 장면 ----
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -67,7 +68,46 @@ function camBack(x, y, zb, dx, dy, want) {   // (x, y) 에서 (dx, dy) 방향으
   }
   return want;
 }
-const modelsReady = Promise.all([1, 2, 3, 4].map((n) => load('/assets/villager_' + n + '.glb').then((g) => { villagerTemplates[n - 1] = g.scene; }).catch(() => {})));
+// 사람 모델(human.glb: 뼈대가 있고 Idle/Walk/Run 동작이 들어 있다). 못 읽으면 예전 주민 모델로 대신한다.
+let humanTpl = null, humanScale = 1;
+const humanClips = {};
+const humanReady = load('/assets/human.glb').then((g) => {
+  humanTpl = g.scene;
+  for (const c of g.animations) humanClips[c.name] = c;
+  humanTpl.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(humanTpl);
+  humanScale = HUMAN_H / Math.max(0.1, box.max.y - box.min.y);
+}).catch((e) => console.warn('사람 모델을 못 읽었습니다', e));
+function makeHuman(id) {
+  const root = new THREE.Group();   // 몸 방향(yaw)은 이 그룹을 돌린다
+  const inner = cloneSkinned(humanTpl);
+  inner.scale.multiplyScalar(humanScale);
+  inner.rotation.y = Math.PI;   // 이 모델은 -Z 쪽을 보고 있어서 앞(+Z)으로 돌려 세운다
+  root.add(inner);
+  const hue = (((id > 0 ? id : 40 - id) * 0.173) % 1 + 1) % 1;   // 사람마다 옷 빛깔을 조금씩 다르게
+  inner.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    o.material = o.material.clone();
+    if (o.material.color) o.material.color.setHSL(hue, 0.35, 0.75);
+  });
+  const mixer = new THREE.AnimationMixer(inner);
+  const acts = {};
+  for (const n of ['Idle', 'Walk', 'Run']) if (humanClips[n]) acts[n] = mixer.clipAction(humanClips[n]);
+  if (acts.Idle) { acts.Idle.play(); mixer.update(Math.random()); }
+  root.updateMatrixWorld(true);
+  const handBone = inner.getObjectByName('mixamorigRightHand');
+  const armBone = inner.getObjectByName('mixamorigRightArm');
+  const anchor = new THREE.Group();   // 무기를 쥐는 자리 (손뼈에 붙어 팔 동작을 따라간다)
+  if (handBone) {
+    handBone.add(anchor);
+    const ws = new THREE.Vector3(); handBone.getWorldScale(ws);
+    anchor.scale.setScalar(1 / ws.x);   // 뼈대가 센티미터 단위라 줄어든 만큼 되돌린다
+    anchor.position.set(0, 8, 0);
+  }
+  return { root, mixer, acts, cur: '', anchor, armBone };
+}
+const modelsReady = Promise.all([humanReady, ...[1, 2, 3, 4].map((n) => load('/assets/villager_' + n + '.glb').then((g) => { villagerTemplates[n - 1] = g.scene; }).catch(() => {}))]);
 
 // ---- 가로등 불 + 낮/노을/밤 ----
 // 가로등 전구(지도의 Lanterns 메쉬 꼭대기)마다 빛무리와 실제 조명을 단다. 낮에는 은은하게, 밤에는 환하게 켜진다.
@@ -259,8 +299,9 @@ function makePlayer(p) {
   const group = new THREE.Group();
   const tpl = villagerTemplates[(p.id > 0 ? p.id - 1 : -p.id - 1) % 4];   // NPC 는 id 가 음수 (-k = k 번째 주민)
   const fighter = p.hp !== undefined;   // 접속자는 무기를 쥘 오른팔을 따로 그리므로 모델의 원래 오른팔은 뺀다 (NPC 는 그대로)
-  let model;
-  if (tpl) model = fighter ? armlessCopy(tpl) : tpl.clone(true);
+  let model, human = null;
+  if (humanTpl) { human = makeHuman(p.id); model = human.root; }
+  else if (tpl) model = fighter ? armlessCopy(tpl) : tpl.clone(true);
   else { model = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.6, 4, 8), new THREE.MeshLambertMaterial({ color: 0xe8a0a0 })); model.position.y = 0.55; }
   group.add(model);
   const label = makeLabel(p.n);
@@ -277,16 +318,16 @@ function makePlayer(p) {
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.28, 14), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }));   // 발밑 그림자: 점프하면 땅에 남아 높이가 보인다
   shadow.rotation.x = -Math.PI / 2; shadow.renderOrder = 1;
   scene.add(shadow);
-  const hand = new THREE.Group();   // 오른손 자리 (몸 방향을 따라 돈다)
+  const hand = human ? human.anchor : new THREE.Group();   // 오른손 자리 (사람 모델은 손뼈, 아니면 몸 방향을 따라 도는 그룹)
   hand.position.set(-0.3, 0.45, 0.12);
-  group.add(hand);
+  if (human) hand.position.set(0, 8, 0); else group.add(hand);
   const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.055, 1, 8), new THREE.MeshLambertMaterial({ color: 0xb5473f }));   // 어깨에서 손까지 이어지는 팔
   const fist = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshLambertMaterial({ color: 0xf0c9a0 }));
   hand.add(fist);   // 무기를 쥔 손은 hand 에 붙어 같이 움직인다
   const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), sleeve.material);   // 어깨 관절: 몸과 팔 사이가 벌어져 보이지 않게
-  group.add(sleeve); group.add(shoulder);
+  if (!human) { group.add(sleeve); group.add(shoulder); }
   scene.add(group);
-  const e = { shadow, jh: 0, hand, sleeve, shoulder, weaponId: -1, weaponMesh: null, swing: 0, lastAk: p.ak || 0, hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
+  const e = { human, spd: 0, shadow, jh: 0, hand, sleeve, shoulder, weaponId: -1, weaponMesh: null, swing: 0, lastAk: p.ak || 0, hpSprite, hpCanvas, hpTex, hp: -1, group, model, label, bubble: null, bubbleText: '', lastSid: p.sid || 0, x: p.x, y: p.y, z: p.z, tx: p.x, ty: p.y, tz: p.z, yaw: p.yaw, tyaw: p.yaw, name: p.n };
   players.set(p.id, e);
   return e;
 }
@@ -515,6 +556,33 @@ $('go').addEventListener('click', join);
 $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 
 // ---- 그리기 ----
+const _pq = new THREE.Quaternion(), _rw = new THREE.Quaternion(), _ax = new THREE.Vector3();
+function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 동작을 고르고, 휘두를 때는 오른팔을 들어 올린다
+  const H = e.human;
+  e.spd += (inst - e.spd) * Math.min(1, dt * 10);
+  const want = e.spd < 0.4 ? 'Idle' : (e.spd < 3.6 ? 'Walk' : 'Run');
+  if (want !== H.cur && H.acts[want]) {
+    const a = H.acts[want], old = H.acts[H.cur];
+    a.reset().play();
+    if (old) a.crossFadeFrom(old, 0.2, false);
+    H.cur = want;
+  }
+  const a = H.acts[H.cur];
+  if (a) a.timeScale = H.cur === 'Walk' ? Math.max(0.6, Math.min(1.7, e.spd / 1.6)) : (H.cur === 'Run' ? Math.max(0.8, Math.min(1.5, e.spd / 4)) : 1);
+  H.mixer.update(dt);
+  if (e.swing > 0 && window.__swingFreeze === undefined) e.swing = Math.max(0, e.swing - dt);
+  const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, ry = id === myId ? yaw : e.yaw;
+  let ang = 0.45;   // 무기를 쥔 팔은 살짝 앞으로 든다
+  if (e.weaponId === 1) ang += 0.9 * Math.sin(Math.PI * tt);   // 창: 앞으로 찌른다
+  else if (tt > 0) { if (tt < 0.4) ang += 2.2 * (tt / 0.4); else { const u = (tt - 0.4) / 0.6; ang += 2.2 * (1 - u) - 0.25 * Math.sin(Math.PI * u); } }   // 검/도끼: 머리 위로 들었다 내려친다
+  if (H.armBone && H.armBone.parent) {
+    H.armBone.parent.getWorldQuaternion(_pq);
+    _ax.set(-Math.cos(ry), 0, Math.sin(ry));   // 몸의 오른쪽 축 (three)
+    _rw.setFromAxisAngle(_ax, ang);
+    _rw.premultiply(_pq.clone().invert()).multiply(_pq);   // 몸 기준 회전을 팔 부모 뼈의 좌표로 옮긴다
+    H.armBone.quaternion.premultiply(_rw);
+  }
+}
 let camZ = null;   // 카메라가 보는 높이 (캐릭터 높이를 천천히 따라간다)
 const clock = new THREE.Clock();
 function frame() {
@@ -524,6 +592,7 @@ function frame() {
   if (keys.has('KeyQ') || keys.has('ArrowLeft')) yaw += 1.8 * dt;     // 마우스가 없어도 돌 수 있게
   if (keys.has('KeyE') || keys.has('ArrowRight')) yaw -= 1.8 * dt;
   for (const [id, e] of players) {
+    const ox = e.x, oy = e.y;
     e.x += (e.tx - e.x) * k; e.y += (e.ty - e.y) * k; e.z += (e.tz - e.z) * k;
     let d = e.tyaw - e.yaw;
     while (d > Math.PI) d -= 2 * Math.PI;
@@ -535,7 +604,8 @@ function frame() {
     e.shadow.scale.setScalar(Math.max(0.5, 1 - (e.jh || 0) * 0.5));
     e.group.position.set(e.x, e.z, -e.y);   // 엔진(x, y, 높이 z) -> three(x, 높이, -y)
     e.model.rotation.y = id === myId ? yaw : e.yaw;
-    if (e.hand) {   // 무기를 쥔 손: 어깨에서 팔이 뻗어 나가고, 휘두르는 동안 손이 앞으로 나가며 내려친다/찌른다
+    if (e.human) animateHuman(e, id, dt, Math.min(12, Math.hypot(e.x - ox, e.y - oy) / Math.max(dt, 1e-3)));
+    else if (e.hand) {   // 무기를 쥔 손: 어깨에서 팔이 뻗어 나가고, 휘두르는 동안 손이 앞으로 나가며 내려친다/찌른다
       if (e.swing > 0 && window.__swingFreeze === undefined) e.swing = Math.max(0, e.swing - dt);   // (__swingFreeze: 시험용으로 휘두르는 동작을 멈춰 두는 스위치)
       const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, ry = id === myId ? yaw : e.yaw;
       const fxh = Math.sin(ry), fzh = Math.cos(ry), rxh = -Math.cos(ry), rzh = Math.sin(ry);   // 몸 앞 / 오른쪽 (three)
@@ -580,14 +650,14 @@ function frame() {
       if (camZ === null || Math.abs(groundZ - camZ) > 5) camZ = groundZ;
       camZ += (groundZ - camZ) * (1 - Math.exp(-8 * dt));
       back = camBack(me.x, me.y, groundZ, -fx, fz, back);   // 엔진 y = -three z: 카메라는 몸 뒤(-fx, +fz 방향이 엔진 좌표의 뒤쪽)
-      camera.position.set(me.x - fx * back, camZ + 1.7 + pitch * -1.5 + (3.2 - back) * 0.45, -me.y - fz * back);   // 좁은 곳에서는 카메라가 가까워지는 만큼 높이 올라가 내려다본다
+      camera.position.set(me.x - fx * back, camZ + 2.4 + pitch * -1.5 + (3.2 - back) * 0.45, -me.y - fz * back);   // 좁은 곳에서는 카메라가 가까워지는 만큼 높이 올라가 내려다본다
       if (myZone >= 0) {   // 방 안에서는 카메라가 벽/천장을 뚫지 않게
         const r = rooms[myZone];
         camera.position.x = Math.max(r.cx - r.hw + 0.3, Math.min(r.cx + r.hw - 0.3, camera.position.x));
         camera.position.z = Math.max(-r.cy - r.hd + 0.3, Math.min(-r.cy + r.hd - 0.3, camera.position.z));
         camera.position.y = Math.min(camera.position.y, r.floorZ + r.ceil - 0.2);
       }
-      camera.lookAt(me.x, camZ + 0.7, -me.y);
+      camera.lookAt(me.x, camZ + 1.15, -me.y);
     }
   } else {   // 접속 전: 부지를 천천히 돈다
     const t = performance.now() / 20000;

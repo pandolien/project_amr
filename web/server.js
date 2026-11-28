@@ -51,6 +51,7 @@ function fileFor(url) {
   if (u === '/assets/factory_map.glb') return path.join(DATA, 'factory_map.glb');
   if (u === '/assets/layout.txt') return path.join(DATA, 'villagers', 'layout.txt');
   if (u === '/assets/portals.txt') return path.join(DATA, 'villagers', 'portals.txt');
+  if (u === '/assets/human.glb') return path.join(DATA, 'villagers', 'human.glb');
   const m = /^\/assets\/(villager_[1-4]\.glb)$/.exec(u);
   if (m) return path.join(DATA, 'villagers', m[1]);
   return resolveUnder(PUBLIC, u.slice(1));
