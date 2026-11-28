@@ -348,7 +348,7 @@ function onState(s) {
     e.jh = p.jh || 0;   // 땅에서 떠 있는 높이 (점프)
     if (e.hpSprite && p.w !== undefined) {
       setWeapon(e, p.w);
-      if (p.ak !== e.lastAk) { e.lastAk = p.ak; e.swing = SWING; }
+      if (p.ak !== e.lastAk) { e.lastAk = p.ak; e.swing = SWING; e.slashDir = -(e.slashDir || -1); }   // 검은 번갈아 가로로 벤다: 1타 오른쪽→왼쪽, 2타 왼쪽→오른쪽
       if (p.id === myId) $('wpn').textContent = '무기: ' + WEAPON_NAMES[p.w] + '  (1 검 · 2 창 · 3 도끼)';
     }
     if (e.hpSprite && p.hp !== undefined) {
@@ -561,7 +561,7 @@ $('go').addEventListener('click', join);
 $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 
 // ---- 그리기 ----
-const _pq = new THREE.Quaternion(), _rw = new THREE.Quaternion(), _ax = new THREE.Vector3();
+const _q2 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _pq = new THREE.Quaternion(), _rw = new THREE.Quaternion(), _ax = new THREE.Vector3();
 function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 동작을 고르고, 휘두를 때는 오른팔을 들어 올린다
   const H = e.human;
   e.spd += (inst - e.spd) * Math.min(1, dt * 10);
@@ -577,9 +577,13 @@ function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 
   H.mixer.update(dt);
   if (e.swing > 0 && window.__swingFreeze === undefined) e.swing = Math.max(0, e.swing - dt);
   const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, ry = id === myId ? yaw : e.yaw;
-  let ang = 0.45;   // 무기를 쥔 팔은 살짝 앞으로 든다
+  let yawOff = 0, ang = 0.45;   // 무기를 쥔 팔은 살짝 앞으로 든다
   if (e.weaponId === 1) ang += 0.9 * Math.sin(Math.PI * tt);   // 창: 앞으로 찌른다
-  else if (tt > 0) { if (tt < 0.4) ang += 2.2 * (tt / 0.4); else { const u = (tt - 0.4) / 0.6; ang += 2.2 * (1 - u) - 0.25 * Math.sin(Math.PI * u); } }   // 검/도끼: 머리 위로 들었다 내려친다
+  else if (tt > 0 && e.weaponId === 0) {   // 검: 팔을 앞으로 뻗은 채 가로로 벤다 (slashDir 1 이면 오른쪽→왼쪽, -1 이면 왼쪽→오른쪽)
+    const env = Math.min(1, tt / 0.15, (1 - tt) / 0.2), sw = Math.max(0, Math.min(1, (tt - 0.15) / 0.6));
+    ang += 0.9 * env;
+    yawOff = (e.slashDir || 1) * (-1.1 + 2.2 * sw * sw * (3 - 2 * sw)) * env;
+  } else if (tt > 0) { if (tt < 0.4) ang += 2.2 * (tt / 0.4); else { const u = (tt - 0.4) / 0.6; ang += 2.2 * (1 - u) - 0.25 * Math.sin(Math.PI * u); } }   // 검/도끼: 머리 위로 들었다 내려친다
   if (e.swap > 0) {   // 무기 교체: 팔을 들어 올리고 새 무기가 손에서 커진다
     e.swap = Math.max(0, e.swap - dt);
     const u = 1 - e.swap / 0.4;
@@ -591,6 +595,7 @@ function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 
     H.armBone.parent.getWorldQuaternion(_pq);
     _ax.set(-Math.cos(ry), 0, Math.sin(ry));   // 몸의 오른쪽 축 (three)
     _rw.setFromAxisAngle(_ax, ang);
+    if (yawOff) _rw.premultiply(_q2.setFromAxisAngle(_up, yawOff));   // 위쪽 축으로 좌우로 휘두른다
     _rw.premultiply(_pq.clone().invert()).multiply(_pq);   // 몸 기준 회전을 팔 부모 뼈의 좌표로 옮긴다
     H.armBone.quaternion.premultiply(_rw);
   }
