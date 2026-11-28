@@ -616,6 +616,7 @@ int PrintInfo(const Options& o) {
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QDir>
+#include <QFile>
 #include <QStandardPaths>
 #include <QFileInfo>
 
@@ -2321,6 +2322,7 @@ int main(int argc, char** argv) {
                     const simul::sensor::CameraSettings& cs = v->SensorCameraSettings();
                     bool okc = CameraView::ColorToQImage(im).save(stem + ".png");
                     okc = CameraView::DepthToQImage(im, cs.nearClip, cs.farClip).save(stem + "_depth.png") && okc;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 13, 0)
                     QImage d16(im.width, im.height, QImage::Format_Grayscale16);
                     for (int y = 0; y < im.height; y++) {
                         quint16* row = reinterpret_cast<quint16*>(d16.scanLine(y));
@@ -2330,7 +2332,28 @@ int main(int argc, char** argv) {
                         }
                     }
                     okc = d16.save(stem + "_depth16.png") && okc;
-                    if (okc) printf("카메라 영상을 저장했습니다: %s(.png, _depth.png, _depth16.png)\n", qPrintable(stem));
+                    const char* d16Name = "_depth16.png";
+#else
+                    // Qt 5.12 (Ubuntu 20.04) 에는 16비트 회색 PNG 형식이 없다: 같은 값(mm, 16비트)을 PGM(P5, 빅엔디언)으로 쓴다
+                    QFile pgm(stem + "_depth16.pgm");
+                    bool pgmOk = pgm.open(QIODevice::WriteOnly);
+                    if (pgmOk) {
+                        pgm.write(QByteArray("P5\n") + QByteArray::number(im.width) + " " + QByteArray::number(im.height) + "\n65535\n");
+                        QByteArray line(im.width * 2, 0);
+                        for (int y = 0; y < im.height; y++) {
+                            for (int x = 0; x < im.width; x++) {
+                                const float mm = im.Depth(x, y) * 1000.0f;
+                                const quint16 v16 = static_cast<quint16>(mm > 65535.0f ? 65535.0f : mm);
+                                line[x * 2] = static_cast<char>(v16 >> 8);
+                                line[x * 2 + 1] = static_cast<char>(v16 & 0xff);
+                            }
+                            pgmOk = pgm.write(line) == line.size() && pgmOk;
+                        }
+                    }
+                    okc = pgmOk && okc;
+                    const char* d16Name = "_depth16.pgm";
+#endif
+                    if (okc) printf("카메라 영상을 저장했습니다: %s(.png, _depth.png, %s)\n", qPrintable(stem), d16Name);
                     else fprintf(stderr, "카메라 영상 저장 실패: %s\n", cameraSave.c_str());
                 }
             }
