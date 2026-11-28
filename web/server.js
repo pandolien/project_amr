@@ -51,7 +51,7 @@ function fileFor(url) {
   if (u === '/assets/factory_map.glb') return path.join(DATA, 'factory_map.glb');
   if (u === '/assets/layout.txt') return path.join(DATA, 'villagers', 'layout.txt');
   if (u === '/assets/portals.txt') return path.join(DATA, 'villagers', 'portals.txt');
-  const hm = /^\/assets\/(human(?:_w)?\.glb)$/.exec(u);
+  const hm = /^\/assets\/(human\.glb)$/.exec(u);
   if (hm) return path.join(DATA, 'villagers', hm[1]);
   const m = /^\/assets\/(villager_[1-4]\.glb)$/.exec(u);
   if (m) return path.join(DATA, 'villagers', m[1]);

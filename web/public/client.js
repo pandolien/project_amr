@@ -71,29 +71,14 @@ function camBack(x, y, zb, dx, dy, want) {   // (x, y) 에서 (dx, dy) 방향으
 // 사람 모델(human.glb: 뼈대가 있고 Idle/Walk/Run 동작이 들어 있다). 못 읽으면 예전 주민 모델로 대신한다.
 let humanTpl = null;
 const humanTpls = [];
-// 사람 모델 두 가지: 군인(human.glb, 자기 동작을 그대로 쓴다)과 평상복 여자(human_w.glb, 동작이 없어 군인의 뼈 회전을 빌린다). 접속자 번호에 따라 둘 중 하나가 된다.
-const humanReady = Promise.all([load('/assets/human.glb').catch(() => null), load('/assets/human_w.glb').catch(() => null)]).then(([sol, wom]) => {
-  const mk = (g, flip) => {
-    const scene = g.scene;
-    scene.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(scene);
-    return { scene, flip, scale: HUMAN_H / Math.max(0.1, box.max.y - box.min.y), clips: {} };
-  };
-  if (sol) {
-    const t = mk(sol, Math.PI);   // 군인 모델은 -Z 쪽을 본다
-    for (const c of sol.animations) t.clips[c.name] = c;
-    humanTpls.push(t);
-    if (wom) {
-      const w = mk(wom, 0);
-      for (const c of sol.animations) {   // 다른 몸에 입힐 때는 회전만 쓴다 (크기·위치 값은 몸마다 달라 망가진다)
-        const cc = c.clone();
-        cc.tracks = cc.tracks.filter((q) => q.name.endsWith('.quaternion') && !q.name.startsWith('mixamorigHips.'));
-        w.clips[c.name] = cc;
-      }
-      humanTpls.push(w);
-    }
-  }
-  humanTpl = humanTpls[0] ? humanTpls[0].scene : null;
+// 사람 모델(human.glb: 군인, 뼈대와 Idle/Walk/Run 동작이 들어 있다). 모든 접속자와 주민이 이 모델이다.
+const humanReady = load('/assets/human.glb').then((g) => {
+  g.scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(g.scene);
+  const clips = {};
+  for (const c of g.animations) clips[c.name] = c;
+  humanTpls.push({ scene: g.scene, flip: Math.PI, scale: HUMAN_H / Math.max(0.1, box.max.y - box.min.y), clips });   // 이 모델은 -Z 쪽을 본다
+  humanTpl = g.scene;
 }).catch((e) => console.warn('사람 모델을 못 읽었습니다', e));
 function makeHuman(id) {
   const root = new THREE.Group();   // 몸 방향(yaw)은 이 그룹을 돌린다
