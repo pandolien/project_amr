@@ -108,7 +108,7 @@ function makeHuman(id) {
     anchor.scale.setScalar(1 / ws.x);   // 뼈대가 센티미터 단위라 줄어든 만큼 되돌린다
     anchor.position.set(0, 8, 0);
   }
-  return { root, mixer, acts, cur: '', anchor, armBone };
+  return { root, inner, flip: T.flip, phi: 0, mixer, acts, cur: '', anchor, armBone };
 }
 const modelsReady = Promise.all([humanReady, ...[1, 2, 3, 4].map((n) => load('/assets/villager_' + n + '.glb').then((g) => { villagerTemplates[n - 1] = g.scene; }).catch(() => {}))]);
 
@@ -562,7 +562,14 @@ $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); })
 
 // ---- 그리기 ----
 const _q2 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _pq = new THREE.Quaternion(), _rw = new THREE.Quaternion(), _ax = new THREE.Vector3();
-function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 동작을 고르고, 휘두를 때는 오른팔을 들어 올린다
+function bendBone(b, a, ry) {   // 뼈를 몸의 오른쪽 축으로 돌린다 (양수는 앞으로)
+  b.parent.getWorldQuaternion(_pq);
+  _ax.set(-Math.cos(ry), 0, Math.sin(ry));
+  _rw.setFromAxisAngle(_ax, a);
+  _rw.premultiply(_pq.clone().invert()).multiply(_pq);
+  b.quaternion.premultiply(_rw);
+}
+function animateHuman(e, id, dt, inst, vx, vz, ry0) {   // 걷는/달리는 속도에 맞춰 동작을 고르고, 휘두를 때는 오른팔을 들어 올린다
   const H = e.human;
   e.spd += (inst - e.spd) * Math.min(1, dt * 10);
   const want = e.spd < 0.4 ? 'Idle' : (e.spd < 3.6 ? 'Walk' : 'Run');
@@ -572,8 +579,16 @@ function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 
     if (old) a.crossFadeFrom(old, 0.2, false);
     H.cur = want;
   }
+  // 이동 방향을 몸 기준(앞/오른쪽)으로 나눈다: 뒤로 가면 걷기를 거꾸로 틀고, 옆으로 가면 몸을 옆으로 틀어 게걸음처럼 보이게 한다
+  const fw = vx * Math.sin(ry0) + vz * Math.cos(ry0), rt = vx * -Math.cos(ry0) + vz * Math.sin(ry0);
+  e.vf = (e.vf || 0) + (fw - (e.vf || 0)) * Math.min(1, dt * 10); e.vr = (e.vr || 0) + (rt - (e.vr || 0)) * Math.min(1, dt * 10);
+  let ang0 = Math.atan2(e.vr, e.vf), dir = 1;   // 0 앞, ±π/2 옆, ±π 뒤
+  if (Math.abs(ang0) > Math.PI / 2) { ang0 -= Math.sign(ang0) * Math.PI; dir = -1; }   // 뒤쪽이면 거꾸로 걷는다
+  const moving = e.spd > 0.4, air = (e.jh || 0) > 0.08;
+  H.phi += ((moving ? -ang0 * 0.6 : 0) - H.phi) * Math.min(1, dt * 10);
+  H.inner.rotation.y = H.flip + H.phi;
   const a = H.acts[H.cur];
-  if (a) a.timeScale = H.cur === 'Walk' ? Math.max(0.6, Math.min(1.7, e.spd / 1.6)) : (H.cur === 'Run' ? Math.max(0.8, Math.min(1.5, e.spd / 4)) : 1);
+  if (a) a.timeScale = air ? 0 : dir * (H.cur === 'Walk' ? Math.max(0.6, Math.min(1.7, e.spd / 1.6)) : (H.cur === 'Run' ? Math.max(0.8, Math.min(1.5, e.spd / 4)) : 1));   // 공중에서는 다리 동작을 멈추고 아래에서 접는다
   H.mixer.update(dt);
   if (e.swing > 0 && window.__swingFreeze === undefined) e.swing = Math.max(0, e.swing - dt);
   const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, ry = id === myId ? yaw : e.yaw;
@@ -591,6 +606,13 @@ function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 
     if (e.weaponMesh) e.weaponMesh.scale.setScalar(Math.max(0.02, u < 0.4 ? 0.02 : (u - 0.4) / 0.6));
   } else if (e.weaponMesh && e.weaponMesh.scale.x !== 1) e.weaponMesh.scale.setScalar(1);
   ang += Math.min(1, (e.jh || 0) * 2) * 0.9;   // 점프하면 팔을 든다
+  const jf = Math.min(1, (e.jh || 0) * 3);   // 점프 자세: 무릎을 앞으로 들어 다리를 접고 두 팔을 든다
+  if (jf > 0.01) {
+    _ax.set(-Math.cos(ry0), 0, Math.sin(ry0));
+    if (!H.jb) H.jb = ['LeftUpLeg', 'RightUpLeg', 'LeftLeg', 'RightLeg', 'LeftArm'].map((n) => e.model.getObjectByName('mixamorig' + n));
+    const amt = [0.95, 0.45, -1.2, -0.6, 1.2];
+    H.jb.forEach((b, i) => { if (b && b.parent) bendBone(b, amt[i] * jf, ry0); });
+  }
   if (H.armBone && H.armBone.parent) {
     H.armBone.parent.getWorldQuaternion(_pq);
     _ax.set(-Math.cos(ry), 0, Math.sin(ry));   // 몸의 오른쪽 축 (three)
@@ -621,7 +643,7 @@ function frame() {
     e.shadow.scale.setScalar(Math.max(0.5, 1 - (e.jh || 0) * 0.5));
     e.group.position.set(e.x, e.z, -e.y);   // 엔진(x, y, 높이 z) -> three(x, 높이, -y)
     e.model.rotation.y = id === myId ? yaw : e.yaw;
-    if (e.human) animateHuman(e, id, dt, Math.min(12, Math.hypot(e.x - ox, e.y - oy) / Math.max(dt, 1e-3)));
+    if (e.human) animateHuman(e, id, dt, Math.min(12, Math.hypot(e.x - ox, e.y - oy) / Math.max(dt, 1e-3)), (e.x - ox) / Math.max(dt, 1e-3), -(e.y - oy) / Math.max(dt, 1e-3), id === myId ? yaw : e.yaw);
     else if (e.hand) {   // 무기를 쥔 손: 어깨에서 팔이 뻗어 나가고, 휘두르는 동안 손이 앞으로 나가며 내려친다/찌른다
       if (e.swing > 0 && window.__swingFreeze === undefined) e.swing = Math.max(0, e.swing - dt);   // (__swingFreeze: 시험용으로 휘두르는 동작을 멈춰 두는 스위치)
       const tt = e.swing > 0 ? 1 - e.swing / SWING : 0, ry = id === myId ? yaw : e.yaw;
