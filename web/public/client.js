@@ -69,11 +69,16 @@ function camBack(x, y, zb, dx, dy, want) {   // (x, y) 에서 (dx, dy) 방향으
   return want;
 }
 // 사람 모델(human.glb: 뼈대가 있고 Idle/Walk/Run 동작이 들어 있다). 못 읽으면 예전 주민 모델로 대신한다.
-let humanTpl = null, humanScale = 1;
+let humanTpl = null, humanScale = 1, humanFlip = 0;
 const humanClips = {};
-const humanReady = load('/assets/human.glb').then((g) => {
-  humanTpl = g.scene;
-  for (const c of g.animations) humanClips[c.name] = c;
+// 몸은 평상복 여자 모델(human_w.glb: 동작 없음), 동작(대기/걷기/달리기)은 군인 모델(human.glb)의 것을 가져온다. 두 모델은 뼈 이름이 같아 그대로 맞는다.
+const humanReady = Promise.all([load('/assets/human_w.glb').catch(() => null), load('/assets/human.glb')]).then(([body, anim]) => {
+  humanTpl = (body || anim).scene;
+  humanFlip = body ? 0 : Math.PI;   // 군인 모델은 -Z 쪽을 본다
+  for (const c of anim.animations) {
+    if (body) c.tracks = c.tracks.filter((t) => t.name.endsWith('.quaternion') && !t.name.startsWith('mixamorigHips.'));   // 다른 몸에 입힐 때는 회전만 쓴다 (크기·위치 값은 몸마다 달라 망가진다)
+    humanClips[c.name] = c;
+  }
   humanTpl.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(humanTpl);
   humanScale = HUMAN_H / Math.max(0.1, box.max.y - box.min.y);
@@ -82,14 +87,14 @@ function makeHuman(id) {
   const root = new THREE.Group();   // 몸 방향(yaw)은 이 그룹을 돌린다
   const inner = cloneSkinned(humanTpl);
   inner.scale.multiplyScalar(humanScale);
-  inner.rotation.y = Math.PI;   // 이 모델은 -Z 쪽을 보고 있어서 앞(+Z)으로 돌려 세운다
+  inner.rotation.y = humanFlip;
   root.add(inner);
   const hue = (((id > 0 ? id : 40 - id) * 0.173) % 1 + 1) % 1;   // 사람마다 옷 빛깔을 조금씩 다르게
   inner.traverse((o) => {
     if (!o.isMesh) return;
     o.frustumCulled = false;
     o.material = o.material.clone();
-    if (o.material.color) o.material.color.setHSL(hue, 0.35, 0.75);
+    if (humanFlip && o.material.color) o.material.color.setHSL(hue, 0.35, 0.75);   // 군인 모델일 때만 옷 빛깔을 바꾼다
   });
   const mixer = new THREE.AnimationMixer(inner);
   const acts = {};
@@ -256,7 +261,9 @@ function makeWeapon(w) {
 }
 function setWeapon(e, w) {   // 손(hand)에 든 무기를 바꾼다
   if (e.weaponId === w) return;
+  const first = e.weaponId === -1;
   e.weaponId = w;
+  if (e.human && !first) e.swap = 0.4;   // 무기를 바꾸는 동작
   if (e.weaponMesh) e.hand.remove(e.weaponMesh);
   e.weaponMesh = makeWeapon(w);
   e.hand.add(e.weaponMesh);
@@ -575,6 +582,13 @@ function animateHuman(e, id, dt, inst) {   // 걷는/달리는 속도에 맞춰 
   let ang = 0.45;   // 무기를 쥔 팔은 살짝 앞으로 든다
   if (e.weaponId === 1) ang += 0.9 * Math.sin(Math.PI * tt);   // 창: 앞으로 찌른다
   else if (tt > 0) { if (tt < 0.4) ang += 2.2 * (tt / 0.4); else { const u = (tt - 0.4) / 0.6; ang += 2.2 * (1 - u) - 0.25 * Math.sin(Math.PI * u); } }   // 검/도끼: 머리 위로 들었다 내려친다
+  if (e.swap > 0) {   // 무기 교체: 팔을 들어 올리고 새 무기가 손에서 커진다
+    e.swap = Math.max(0, e.swap - dt);
+    const u = 1 - e.swap / 0.4;
+    ang += 1.4 * Math.sin(Math.PI * u);
+    if (e.weaponMesh) e.weaponMesh.scale.setScalar(Math.max(0.02, u < 0.4 ? 0.02 : (u - 0.4) / 0.6));
+  } else if (e.weaponMesh && e.weaponMesh.scale.x !== 1) e.weaponMesh.scale.setScalar(1);
+  ang += Math.min(1, (e.jh || 0) * 2) * 0.9;   // 점프하면 팔을 든다
   if (H.armBone && H.armBone.parent) {
     H.armBone.parent.getWorldQuaternion(_pq);
     _ax.set(-Math.cos(ry), 0, Math.sin(ry));   // 몸의 오른쪽 축 (three)
